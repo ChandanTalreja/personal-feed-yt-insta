@@ -69,6 +69,16 @@ export const videoNotes = pgTable("video_notes", {
     .defaultNow(),
 });
 
+// Failed login attempts per IP — shared state for rate limiting, since
+// serverless instances share no memory (the DB is the only common ground).
+export const loginAttempts = pgTable("login_attempts", {
+  id: serial("id").primaryKey(),
+  ip: text("ip").notNull(),
+  attemptedAt: timestamp("attempted_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // One row per Gemini API call — the app's own usage ledger, since Google's
 // API doesn't expose remaining quota. The model picker reads today's counts.
 export const geminiUsage = pgTable("gemini_usage", {

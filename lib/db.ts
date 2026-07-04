@@ -49,6 +49,12 @@ const DDL = [
   )`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS transcript text`,
   `ALTER TABLE genres ADD COLUMN IF NOT EXISTS ask_prompt text`,
+  `CREATE TABLE IF NOT EXISTS login_attempts (
+    id serial PRIMARY KEY,
+    ip text NOT NULL,
+    attempted_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS login_attempts_ip_idx ON login_attempts (ip, attempted_at)`,
   `CREATE TABLE IF NOT EXISTS video_notes (
     id serial PRIMARY KEY,
     video_id integer NOT NULL REFERENCES videos(id) ON DELETE CASCADE,

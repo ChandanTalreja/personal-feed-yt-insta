@@ -51,6 +51,7 @@ export default function ManageClient() {
   const [editingGenre, setEditingGenre] = useState<GenreItem | null>(null);
   const [editPrompt, setEditPrompt] = useState("");
   const [pending, setPending] = useState<ResolvedPreview | null>(null);
+  const [resyncingId, setResyncingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     const [channelsRes, genresRes] = await Promise.all([
@@ -175,6 +176,27 @@ export default function ManageClient() {
       body: JSON.stringify(updates),
     });
     await load();
+  }
+
+  async function resyncChannel(row: ChannelRow) {
+    if (resyncingId !== null) return;
+    setResyncingId(row.channel.id);
+    try {
+      const res = await fetch(`/api/channels/${row.channel.id}/resync`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Re-sync failed");
+      setToast(
+        data.videosAdded > 0
+          ? `Re-synced "${data.channel}" — recovered ${data.videosAdded} missing video${data.videosAdded === 1 ? "" : "s"}.`
+          : `Re-synced "${data.channel}" — nothing was missing.`
+      );
+    } catch (err) {
+      setToast((err as Error).message);
+    } finally {
+      setResyncingId(null);
+    }
   }
 
   async function deleteChannel(row: ChannelRow) {
@@ -439,6 +461,14 @@ export default function ManageClient() {
                   </option>
                 ))}
               </select>
+              <button
+                className="nb-chip rounded px-2.5 py-1.5 text-xs"
+                disabled={resyncingId !== null}
+                onClick={() => resyncChannel(row)}
+                title="Re-fetch this channel's full backfill window (safe — duplicates are skipped)"
+              >
+                {resyncingId === row.channel.id ? "SYNCING…" : "RE-SYNC"}
+              </button>
               <button
                 className="nb-chip rounded px-2.5 py-1.5 text-xs"
                 data-active={row.channel.isActive}

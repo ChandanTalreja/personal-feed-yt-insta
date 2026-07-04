@@ -106,6 +106,23 @@ async function runChain(
       "GEMINI_API_KEY is not set. Get a free key at aistudio.google.com and add it to your environment."
     );
   }
+
+  // App-level daily cap across ALL models — protects the quota from
+  // enthusiasm and mischief alike, independent of per-model limits.
+  const dailyLimit = Number(process.env.GEMINI_DAILY_LIMIT) || 100;
+  const dayStart = new Date();
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const [{ usedToday }] = await db
+    .select({ usedToday: count() })
+    .from(geminiUsage)
+    .where(gte(geminiUsage.usedAt, dayStart));
+  if (Number(usedToday) >= dailyLimit) {
+    throw new Error(
+      `Daily AI budget reached (${dailyLimit} Gemini calls today). It resets ` +
+        `at midnight UTC — or raise GEMINI_DAILY_LIMIT if this is too tight.`
+    );
+  }
+
   const candidates = await rankModels(db);
   if (candidates.length === 0) {
     throw new Error(
@@ -137,6 +154,19 @@ async function runChain(
       // Content problems (unavailable video etc.) would fail everywhere,
       // so don't burn the rest of the chain on them.
       if (isQuotaOrMissingModelError(err)) continue;
+      const msg = String((err as Error)?.message ?? err);
+      if (
+        videoMode &&
+        /INVALID_ARGUMENT|FAILED_PRECONDITION|not supported|unavailable|PERMISSION_DENIED/i.test(
+          msg
+        )
+      ) {
+        throw new Error(
+          "Gemini couldn't access this video — it may be age-restricted, " +
+            "private, members-only, or region-locked. The official player " +
+            "may still work."
+        );
+      }
       throw err;
     }
   }

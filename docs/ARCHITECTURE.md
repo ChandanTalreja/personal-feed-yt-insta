@@ -227,9 +227,21 @@ window); that's why fps+resolution tuning matters.
 - **Manage page**: add channel (URL/@handle/name + confirmation flow),
   genre editor (color, ✎ suggested-question editor, delete), per-channel
   genre assignment, ACTIVE/PAUSED toggle, DELETE (cascades to videos).
-- **Auth**: single `APP_PASSWORD` env → sha256 cookie, 30 days. Unset =
-  open (local dev). All routes check it; `/api/cron` alternatively accepts
-  `CRON_SECRET`.
+- **Manage page repair tool — RE-SYNC** per channel: re-runs the full
+  backfill window (heals holes from interrupted backfills, which the
+  cron's 14-day lookback never would). Idempotent, safe anytime.
+- **Auth**: single `APP_PASSWORD` env → sha256 cookie (httpOnly,
+  SameSite=Lax), 30 days. Unset = open (local dev). All routes check it;
+  `/api/cron` alternatively accepts `CRON_SECRET`. Login is protected by
+  **rate limiting** (max 5 failed attempts per IP per 15 min, tracked in
+  the `login_attempts` table — Postgres is the shared state across
+  serverless instances) and a **constant-time password comparison**
+  (sha256 both sides + `timingSafeEqual`). CSRF: mitigated by
+  SameSite=Lax + the "never mutate on GET" rule; XSS: React escaping, no
+  `dangerouslySetInnerHTML` anywhere; SQLi: parameterized queries via
+  Drizzle. Accepted residual risk: a determined request flood can exhaust
+  free-tier function invocations (edge-level protection would need a paid
+  WAF or Cloudflare in front) — monitor via Netlify usage notifications.
 
 ---
 
@@ -269,6 +281,7 @@ window); that's why fps+resolution tuning matters.
 | `GEMINI_MODELS` | no | Fallback chain `"model:rpd,…"` (see §7 default) |
 | `GEMINI_MODEL` | no | Force one model to the chain's front |
 | `GEMINI_WATCH_MAX_MINUTES` | no | Watch-once cap for caption-less videos (default 90) |
+| `GEMINI_DAILY_LIMIT` | no | App-level cap on total Gemini calls/day across all models (default 100) |
 | `BACKFILL_MONTHS` | no | History pulled when adding a channel (default 6) |
 | `PGLITE_DIR` | no | Local embedded DB location (default `.data/pglite`) |
 
@@ -285,18 +298,22 @@ window); that's why fps+resolution tuning matters.
    (`netlify/functions/feed-cron.mts`) runs every 6h automatically.
 5. Watch the first cron run's function logs once.
 
-## 12. Roadmap (agreed, not yet built)
+## 12. Roadmap
 
-**Hardening batch (approved in discussion):**
-- `SUMMARY_DAILY_LIMIT` — app-level daily cap on Gemini calls (counted in
-  `gemini_usage`), protecting quota from enthusiasm/mischief beyond the
-  per-model chain.
-- **RE-SYNC button** per channel — re-runs the full backfill (dedup makes
-  it safe); closes the interrupted-backfill gap (channel exists but partial
-  history; the cron's 14-day lookback never heals older holes).
-- Friendlier error surfaces (quota exhausted, video unavailable, too-long).
+**Hardening batch — BUILT 2026-07-03:** `GEMINI_DAILY_LIMIT` app-level
+daily cap; RE-SYNC button per channel; login rate limiting +
+constant-time compare; friendlier errors (daily budget, video
+unavailable/restricted, watch-length cap).
 
 **Ideas parked:**
+- Read-only public demo mode (visitors browse, can't mutate) — for
+  "show people the project" without sharing the password.
+- Auth: APP_PASSWORD is correct for single-user; if ever multi-user, use
+  Auth.js (NextAuth) inside the app — portable across hosts — not
+  platform-tied auth (Netlify Identity was deprecated then un-deprecated
+  Feb 2026; the saga itself is the lock-in lesson).
+- Split model chains (text vs video) so text-only models (Gemma) could
+  serve summaries/asks as extra capacity; unnecessary at current headroom.
 - Transcript chunking (startOffset/endOffset map-reduce) for caption-less
   videos beyond 90 min.
 - Lifetime channel stats on the manage page (official `statistics`).
