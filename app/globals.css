@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #faf1de;
+  --ink: #161616;
+  --accent: #ff4911;
+  --yellow: #ffc900;
+  --blue: #4da6ff;
+  --green: #2fcc71;
+  --pink: #ff90e8;
+}
+
+body {
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(22, 22, 22, 0.07) 1.2px, transparent 1.2px);
+  background-size: 16px 16px;
+  color: var(--ink);
+  font-family: var(--font-body), sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.01em;
+}
+
+/* Neobrutalist building blocks */
+.nb {
+  border: 3px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  background: #fff;
+}
+
+.nb-sm {
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  background: #fff;
+}
+
+.nb-btn {
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  background: var(--yellow);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  user-select: none;
+}
+
+.nb-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.nb-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.nb-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.nb-chip {
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  user-select: none;
+  background: #fff;
+}
+
+.nb-chip:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.nb-chip[data-active="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* Color modifiers — declared after the base classes so they win the cascade
+   (both Tailwind bg-* utilities and the base nb-* backgrounds lose). */
+.nb-btn-pink {
+  background: var(--pink);
+}
+
+.nb-danger {
+  background: var(--accent);
+  color: #fff;
+}
+
+.nb-input {
+  border: 3px solid var(--ink);
+  background: #fff;
+  box-shadow: 4px 4px 0 var(--ink);
+  outline: none;
+}
+
+.nb-input:focus {
+  box-shadow: 4px 4px 0 var(--accent);
+}
+
+/* Scrolling ticker strip */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee 30s linear infinite;
+}
+
+/* Video card hover lift */
+.video-card {
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.video-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0 var(--ink);
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

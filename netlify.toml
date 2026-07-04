@@ -1,0 +1,6 @@
+[build]
+  command = "npm run build"
+
+# The Next.js runtime is auto-detected by Netlify.
+# The scheduled function in netlify/functions/feed-cron.mts declares its own
+# schedule (every 6 hours) via its exported config.
