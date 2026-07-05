@@ -122,11 +122,22 @@ export default function FeedClient() {
       const res = await fetch("/api/cron");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Refresh failed");
-      setToast(
-        data.added > 0
-          ? `Fetched ${data.added} new video${data.added === 1 ? "" : "s"} from ${data.channels} channels.`
-          : `All caught up — ${data.channels} channels checked, nothing new.`
-      );
+      if (data.added > 0) {
+        const list: { title: string; added: number }[] = data.breakdown ?? [];
+        const shown = list
+          .slice(0, 4)
+          .map((b) => `${b.title} (${b.added})`)
+          .join(", ");
+        const more =
+          list.length > 4 ? ` …and ${list.length - 4} more` : "";
+        setToast(
+          `Fetched ${data.added} new video${data.added === 1 ? "" : "s"} — ${shown}${more}.`
+        );
+      } else {
+        setToast(
+          `All caught up — ${data.channels} channels checked, nothing new.`
+        );
+      }
       await Promise.all([loadPage(0, true), loadChannels()]);
     } catch (err) {
       setToast((err as Error).message);
@@ -191,7 +202,7 @@ export default function FeedClient() {
       </header>
 
       {/* Ticker */}
-      <div className="nb-sm mb-6 overflow-hidden rounded-lg bg-[var(--ink)] py-1.5 text-[var(--paper)]">
+      <div className="nb-sm nb-ticker mb-6 overflow-hidden rounded-lg py-1.5">
         <div className="ticker-track">
           {[0, 1].map((copy) => (
             <span key={copy} className="inline-flex">

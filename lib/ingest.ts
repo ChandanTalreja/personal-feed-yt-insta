@@ -55,9 +55,15 @@ export async function ingestChannel(
 
 const CRON_LOOKBACK_DAYS = 14;
 
-export async function refreshAllChannels(
-  db: Db
-): Promise<{ channels: number; added: number; errors: string[] }> {
+export interface RefreshResult {
+  channels: number;
+  added: number;
+  errors: string[];
+  /** Channels that actually had new videos, e.g. [{ title, added }] */
+  breakdown: { title: string; added: number }[];
+}
+
+export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
   const active = await db
     .select()
     .from(channels)
@@ -65,12 +71,15 @@ export async function refreshAllChannels(
   const since = new Date(Date.now() - CRON_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   let added = 0;
   const errors: string[] = [];
+  const breakdown: { title: string; added: number }[] = [];
   for (const channel of active) {
     try {
-      added += await ingestChannel(db, channel, since);
+      const count = await ingestChannel(db, channel, since);
+      added += count;
+      if (count > 0) breakdown.push({ title: channel.title, added: count });
     } catch (err) {
       errors.push(`${channel.title}: ${(err as Error).message}`);
     }
   }
-  return { channels: active.length, added, errors };
+  return { channels: active.length, added, errors, breakdown };
 }

@@ -47,6 +47,17 @@ export default function VideoCard({
   const [question, setQuestion] = useState("");
   const [askBusy, setAskBusy] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
+  const [copiedNoteId, setCopiedNoteId] = useState<number | null>(null);
+
+  async function copyNote(note: Note) {
+    try {
+      await navigator.clipboard.writeText(note.answer);
+      setCopiedNoteId(note.id);
+      setTimeout(() => setCopiedNoteId(null), 2000);
+    } catch {
+      // Clipboard needs a secure context (https/localhost); ignore failures.
+    }
+  }
 
   function togglePanel(next: Panel) {
     setPanel((p) => (p === next ? null : next));
@@ -312,7 +323,17 @@ export default function VideoCard({
                     key={note.id}
                     className="nb-sm whitespace-pre-wrap rounded p-2 text-xs leading-relaxed"
                   >
-                    <p className="mb-1 font-bold">Q: {note.prompt}</p>
+                    <div className="mb-1 flex items-start justify-between gap-2">
+                      <p className="font-bold">Q: {note.prompt}</p>
+                      <button
+                        type="button"
+                        className="nb-chip shrink-0 rounded px-1.5 py-0.5 text-[10px]"
+                        onClick={() => copyNote(note)}
+                        title="Copy this answer to the clipboard"
+                      >
+                        {copiedNoteId === note.id ? "COPIED ✓" : "COPY"}
+                      </button>
+                    </div>
                     {note.answer}
                   </div>
                 ))}

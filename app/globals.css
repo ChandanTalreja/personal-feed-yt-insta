@@ -94,6 +94,12 @@ body {
   color: #fff;
 }
 
+.nb-ticker {
+  /* White card stays (from .nb-sm); text is a readable dark shade of the
+     brand yellow (#ffc900 darkened until it has contrast on white). */
+  color: #b8860b;
+}
+
 .nb-input {
   border: 3px solid var(--ink);
   background: #fff;

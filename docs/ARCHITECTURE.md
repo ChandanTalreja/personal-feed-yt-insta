@@ -157,11 +157,24 @@ working caption URLs (kept alive because old YouTube Android apps depend on
 it). One POST + one GET per video; parses json3 or srv3 XML; result capped
 at 150K chars.
 
-**Risk posture:** this can break any day. It returns `null` on *any*
-failure, and every caller treats `null` as "no captions" → falls back to the
-official Gemini watch path (§7). Breakage changes cost, not correctness.
-**Detection signal:** if new transcripts' `source` flips from "captions" to
-"video" across the board, the door has closed.
+**Datacenter block (discovered on deploy):** YouTube refuses this route
+from cloud-provider IPs (Netlify/AWS) while allowing residential IPs — the
+same wall MonitorYT's creator hit (he solved it with paid Decodo proxies at
+product scale). Our hosted fallback: an **Apify transcript Actor**
+(`starvibe~youtube-video-transcript`, ~$0.005/video, ~5s, inside Apify's
+permanently recurring $5/month free credit), called via
+`run-sync-get-dataset-items` only when `APIFY_TOKEN` is set — i.e. never in
+local dev. Verified: clean punctuated transcripts, better than raw
+InnerTube fragments.
+
+**Risk posture:** any link can break any day. Each returns `null` on *any*
+failure; the chain is InnerTube → Apify (hosted only) → Gemini watch (local
+only, timeout-bound on Netlify) → friendly error. Breakage changes cost,
+not correctness. **Detection signal:** if new transcripts' `source` flips
+from "captions" to "video" across the board, both caption doors have
+closed. Videos with NO captions at all (rare — ~1 in 10 of the owner's
+channels) remain local-only for AI features on the hosted tier, since
+Gemini's watch exceeds Netlify's ~26s function timeout.
 
 ---
 
@@ -282,6 +295,8 @@ window); that's why fps+resolution tuning matters.
 | `GEMINI_MODEL` | no | Force one model to the chain's front |
 | `GEMINI_WATCH_MAX_MINUTES` | no | Watch-once cap for caption-less videos (default 90) |
 | `GEMINI_DAILY_LIMIT` | no | App-level cap on total Gemini calls/day across all models (default 100) |
+| `APIFY_TOKEN` | hosted only | Enables the Apify transcript fallback (datacenter IPs can't use InnerTube) |
+| `APIFY_TRANSCRIPT_ACTOR` | no | Override the transcript Actor (default `starvibe~youtube-video-transcript`) |
 | `BACKFILL_MONTHS` | no | History pulled when adding a channel (default 6) |
 | `PGLITE_DIR` | no | Local embedded DB location (default `.data/pglite`) |
 
