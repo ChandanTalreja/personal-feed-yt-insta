@@ -90,8 +90,19 @@ async function getTranscript(
   return captions;
 }
 
+/**
+ * 0 disables watch-once entirely. Default is 0 on Netlify (serverless
+ * functions are killed after ~10–26s — long before a watch finishes — so
+ * the attempt burns tokens and returns nothing) and 90 minutes locally.
+ * Set GEMINI_WATCH_MAX_MINUTES explicitly to override either default.
+ */
 function watchLimitMinutes(): number {
-  return Number(process.env.GEMINI_WATCH_MAX_MINUTES) || 90;
+  const raw = process.env.GEMINI_WATCH_MAX_MINUTES?.trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return process.env.NETLIFY ? 0 : 90;
 }
 
 /** Runs the model chain (most remaining budget first) on the given parts. */
@@ -183,6 +194,15 @@ async function runChain(
  */
 async function watchAndTranscribe(db: Db, video: VideoRow): Promise<string> {
   const maxMinutes = watchLimitMinutes();
+  if (maxMinutes <= 0) {
+    throw new Error(
+      "This video has no captions on YouTube, so there is no transcript to " +
+        "read. Watching the video with Gemini is disabled on this " +
+        "deployment (serverless functions time out before a watch " +
+        "finishes). Open the app locally to transcribe it once — the " +
+        "result is cached and works everywhere after that."
+    );
+  }
   if (video.durationSeconds > maxMinutes * 60) {
     throw new Error(
       `This video is ${Math.round(video.durationSeconds / 60)} minutes long ` +

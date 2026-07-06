@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { formatDuration, timeAgo } from "@/lib/format";
+import CopyButton from "./CopyButton";
 import type { FeedVideo } from "./types";
 
 interface Note {
@@ -47,17 +48,6 @@ export default function VideoCard({
   const [question, setQuestion] = useState("");
   const [askBusy, setAskBusy] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
-  const [copiedNoteId, setCopiedNoteId] = useState<number | null>(null);
-
-  async function copyNote(note: Note) {
-    try {
-      await navigator.clipboard.writeText(note.answer);
-      setCopiedNoteId(note.id);
-      setTimeout(() => setCopiedNoteId(null), 2000);
-    } catch {
-      // Clipboard needs a secure context (https/localhost); ignore failures.
-    }
-  }
 
   function togglePanel(next: Panel) {
     setPanel((p) => (p === next ? null : next));
@@ -246,25 +236,35 @@ export default function VideoCard({
         </div>
 
         {panel === "summary" && (summary || summaryError || summaryBusy) && (
-          <div className="nb-sm mt-1 whitespace-pre-wrap rounded p-2 text-xs leading-relaxed">
+          <div className="nb-sm mt-1 rounded p-2 text-xs leading-relaxed">
             {summaryBusy ? (
               "Reading the video…"
             ) : summaryError ? (
               <span className="text-[var(--accent)]">{summaryError}</span>
             ) : (
-              summary
+              <>
+                <div className="mb-1 flex justify-end">
+                  <CopyButton text={summary ?? ""} />
+                </div>
+                <div className="whitespace-pre-wrap">{summary}</div>
+              </>
             )}
           </div>
         )}
 
         {panel === "transcript" && (
-          <div className="nb-sm mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded p-2 text-xs leading-relaxed">
+          <div className="nb-sm mt-1 max-h-56 overflow-y-auto rounded p-2 text-xs leading-relaxed">
             {transcriptBusy ? (
               "Fetching transcript… (videos without captions take a minute — Gemini listens to the whole thing)"
             ) : transcriptError ? (
               <span className="text-[var(--accent)]">{transcriptError}</span>
             ) : (
-              transcript
+              <>
+                <div className="sticky top-0 mb-1 flex justify-end">
+                  <CopyButton text={transcript ?? ""} />
+                </div>
+                <div className="whitespace-pre-wrap">{transcript}</div>
+              </>
             )}
           </div>
         )}
@@ -325,14 +325,7 @@ export default function VideoCard({
                   >
                     <div className="mb-1 flex items-start justify-between gap-2">
                       <p className="font-bold">Q: {note.prompt}</p>
-                      <button
-                        type="button"
-                        className="nb-chip shrink-0 rounded px-1.5 py-0.5 text-[10px]"
-                        onClick={() => copyNote(note)}
-                        title="Copy this answer to the clipboard"
-                      >
-                        {copiedNoteId === note.id ? "COPIED ✓" : "COPY"}
-                      </button>
+                      <CopyButton text={note.answer} />
                     </div>
                     {note.answer}
                   </div>

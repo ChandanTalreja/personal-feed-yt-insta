@@ -116,23 +116,44 @@ async function fetchViaApify(ytVideoId: string): Promise<string | null> {
   if (!token) return null;
   const actor =
     process.env.APIFY_TRANSCRIPT_ACTOR ?? "starvibe~youtube-video-transcript";
+  // English first. Videos whose captions are in another language only
+  // (e.g. Hindi) come back empty for "en", so retry once with no language —
+  // the Actor then returns the video's default caption track. Costs one
+  // extra run (~$0.005), once ever per such video; Gemini reads any
+  // language and answers in English.
+  return (
+    (await runTranscriptActor(actor, token, ytVideoId, "en")) ??
+    (await runTranscriptActor(actor, token, ytVideoId))
+  );
+}
+
+async function runTranscriptActor(
+  actor: string,
+  token: string,
+  ytVideoId: string,
+  language?: string
+): Promise<string | null> {
   try {
     const url =
       `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items` +
       `?token=${token}&maxTotalChargeUsd=0.05`;
+    const input: Record<string, unknown> = {
+      youtube_url: `https://www.youtube.com/watch?v=${ytVideoId}`,
+      include_transcript_text: true,
+    };
+    if (language) input.language = language;
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        youtube_url: `https://www.youtube.com/watch?v=${ytVideoId}`,
-        language: "en",
-        include_transcript_text: true,
-      }),
+      body: JSON.stringify(input),
       signal: AbortSignal.timeout(15_000),
       cache: "no-store",
     });
     if (!res.ok) {
-      console.error(`apify transcript: HTTP ${res.status} for ${ytVideoId}`);
+      console.error(
+        `apify transcript: HTTP ${res.status} for ${ytVideoId}` +
+          (language ? ` (language=${language})` : " (default language)")
+      );
       return null;
     }
     const items = (await res.json()) as { transcript_text?: string }[];

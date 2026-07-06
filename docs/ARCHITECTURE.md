@@ -293,7 +293,7 @@ window); that's why fps+resolution tuning matters.
 | `GEMINI_API_KEY` | for AI features | aistudio.google.com |
 | `GEMINI_MODELS` | no | Fallback chain `"model:rpd,…"` (see §7 default) |
 | `GEMINI_MODEL` | no | Force one model to the chain's front |
-| `GEMINI_WATCH_MAX_MINUTES` | no | Watch-once cap for caption-less videos (default 90) |
+| `GEMINI_WATCH_MAX_MINUTES` | no | Watch-once cap for caption-less videos; 0 disables watch. Defaults: 90 locally, 0 on Netlify (function timeout kills a watch mid-flight, wasting tokens) |
 | `GEMINI_DAILY_LIMIT` | no | App-level cap on total Gemini calls/day across all models (default 100) |
 | `APIFY_TOKEN` | hosted only | Enables the Apify transcript fallback (datacenter IPs can't use InnerTube) |
 | `APIFY_TRANSCRIPT_ACTOR` | no | Override the transcript Actor (default `starvibe~youtube-video-transcript`) |
@@ -320,14 +320,24 @@ daily cap; RE-SYNC button per channel; login rate limiting +
 constant-time compare; friendlier errors (daily budget, video
 unavailable/restricted, watch-length cap).
 
-**Known bugs / immediate next (2026-07-05):**
-- Apify fallback hardcodes `language: "en"` — videos with captions in other
-  languages only (e.g. Hindi) return nothing; the Actor's error message
-  lists available languages, so parse it and retry with the first one
-  (Gemini reads any language and answers in English).
-- Hosted error message when no transcript exists misleadingly blames Gemini
-  ("couldn't access this video"); should say transcript unavailable.
+**Fixed 2026-07-06:**
+- Apify language bug: `fetchViaApify` no longer hardcodes `language: "en"`
+  only — it tries English first, then retries once with no language, which
+  makes the Actor return the video's default caption track (per its input
+  schema, blank = default language; no error-message parsing needed).
+  Costs one extra ~$0.005 run, once ever per non-English video; Gemini
+  reads any language and answers in English.
+- Honest hosted error: watch-once is now **disabled when `NETLIFY` is set**
+  (default `GEMINI_WATCH_MAX_MINUTES=0` there) — previously the hosted
+  watch attempt burned tokens (58K TPM peak observed), got killed by the
+  function timeout, and surfaced a misleading "Gemini couldn't access this
+  video" error. Now it fails fast with an honest "no captions; transcribe
+  locally once, cached forever" message before any Gemini call.
+
+**Known bugs / immediate next (2026-07-06):**
 - Hosted 📄TEXT/💬ASK still unverified on an English-captioned video.
+- Apify retry-with-default-language path unverified on a Hindi-captioned
+  video (Vishakha Sadhwani's) — needs a hosted test after deploy.
 
 **Ideas parked:**
 - Read-only public demo mode (visitors browse, can't mutate) — for
