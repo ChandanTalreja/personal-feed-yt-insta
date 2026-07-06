@@ -320,6 +320,15 @@ daily cap; RE-SYNC button per channel; login rate limiting +
 constant-time compare; friendlier errors (daily budget, video
 unavailable/restricted, watch-length cap).
 
+**Known bugs / immediate next (2026-07-05):**
+- Apify fallback hardcodes `language: "en"` — videos with captions in other
+  languages only (e.g. Hindi) return nothing; the Actor's error message
+  lists available languages, so parse it and retry with the first one
+  (Gemini reads any language and answers in English).
+- Hosted error message when no transcript exists misleadingly blames Gemini
+  ("couldn't access this video"); should say transcript unavailable.
+- Hosted 📄TEXT/💬ASK still unverified on an English-captioned video.
+
 **Ideas parked:**
 - Read-only public demo mode (visitors browse, can't mutate) — for
   "show people the project" without sharing the password.
