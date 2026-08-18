@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { isAuthed } from "@/lib/auth";
 import { channels, videos } from "@/lib/schema";
@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     .map(Number)
     .filter((n) => Number.isInteger(n) && n > 0);
   const page = Math.max(0, Number(q.get("page")) || 0);
+  const search = (q.get("search") ?? "").trim();
 
   const conditions = [];
   if (kind === "videos") conditions.push(eq(videos.isShort, false));
@@ -28,6 +29,16 @@ export async function GET(req: NextRequest) {
   if (genreId) conditions.push(eq(channels.genreId, Number(genreId)));
   if (channelIds.length > 0) {
     conditions.push(inArray(videos.channelId, channelIds));
+  }
+  // Fuzzy title search: exact/substring via ILIKE, plus pg_trgm trigram
+  // word-similarity so small typos ("kubernets") still match. Just one
+  // more AND — it narrows within whatever filters are already applied.
+  if (search) {
+    const like = `%${search}%`;
+    const term = search.toLowerCase();
+    conditions.push(
+      sql`(${videos.title} ILIKE ${like} OR word_similarity(${term}::text, lower(${videos.title})) > 0.4)`
+    );
   }
 
   const db = await getDb();

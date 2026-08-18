@@ -121,7 +121,7 @@ restart to apply.
    a stranger's channel). Exact inputs skip confirmation.
 2. On confirm, the channel row is inserted and **backfilled**: walk the
    channel's uploads playlist newest-first (50/page, 1 unit/page) until
-   older than `BACKFILL_MONTHS` (default 6), fetch details in batches of 50
+   older than `BACKFILL_MONTHS` (default 12), fetch details in batches of 50
    (`videos.list`: duration, liveStreamingDetails), insert with
    `onConflictDoNothing`.
 3. **Shorts detection**: for videos ≤ ~3 min, one HEAD request to
@@ -297,7 +297,7 @@ window); that's why fps+resolution tuning matters.
 | `GEMINI_DAILY_LIMIT` | no | App-level cap on total Gemini calls/day across all models (default 100) |
 | `APIFY_TOKEN` | hosted only | Enables the Apify transcript fallback (datacenter IPs can't use InnerTube) |
 | `APIFY_TRANSCRIPT_ACTOR` | no | Override the transcript Actor (default `starvibe~youtube-video-transcript`) |
-| `BACKFILL_MONTHS` | no | History pulled when adding a channel (default 6) |
+| `BACKFILL_MONTHS` | no | History pulled when adding a channel / on RE-SYNC (default 12) |
 | `PGLITE_DIR` | no | Local embedded DB location (default `.data/pglite`) |
 
 ## 11. Deploy checklist (Netlify — not yet done)

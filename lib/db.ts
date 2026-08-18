@@ -9,6 +9,9 @@ export type Db = NeonHttpDatabase<typeof schema>;
 // Neon in production, embedded PGlite (a real Postgres in a local folder)
 // when DATABASE_URL is unset for local development.
 const DDL = [
+  // Fuzzy (typo-tolerant) title search. Neon has pg_trgm built in; PGlite
+  // gets it via the contrib module wired into the client below.
+  `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
   `CREATE TABLE IF NOT EXISTS genres (
     id serial PRIMARY KEY,
     name text NOT NULL UNIQUE,
@@ -41,6 +44,7 @@ const DDL = [
     fetched_at timestamptz NOT NULL DEFAULT now()
   )`,
   `CREATE INDEX IF NOT EXISTS videos_published_idx ON videos (published_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS videos_title_trgm_idx ON videos USING gin (title gin_trgm_ops)`,
   `CREATE TABLE IF NOT EXISTS gemini_usage (
     id serial PRIMARY KEY,
     model text NOT NULL,
@@ -72,11 +76,14 @@ async function init(): Promise<Db> {
     db = drizzleNeon(neon(process.env.DATABASE_URL), { schema });
   } else {
     const { PGlite } = await import("@electric-sql/pglite");
+    const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
     const { drizzle: drizzlePglite } = await import("drizzle-orm/pglite");
     const { mkdir } = await import("fs/promises");
     const dir = process.env.PGLITE_DIR ?? ".data/pglite";
     await mkdir(dir, { recursive: true });
-    const client = new PGlite(dir);
+    // pg_trgm must be registered on the PGlite client (Neon ships it
+    // natively); the CREATE EXTENSION in DDL then activates it.
+    const client = new PGlite(dir, { extensions: { pg_trgm } });
     db = drizzlePglite(client, { schema }) as unknown as Db;
   }
   for (const stmt of DDL) {

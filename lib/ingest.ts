@@ -4,7 +4,7 @@ import { channels, videos, type Channel } from "./schema";
 import { getVideoDetails, isShortVideo, listUploadsSince } from "./youtube";
 
 export function backfillSince(): Date {
-  const months = Number(process.env.BACKFILL_MONTHS) || 6;
+  const months = Number(process.env.BACKFILL_MONTHS) || 12;
   const d = new Date();
   d.setMonth(d.getMonth() - months);
   return d;

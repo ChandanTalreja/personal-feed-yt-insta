@@ -43,6 +43,8 @@ export default function FeedClient() {
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [playing, setPlaying] = useState<FeedVideo | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const loadChannels = useCallback(async () => {
     try {
@@ -87,6 +89,7 @@ export default function FeedClient() {
         if (channelIds.length > 0) {
           params.set("channelIds", channelIds.join(","));
         }
+        if (debouncedSearch) params.set("search", debouncedSearch);
         const res = await fetch(`/api/videos?${params}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Failed to load feed");
@@ -101,7 +104,7 @@ export default function FeedClient() {
         setLoading(false);
       }
     },
-    [kind, watched, genreId, channelIds]
+    [kind, watched, genreId, channelIds, debouncedSearch]
   );
 
   useEffect(() => {
@@ -115,6 +118,13 @@ export default function FeedClient() {
     const t = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Debounce the search box so the feed re-queries when you pause, not on
+  // every keystroke (kinder to latency, and to the DB).
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -285,6 +295,26 @@ export default function FeedClient() {
         ))}
       </div>
 
+      {/* Search — fuzzy title search, scoped to the active filters. */}
+      <div className="mb-6 flex items-center gap-2">
+        <input
+          className="nb-input w-full max-w-md rounded-lg px-3 py-2 text-sm"
+          placeholder="🔍 Search titles… (typos OK)"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search video titles"
+        />
+        {search && (
+          <button
+            className="nb-chip rounded-full px-3 py-1 text-xs"
+            onClick={() => setSearch("")}
+            title="Clear search"
+          >
+            ✕ CLEAR
+          </button>
+        )}
+      </div>
+
       {/* Channel chips — refine within the active genre; empty selection
           means the whole genre. Badge = total items stored for the active
           tab's kind (stable archive size, independent of watched state). */}
@@ -359,18 +389,31 @@ export default function FeedClient() {
       {/* Grid */}
       {videos.length === 0 && !loading ? (
         <div className="nb mx-auto max-w-lg rounded-xl p-8 text-center">
-          <p className="font-display text-xl">NOTHING HERE YET</p>
-          <p className="mt-2 text-sm text-neutral-600">
-            {watched === "unwatched"
-              ? "Inbox zero! Switch to EVERYTHING to browse history, or add more channels."
-              : "Add your first channel and TUBEBOX will backfill its last 6 months of uploads."}
+          <p className="font-display text-xl">
+            {debouncedSearch ? "NO MATCHES" : "NOTHING HERE YET"}
           </p>
-          <Link
-            href="/manage"
-            className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
-          >
-            + ADD CHANNELS
-          </Link>
+          <p className="mt-2 text-sm text-neutral-600">
+            {debouncedSearch
+              ? `No ${kind === "shorts" ? "shorts" : "videos"} match “${debouncedSearch}” in this view. Try EVERYTHING, another genre, or clear the search.`
+              : watched === "unwatched"
+                ? "Inbox zero! Switch to EVERYTHING to browse history, or add more channels."
+                : "Add your first channel and TUBEBOX will backfill its last year of uploads."}
+          </p>
+          {debouncedSearch ? (
+            <button
+              className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
+              onClick={() => setSearch("")}
+            >
+              ✕ CLEAR SEARCH
+            </button>
+          ) : (
+            <Link
+              href="/manage"
+              className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
+            >
+              + ADD CHANNELS
+            </Link>
+          )}
         </div>
       ) : (
         <div
