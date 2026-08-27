@@ -324,7 +324,7 @@ export default function FeedClient() {
         );
         if (visible.length < 2) return null;
         return (
-          <div className="mb-6 flex gap-2 overflow-x-auto pb-2">
+          <div className="mb-6 flex flex-wrap gap-2">
             {visible.map((channel) => {
               const selected = channelIds.includes(channel.id);
               return (
