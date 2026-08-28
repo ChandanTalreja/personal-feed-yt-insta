@@ -43,6 +43,7 @@ export default function ManageClient() {
   const [input, setInput] = useState("");
   const [selectedGenre, setSelectedGenre] = useState<string>("");
   const [adding, setAdding] = useState(false);
+  const [backfillYears, setBackfillYears] = useState(1);
   const [toast, setToast] = useState<string | null>(null);
   const [newGenreName, setNewGenreName] = useState("");
   const [newGenreColor, setNewGenreColor] = useState(GENRE_COLORS[0]);
@@ -107,14 +108,16 @@ export default function ManageClient() {
         body: JSON.stringify({
           input: value,
           genreId: selectedGenre ? Number(selectedGenre) : null,
+          years: backfillYears,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to add channel");
+      const years = Math.round((data.backfillMonths ?? 12) / 12);
       setToast(
         `Added "${data.channel.title}" — backfilled ${data.videosAdded} video${
           data.videosAdded === 1 ? "" : "s"
-        } from the last 6 months.`
+        } from the last ${years === 1 ? "year" : `${years} years`}.`
       );
       setInput("");
       setPending(null);
@@ -265,9 +268,31 @@ export default function ManageClient() {
             {adding ? "BACKFILLING…" : "+ ADD"}
           </button>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold text-neutral-600">
+            HOW FAR BACK
+          </span>
+          {[1, 2, 3, 4, 5].map((y) => (
+            <button
+              key={y}
+              type="button"
+              className="nb-chip rounded-full px-3 py-1 text-xs"
+              data-active={backfillYears === y}
+              onClick={() => setBackfillYears(y)}
+              title={
+                y === 1
+                  ? "Default — pull the last 1 year of uploads"
+                  : `Pull the last ${y} years — good for great-but-inconsistent channels`
+              }
+            >
+              {y} YR{y === 1 ? "" : "S"}
+            </button>
+          ))}
+        </div>
         <p className="mt-2 text-xs text-neutral-500">
-          Adding a channel pulls its last 6 months of uploads right away; the
-          cron keeps it fresh after that.
+          Adding a channel pulls its uploads from the window you pick above
+          (default 1 year, up to 5) right away; the cron keeps it fresh after
+          that.
         </p>
         {pending && (
           <div className="nb-sm mt-3 flex flex-wrap items-center gap-3 rounded-lg bg-[var(--paper)] p-3">

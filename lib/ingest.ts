@@ -3,18 +3,35 @@ import type { Db } from "./db";
 import { channels, videos, type Channel } from "./schema";
 import { getVideoDetails, isShortVideo, listUploadsSince } from "./youtube";
 
-export function backfillSince(): Date {
-  const months = Number(process.env.BACKFILL_MONTHS) || 12;
+/** Deepest window the add-channel picker offers: 5 years. A caller-supplied
+ *  window is clamped to this so a backfill can't walk a channel's entire
+ *  upload history. */
+const MAX_BACKFILL_MONTHS = 60;
+
+/**
+ * Resolve a backfill depth in months. An explicit request (the add-channel
+ * "how far back" picker) is clamped to 1–60 months (1–5 years); omitted →
+ * the configured default (`BACKFILL_MONTHS`, or 12 = one year). RE-SYNC and
+ * any caller passing nothing get that default.
+ */
+export function resolveBackfillMonths(months?: number | null): number {
+  if (months == null || Number.isNaN(months)) {
+    return Number(process.env.BACKFILL_MONTHS) || 12;
+  }
+  return Math.min(MAX_BACKFILL_MONTHS, Math.max(1, Math.round(months)));
+}
+
+export function backfillSince(months?: number | null): Date {
   const d = new Date();
-  d.setMonth(d.getMonth() - months);
+  d.setMonth(d.getMonth() - resolveBackfillMonths(months));
   return d;
 }
 
 /**
  * Fetches uploads for one channel published after `since` and inserts the
- * ones we don't have yet. Used both for the initial backfill (since = 6
- * months ago) and by the cron (since = a short lookback window; the unique
- * yt_video_id constraint makes overlapping runs harmless).
+ * ones we don't have yet. Used both for the initial backfill (since = the
+ * chosen window, default 1 year) and by the cron (since = a short lookback
+ * window; the unique yt_video_id constraint makes overlapping runs harmless).
  */
 export async function ingestChannel(
   db: Db,

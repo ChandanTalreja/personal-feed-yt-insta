@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 import { isAuthed } from "@/lib/auth";
 import { channels, genres, videos } from "@/lib/schema";
 import { resolveChannel } from "@/lib/youtube";
-import { backfillSince, ingestChannel } from "@/lib/ingest";
+import { backfillSince, ingestChannel, resolveBackfillMonths } from "@/lib/ingest";
 
 export const maxDuration = 60;
 
@@ -60,6 +60,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const input = String(body.input ?? "").trim();
     const genreId = body.genreId ? Number(body.genreId) : null;
+    // "How far back" picker sends years (1–5); clamp to a real window here so
+    // the message can report exactly what was pulled. Omitted → default.
+    const backfillMonths = resolveBackfillMonths(
+      body.years != null ? Number(body.years) * 12 : null
+    );
     if (!input) {
       return NextResponse.json(
         { error: "Paste a channel URL, @handle, or channel id." },
@@ -86,8 +91,12 @@ export async function POST(req: NextRequest) {
       .values({ ...resolved, genreId })
       .returning();
 
-    const videosAdded = await ingestChannel(db, inserted, backfillSince());
-    return NextResponse.json({ channel: inserted, videosAdded });
+    const videosAdded = await ingestChannel(
+      db,
+      inserted,
+      backfillSince(backfillMonths)
+    );
+    return NextResponse.json({ channel: inserted, videosAdded, backfillMonths });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

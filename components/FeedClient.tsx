@@ -45,6 +45,7 @@ export default function FeedClient() {
   const [playing, setPlaying] = useState<FeedVideo | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [channelSearch, setChannelSearch] = useState("");
 
   const loadChannels = useCallback(async () => {
     try {
@@ -183,8 +184,25 @@ export default function FeedClient() {
     return genre?.askPrompt ?? null;
   }
 
+  // Channels are scoped to the active genre (the outer filter); the rail's
+  // search box then narrows within that scope. Both the wide-screen rail and
+  // the narrow-screen chip fallback read from this same scoped list.
+  const visibleChannels = channels.filter(
+    (c) => genreId == null || c.genreId === genreId
+  );
+  const railQuery = channelSearch.trim().toLowerCase();
+  const railChannels = railQuery
+    ? visibleChannels.filter((c) => c.title.toLowerCase().includes(railQuery))
+    : visibleChannels;
+
+  function toggleChannel(id: number) {
+    setChannelIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 pb-16">
+    <div className="mx-auto w-full max-w-[1600px] px-4 pb-16">
       {/* Header */}
       <header className="flex flex-wrap items-center gap-4 py-6">
         <Mascot size={72} />
@@ -229,227 +247,307 @@ export default function FeedClient() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap items-center gap-2">
-        <button
-          className="nb-chip rounded-full px-3 py-1 text-xs"
-          data-active={genreId == null}
-          onClick={() => {
-            setGenreId(null);
-            setChannelIds([]);
-          }}
-        >
-          ALL
-        </button>
-        {genres.map((genre) => (
-          <button
-            key={genre.id}
-            className="nb-chip rounded-full px-3 py-1 text-xs"
-            style={
-              genreId === genre.id
-                ? { backgroundColor: genre.color, color: "var(--ink)" }
-                : undefined
-            }
-            data-active={genreId === genre.id}
-            onClick={() => {
-              // Genre is the outer filter; switching it resets the
-              // channel refinement so the feed never silently empties.
-              setGenreId(genre.id);
-              setChannelIds([]);
-            }}
-          >
-            {genre.name.toUpperCase()}
-          </button>
-        ))}
-
-        <span className="mx-2 hidden h-6 w-0.5 bg-[var(--ink)] sm:block" />
-
-        {(["videos", "shorts"] as Kind[]).map((k) => (
-          <button
-            key={k}
-            className="nb-chip rounded-full px-3 py-1 text-xs"
-            data-active={kind === k}
-            onClick={() => setKind(k)}
-          >
-            {k === "videos" ? "▶ VIDEOS" : "⚡ SHORTS"}
-          </button>
-        ))}
-
-        <span className="mx-2 hidden h-6 w-0.5 bg-[var(--ink)] sm:block" />
-
-        {(
-          [
-            ["unwatched", "INBOX"],
-            ["all", "EVERYTHING"],
-            ["watched", "HISTORY"],
-          ] as [Watched, string][]
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            className="nb-chip rounded-full px-3 py-1 text-xs"
-            data-active={watched === value}
-            onClick={() => setWatched(value)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Search — fuzzy title search, scoped to the active filters. */}
-      <div className="mb-6 flex items-center gap-2">
-        <input
-          className="nb-input w-full max-w-md rounded-lg px-3 py-2 text-sm"
-          placeholder="🔍 Search titles… (typos OK)"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search video titles"
-        />
-        {search && (
-          <button
-            className="nb-chip rounded-full px-3 py-1 text-xs"
-            onClick={() => setSearch("")}
-            title="Clear search"
-          >
-            ✕ CLEAR
-          </button>
-        )}
-      </div>
-
-      {/* Channel chips — refine within the active genre; empty selection
-          means the whole genre. Badge = total items stored for the active
-          tab's kind (stable archive size, independent of watched state). */}
-      {(() => {
-        const visible = channels.filter(
-          (c) => genreId == null || c.genreId === genreId
-        );
-        if (visible.length < 2) return null;
-        return (
-          <div className="mb-6 flex flex-wrap gap-2">
-            {visible.map((channel) => {
-              const selected = channelIds.includes(channel.id);
-              return (
-                <button
-                  key={channel.id}
-                  className="nb-chip flex shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs"
-                  data-active={selected}
-                  onClick={() =>
-                    setChannelIds((prev) =>
-                      selected
-                        ? prev.filter((id) => id !== channel.id)
-                        : [...prev, channel.id]
-                    )
-                  }
-                  title={
-                    selected
-                      ? `Stop filtering by ${channel.title}`
-                      : `Only show ${channel.title}`
-                  }
-                >
-                  {channel.thumbnail ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={channel.thumbnail}
-                      alt=""
-                      referrerPolicy="no-referrer"
-                      className="h-5 w-5 rounded-full border border-[var(--ink)]"
-                    />
-                  ) : (
-                    <span className="h-5 w-5 rounded-full border border-[var(--ink)] bg-[var(--yellow)]" />
-                  )}
-                  {channel.title}
-                  {(kind === "videos"
-                    ? channel.videoCount
-                    : channel.shortCount) > 0 && (
-                    <span
-                      className={`rounded-full border px-1.5 text-[10px] font-bold ${
-                        selected
-                          ? "border-[var(--paper)] bg-[var(--paper)] text-[var(--ink)]"
-                          : "border-[var(--ink)] bg-[var(--yellow)]"
-                      }`}
-                    >
-                      {kind === "videos"
-                        ? channel.videoCount
-                        : channel.shortCount}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        );
-      })()}
-
-      {/* Toast */}
+      {/* Toast — page-level (refresh results, errors). */}
       {toast && (
         <div className="nb mb-6 rounded-lg bg-[var(--yellow)] px-4 py-2 text-sm font-bold">
           {toast}
         </div>
       )}
 
-      {/* Grid */}
-      {videos.length === 0 && !loading ? (
-        <div className="nb mx-auto max-w-lg rounded-xl p-8 text-center">
-          <p className="font-display text-xl">
-            {debouncedSearch ? "NO MATCHES" : "NOTHING HERE YET"}
-          </p>
-          <p className="mt-2 text-sm text-neutral-600">
-            {debouncedSearch
-              ? `No ${kind === "shorts" ? "shorts" : "videos"} match “${debouncedSearch}” in this view. Try EVERYTHING, another genre, or clear the search.`
-              : watched === "unwatched"
-                ? "Inbox zero! Switch to EVERYTHING to browse history, or add more channels."
-                : "Add your first channel and TUBEBOX will backfill its last year of uploads."}
-          </p>
-          {debouncedSearch ? (
-            <button
-              className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
-              onClick={() => setSearch("")}
-            >
-              ✕ CLEAR SEARCH
-            </button>
-          ) : (
-            <Link
-              href="/manage"
-              className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
-            >
-              + ADD CHANNELS
-            </Link>
-          )}
-        </div>
-      ) : (
-        <div
-          className={
-            kind === "shorts"
-              ? "grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5"
-              : "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-          }
-        >
-          {videos.map((video) => (
-            <VideoCard
-              key={video.id}
-              video={video}
-              accentColor={accentFor(video)}
-              askPreset={askPresetFor(video)}
-              onPlay={handlePlay}
-              onToggleWatched={toggleWatched}
+      {/* Two columns: a persistent channel rail (wide screens) beside the
+          feed. Below `lg` the rail collapses and channels fall back to the
+          wrapped chip row inside the feed column — the original layout. */}
+      <div className="flex gap-6">
+        {/* Channel rail — wide screens only; scoped to the active genre. */}
+        <aside className="hidden w-64 shrink-0 lg:block">
+          <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col rounded-2xl border-[3px] border-[var(--ink)] bg-[var(--paper)] p-3 shadow-[6px_6px_0_var(--ink)]">
+            <input
+              className="nb-input w-full rounded-lg px-3 py-1.5 text-xs"
+              placeholder="🔍 Search channels…"
+              value={channelSearch}
+              onChange={(e) => setChannelSearch(e.target.value)}
+              aria-label="Search channels"
             />
-          ))}
-        </div>
-      )}
+            <div className="mt-3 mb-1 flex items-center justify-between px-1">
+              <span className="font-display text-xs">YOUR CHANNELS</span>
+              <span className="rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-1.5 text-[10px] font-bold">
+                {visibleChannels.length}
+              </span>
+            </div>
+            <div className="-mr-1 flex-1 space-y-0.5 overflow-y-auto pr-1">
+              {railChannels.length === 0 ? (
+                <p className="px-2 py-6 text-center text-xs text-neutral-500">
+                  {channelSearch
+                    ? "No channels match."
+                    : "No channels in this genre yet."}
+                </p>
+              ) : (
+                railChannels.map((channel) => {
+                  const selected = channelIds.includes(channel.id);
+                  const count =
+                    kind === "videos"
+                      ? channel.videoCount
+                      : channel.shortCount;
+                  return (
+                    <button
+                      key={channel.id}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+                        selected
+                          ? "bg-[var(--ink)] text-[var(--paper)]"
+                          : "hover:bg-black/5"
+                      }`}
+                      data-active={selected}
+                      onClick={() => toggleChannel(channel.id)}
+                      title={
+                        selected
+                          ? `Stop filtering by ${channel.title}`
+                          : `Only show ${channel.title}`
+                      }
+                    >
+                      {channel.thumbnail ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={channel.thumbnail}
+                          alt=""
+                          referrerPolicy="no-referrer"
+                          className="h-6 w-6 shrink-0 rounded-full border border-[var(--ink)]"
+                        />
+                      ) : (
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--ink)] bg-[var(--yellow)] text-[10px] font-bold text-[var(--ink)]">
+                          {channel.title.slice(0, 1).toUpperCase()}
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1 truncate">
+                        {channel.title}
+                      </span>
+                      {count > 0 && (
+                        <span
+                          className={`shrink-0 rounded-full border px-1.5 text-[10px] font-bold ${
+                            selected
+                              ? "border-[var(--paper)] bg-[var(--paper)] text-[var(--ink)]"
+                              : "border-[var(--ink)] bg-[var(--yellow)]"
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </aside>
 
-      {loading && (
-        <p className="py-8 text-center font-bold">LOADING…</p>
-      )}
+        {/* Feed column */}
+        <main className="min-w-0 flex-1">
+          {/* Genres */}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="mr-1 font-display text-xs text-neutral-600">
+              GENRES
+            </span>
+            <button
+              className="nb-chip rounded-full px-3 py-1 text-xs"
+              data-active={genreId == null}
+              onClick={() => {
+                setGenreId(null);
+                setChannelIds([]);
+              }}
+            >
+              ALL
+            </button>
+            {genres.map((genre) => (
+              <button
+                key={genre.id}
+                className="nb-chip rounded-full px-3 py-1 text-xs"
+                style={
+                  genreId === genre.id
+                    ? { backgroundColor: genre.color, color: "var(--ink)" }
+                    : undefined
+                }
+                data-active={genreId === genre.id}
+                onClick={() => {
+                  // Genre is the outer filter; switching it resets the
+                  // channel refinement so the feed never silently empties.
+                  setGenreId(genre.id);
+                  setChannelIds([]);
+                }}
+              >
+                {genre.name.toUpperCase()}
+              </button>
+            ))}
+          </div>
 
-      {hasMore && !loading && (
-        <div className="mt-8 text-center">
-          <button
-            className="nb-btn rounded-lg px-6 py-2"
-            onClick={() => loadPage(page + 1, false)}
-          >
-            LOAD MORE ↓
-          </button>
-        </div>
-      )}
+          {/* Kind + watched */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {(["videos", "shorts"] as Kind[]).map((k) => (
+              <button
+                key={k}
+                className="nb-chip rounded-full px-3 py-1 text-xs"
+                data-active={kind === k}
+                onClick={() => setKind(k)}
+              >
+                {k === "videos" ? "▶ VIDEOS" : "⚡ SHORTS"}
+              </button>
+            ))}
+
+            <span className="mx-1 hidden h-6 w-0.5 bg-[var(--ink)] sm:block" />
+
+            {(
+              [
+                ["unwatched", "INBOX"],
+                ["all", "EVERYTHING"],
+                ["watched", "HISTORY"],
+              ] as [Watched, string][]
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                className="nb-chip rounded-full px-3 py-1 text-xs"
+                data-active={watched === value}
+                onClick={() => setWatched(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search — fuzzy title search, scoped to the active filters. */}
+          <div className="mb-6 flex items-center gap-2">
+            <input
+              className="nb-input w-full max-w-md rounded-lg px-3 py-2 text-sm"
+              placeholder="🔍 Search titles… (typos OK)"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search video titles"
+            />
+            {search && (
+              <button
+                className="nb-chip rounded-full px-3 py-1 text-xs"
+                onClick={() => setSearch("")}
+                title="Clear search"
+              >
+                ✕ CLEAR
+              </button>
+            )}
+          </div>
+
+          {/* Channel chips — narrow-screen fallback for the rail: the same
+              genre-scoped multi-select, as the original wrapped row. */}
+          {visibleChannels.length >= 2 && (
+            <div className="mb-6 flex flex-wrap gap-2 lg:hidden">
+              {visibleChannels.map((channel) => {
+                const selected = channelIds.includes(channel.id);
+                return (
+                  <button
+                    key={channel.id}
+                    className="nb-chip flex shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs"
+                    data-active={selected}
+                    onClick={() => toggleChannel(channel.id)}
+                    title={
+                      selected
+                        ? `Stop filtering by ${channel.title}`
+                        : `Only show ${channel.title}`
+                    }
+                  >
+                    {channel.thumbnail ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={channel.thumbnail}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        className="h-5 w-5 rounded-full border border-[var(--ink)]"
+                      />
+                    ) : (
+                      <span className="h-5 w-5 rounded-full border border-[var(--ink)] bg-[var(--yellow)]" />
+                    )}
+                    {channel.title}
+                    {(kind === "videos"
+                      ? channel.videoCount
+                      : channel.shortCount) > 0 && (
+                      <span
+                        className={`rounded-full border px-1.5 text-[10px] font-bold ${
+                          selected
+                            ? "border-[var(--paper)] bg-[var(--paper)] text-[var(--ink)]"
+                            : "border-[var(--ink)] bg-[var(--yellow)]"
+                        }`}
+                      >
+                        {kind === "videos"
+                          ? channel.videoCount
+                          : channel.shortCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Grid */}
+          {videos.length === 0 && !loading ? (
+            <div className="nb mx-auto max-w-lg rounded-xl p-8 text-center">
+              <p className="font-display text-xl">
+                {debouncedSearch ? "NO MATCHES" : "NOTHING HERE YET"}
+              </p>
+              <p className="mt-2 text-sm text-neutral-600">
+                {debouncedSearch
+                  ? `No ${kind === "shorts" ? "shorts" : "videos"} match “${debouncedSearch}” in this view. Try EVERYTHING, another genre, or clear the search.`
+                  : watched === "unwatched"
+                    ? "Inbox zero! Switch to EVERYTHING to browse history, or add more channels."
+                    : "Add your first channel and TUBEBOX will backfill its last year of uploads."}
+              </p>
+              {debouncedSearch ? (
+                <button
+                  className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
+                  onClick={() => setSearch("")}
+                >
+                  ✕ CLEAR SEARCH
+                </button>
+              ) : (
+                <Link
+                  href="/manage"
+                  className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
+                >
+                  + ADD CHANNELS
+                </Link>
+              )}
+            </div>
+          ) : (
+            <div
+              className={
+                kind === "shorts"
+                  ? "grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]"
+                  : "grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
+              }
+            >
+              {videos.map((video) => (
+                <VideoCard
+                  key={video.id}
+                  video={video}
+                  accentColor={accentFor(video)}
+                  askPreset={askPresetFor(video)}
+                  onPlay={handlePlay}
+                  onToggleWatched={toggleWatched}
+                />
+              ))}
+            </div>
+          )}
+
+          {loading && (
+            <p className="py-8 text-center font-bold">LOADING…</p>
+          )}
+
+          {hasMore && !loading && (
+            <div className="mt-8 text-center">
+              <button
+                className="nb-btn rounded-lg px-6 py-2"
+                onClick={() => loadPage(page + 1, false)}
+              >
+                LOAD MORE ↓
+              </button>
+            </div>
+          )}
+        </main>
+      </div>
 
       {playing && (
         <PlayerModal video={playing} onClose={() => setPlaying(null)} />

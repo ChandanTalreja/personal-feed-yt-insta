@@ -14,14 +14,19 @@ source, and runs entirely on free tiers.
 - **Your channels only** — add channels by URL, @handle, or plain name
   (with a "did you mean?" confirmation), organized into color-coded,
   user-defined genres
-- **6-month backfill** — adding a channel immediately pulls its recent
-  history via the official YouTube Data API (no scraping, no proxies);
-  a scheduled function tops the feed up every 6 hours after that
+- **1-year backfill (your call, up to 5)** — adding a channel immediately
+  pulls its recent history via the official YouTube Data API (no scraping,
+  no proxies); a "how far back" picker goes 1–5 years for
+  great-but-inconsistent channels. A scheduled function tops the feed up
+  every 6 hours after that
 - **Inbox workflow** — the default view shows only unwatched videos;
   playing one (embedded player) auto-marks it watched
 - **Shorts, separated** — detected automatically and given their own tab
-- **Channel filter** — multi-select chips per genre, with badges showing
-  how many videos/Shorts of each channel are in your archive
+- **Channel filter** — a searchable left rail on wide screens (collapses to
+  a wrapped chip row on narrow ones), multi-select per genre, with badges
+  showing how many videos/Shorts of each channel are in your archive
+- **Search** — fuzzy title search across the feed, scoped to whatever
+  filters are active
 - **✨ Summary** — 3–5 bullets + "worth watching if:", generated once and
   cached forever
 - **💬 Ask** — ask anything about a video's content ("list all the

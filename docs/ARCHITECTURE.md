@@ -5,7 +5,7 @@
 > built that way, and what comes next. The [README](../README.md) is the
 > short public version; this is the engineering memory.
 
-Last updated: 2026-07-03 (pre-first-commit).
+Last updated: 2026-08-28.
 
 ---
 
@@ -121,7 +121,10 @@ restart to apply.
    a stranger's channel). Exact inputs skip confirmation.
 2. On confirm, the channel row is inserted and **backfilled**: walk the
    channel's uploads playlist newest-first (50/page, 1 unit/page) until
-   older than `BACKFILL_MONTHS` (default 12), fetch details in batches of 50
+   older than the **chosen backfill window** — the add-channel form's
+   "how far back" picker (1 year default, up to 5; sent as `years`, clamped
+   server-side to 1–60 months by `resolveBackfillMonths`), falling back to
+   `BACKFILL_MONTHS` (default 12) when unset. Fetch details in batches of 50
    (`videos.list`: duration, liveStreamingDetails), insert with
    `onConflictDoNothing`.
 3. **Shorts detection**: for videos ≤ ~3 min, one HEAD request to
@@ -217,13 +220,20 @@ window); that's why fps+resolution tuning matters.
 
 - **Feed**: reverse-chronological grid; genre tabs (colored, user-defined);
   VIDEOS / SHORTS kind tabs; INBOX (unwatched, default) / EVERYTHING /
-  HISTORY. Playing opens an embedded `youtube-nocookie` player and
-  auto-marks watched; MARK SEEN toggles manually. No view counts anywhere —
-  deliberate anti-distraction choice.
-- **Channel chips** (below tabs, shown when the active genre has ≥2
-  channels): multi-select toggle filter; switching genre clears the channel
+  HISTORY; a **fuzzy title search** box (debounced ~300ms, scoped to the
+  active filters via the `/api/videos` `search` param). Playing opens an
+  embedded `youtube-nocookie` player and auto-marks watched; MARK SEEN
+  toggles manually. No view counts anywhere — deliberate anti-distraction
+  choice.
+- **Channel filter**: a persistent left **rail** on wide screens (≥`lg`) —
+  the active genre's channels as a vertical, searchable list (avatar +
+  title + count badge), multi-select. Below `lg` the rail collapses and the
+  same channels fall back to a **wrapped chip row** above the grid (the
+  original layout). Both are genre-scoped — the rail's list *and* its search
+  cover only the active genre — and switching genre clears the channel
   selection (outer filter resets inner refinement — prevents silently empty
-  feeds). **Badges = total items stored for the active tab's kind**
+  feeds).
+  **Badges = total items stored for the active tab's kind**
   (VIDEOS tab → video count, SHORTS tab → shorts count). Stable numbers
   that only grow with new uploads; deliberately independent of
   watched-state after the "moving numbers are confusing" lesson. The badge
@@ -237,9 +247,10 @@ window); that's why fps+resolution tuning matters.
   this video"). No global/hardcoded presets — removed by design.
 - **📄 TEXT**: full transcript (captions when available — instant and free;
   Gemini transcription otherwise), timestamps at topic changes.
-- **Manage page**: add channel (URL/@handle/name + confirmation flow),
-  genre editor (color, ✎ suggested-question editor, delete), per-channel
-  genre assignment, ACTIVE/PAUSED toggle, DELETE (cascades to videos).
+- **Manage page**: add channel (URL/@handle/name + confirmation flow + a
+  **"how far back" backfill-window picker, 1–5 years, default 1**), genre
+  editor (color, ✎ suggested-question editor, delete), per-channel genre
+  assignment, ACTIVE/PAUSED toggle, DELETE (cascades to videos).
 - **Manage page repair tool — RE-SYNC** per channel: re-runs the full
   backfill window (heals holes from interrupted backfills, which the
   cron's 14-day lookback never would). Idempotent, safe anytime.
@@ -297,7 +308,7 @@ window); that's why fps+resolution tuning matters.
 | `GEMINI_DAILY_LIMIT` | no | App-level cap on total Gemini calls/day across all models (default 100) |
 | `APIFY_TOKEN` | hosted only | Enables the Apify transcript fallback (datacenter IPs can't use InnerTube) |
 | `APIFY_TRANSCRIPT_ACTOR` | no | Override the transcript Actor (default `starvibe~youtube-video-transcript`) |
-| `BACKFILL_MONTHS` | no | History pulled when adding a channel / on RE-SYNC (default 12) |
+| `BACKFILL_MONTHS` | no | Default backfill depth (months) when the add-channel picker isn't used, and the window RE-SYNC uses (default 12 = 1 year). The picker overrides per-add, clamped to 1–60 months (max 5 years) |
 | `PGLITE_DIR` | no | Local embedded DB location (default `.data/pglite`) |
 
 ## 11. Deploy checklist (Netlify — not yet done)
@@ -314,6 +325,27 @@ window); that's why fps+resolution tuning matters.
 5. Watch the first cron run's function logs once.
 
 ## 12. Roadmap
+
+**Built 2026-08-28:**
+- **Fuzzy title search** on the feed — debounced, scoped to the active
+  filters (`search` param on `/api/videos`).
+- **Channel-chip wrap** — the feed's channel filter row wraps onto multiple
+  lines instead of one horizontal scroll (Option A of the "many channels"
+  problem; now also the narrow-screen fallback for the rail below).
+- **Channel rail (Option B)** — on wide screens (≥`lg`) the channel filter
+  is a persistent, searchable left sidebar: the active genre's channels as a
+  vertical multi-select list (real thumbnails, count badges). Below `lg` it
+  collapses back to the wrapped chip row. Layout is two-column (header +
+  ticker full-width, then rail + feed); the video grid is fluid
+  (`auto-fill minmax`) and the page caps at ~1600px. Filtering logic
+  unchanged — still multi-select → `channelIds` on `/api/videos`.
+- **Backfill-window picker** on add-channel — a "how far back" chooser,
+  1–5 years (default 1), sent as `years` and clamped server-side to 1–60
+  months (`resolveBackfillMonths`); the success message reports the actual
+  window and count. Also fixed the stale "6 months" copy that survived the
+  earlier 6→12-month default change (message, helper text, code comment,
+  README; the excalidraw diagram still says `BACKFILL_MONTHS=6` — re-export
+  pending).
 
 **Hardening batch — BUILT 2026-07-03:** `GEMINI_DAILY_LIMIT` app-level
 daily cap; RE-SYNC button per channel; login rate limiting +
@@ -340,6 +372,12 @@ unavailable/restricted, watch-length cap).
   video (Vishakha Sadhwani's) — needs a hosted test after deploy.
 
 **Ideas parked:**
+- **"Channels ▾" dropdown** (Option C) — the other candidate for the
+  channel filter; unneeded now that the rail (Option B) shipped, parked in
+  case the rail ever feels too heavy.
+- **Per-channel backfill window**: store the picked depth on the channel
+  row so RE-SYNC re-pulls the same window (today RE-SYNC uses the default);
+  deferred alongside the backfill-window picker.
 - Read-only public demo mode (visitors browse, can't mutate) — for
   "show people the project" without sharing the password.
 - Auth: APP_PASSWORD is correct for single-user; if ever multi-user, use
