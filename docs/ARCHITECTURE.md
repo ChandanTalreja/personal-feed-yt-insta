@@ -5,7 +5,7 @@
 > built that way, and what comes next. The [README](../README.md) is the
 > short public version; this is the engineering memory.
 
-Last updated: 2026-08-28.
+Last updated: 2026-09-04.
 
 ---
 
@@ -384,6 +384,42 @@ unavailable/restricted, watch-length cap).
   Auth.js (NextAuth) inside the app — portable across hosts — not
   platform-tied auth (Netlify Identity was deprecated then un-deprecated
   Feb 2026; the saga itself is the lock-in lesson).
+- **Multi-user with roles — admin + guests (discussed 2026-09-04, parked).**
+  Goal: let ~10 friends use the deployed site (add/remove channels, try it
+  out) without ever touching the owner's channels/feed. Owner = protected
+  admin; friends = guests.
+  - *Why it's not just a column:* auth has no identity (one
+    `sha256(APP_PASSWORD)` cookie for everyone, `lib/auth.ts`), and the
+    schema assumes global uniqueness — `yt_channel_id`/`yt_video_id` unique,
+    a single `watched` flag, global genres, one `gemini_usage` ledger.
+    Single-user is baked into the unique constraints (the ingest idempotency
+    keys), not a missing field.
+  - *Recommended data model — shared pool + subscriptions (Option 2):* keep
+    channels/videos global (one copy → uniqueness + "cache once" preserved);
+    add a `subscriptions(user_id, channel_id)` table. A guest "deleting" a
+    channel just unsubscribes them — the owner's subscription and the
+    channel survive, so the owner is **protected by construction**. Bonus:
+    summaries/transcripts stay cached once and are shared across users,
+    easing quota. Needs per-user `watched` + per-user notes. (Rejected
+    Option 1 = `user_id` on everything + per-user uniqueness: duplicates
+    backfill per user, breaks the idempotency model.)
+  - *Open decision — guest isolation granularity:* **(A)** one shared guest
+    sandbox, two passwords (owner + guest) — simplest, friends see each
+    other's tinkering; **(B)** a private space per friend — a `users` table,
+    per-user login, and real password hashing (the current unsalted sha256
+    is fine for one shared secret, not for storing many). Lean A for "just
+    trying it out".
+  - *The real exposure (bigger than channel-tampering):* the free-tier quota
+    is shared — one YouTube key + one Gemini key. Guests running AI draw
+    down the owner's Gemini daily budget and can lock the owner out, so the
+    design needs guest guardrails (channel cap, backfill-depth cap,
+    cap/disable guest AI). Also: a guest password shared among ~10 people
+    will eventually leak — fine for a low-stakes demo, but a real step up
+    from "one trusted person".
+  - *Scope:* touches auth, the schema's uniqueness model, the ingest engine,
+    every mutating route (server-side space enforcement, not just hidden
+    buttons), and a one-time migration of existing channels to admin-owned.
+    Real project, but Option 2 + sandbox A is the tractable, on-grain shape.
 - Split model chains (text vs video) so text-only models (Gemma) could
   serve summaries/asks as extra capacity; unnecessary at current headroom.
 - Transcript chunking (startOffset/endOffset map-reduce) for caption-less

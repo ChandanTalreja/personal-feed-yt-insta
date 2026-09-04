@@ -70,9 +70,29 @@ const DDL = [
   )`,
 ];
 
+// Short random tag for this server process. On Netlify the app runs on AWS
+// Lambda, where each instance is its own process and serves one request at
+// a time — so two requests that arrive together can be handled by two
+// instances, and each runs init() once. The tag makes that visible in the
+// function logs: one "[db abc123] cold init" line per instance.
+const INSTANCE = Math.random().toString(36).slice(2, 8);
+
+// The Neon driver talks over HTTP: every statement is its own request, and a
+// Netlify → Neon round trip costs ~200–300 ms. Running the DDL list one
+// statement at a time therefore cost ~3 s on every cold start. Wrapping the
+// whole list in one anonymous code block (DO $$ … $$) sends it as a single
+// statement, so the entire schema check is one round trip. Each statement is
+// still IF NOT EXISTS, so the block is safe to run on every cold start.
+function schemaSetupBlock(): string {
+  return `DO $$ BEGIN\n${DDL.join(";\n")};\nEND $$`;
+}
+
 async function init(): Promise<Db> {
+  const t0 = performance.now();
   let db: Db;
+  let mode: string;
   if (process.env.DATABASE_URL) {
+    mode = "neon";
     db = drizzleNeon(neon(process.env.DATABASE_URL), { schema });
   } else {
     const { PGlite } = await import("@electric-sql/pglite");
@@ -80,15 +100,25 @@ async function init(): Promise<Db> {
     const { drizzle: drizzlePglite } = await import("drizzle-orm/pglite");
     const { mkdir } = await import("fs/promises");
     const dir = process.env.PGLITE_DIR ?? ".data/pglite";
+    mode = `pglite ${dir}`;
     await mkdir(dir, { recursive: true });
     // pg_trgm must be registered on the PGlite client (Neon ships it
     // natively); the CREATE EXTENSION in DDL then activates it.
     const client = new PGlite(dir, { extensions: { pg_trgm } });
     db = drizzlePglite(client, { schema }) as unknown as Db;
   }
-  for (const stmt of DDL) {
-    await db.execute(sql.raw(stmt));
-  }
+  const t1 = performance.now();
+  await db.execute(sql.raw(schemaSetupBlock()));
+  const t2 = performance.now();
+  // Timing breakdown for the cold-start cost. On Neon, "schema" is one round
+  // trip when the compute is awake and round trip + wake-up when it was
+  // suspended (Neon free tier pauses after 5 idle minutes), so a number well
+  // above ~500 ms means the wake-up, not the DDL.
+  console.log(
+    `[db ${INSTANCE}] cold init (${mode}): driver ${Math.round(t1 - t0)}ms, ` +
+      `schema ${Math.round(t2 - t1)}ms (${DDL.length} statements, 1 round trip), ` +
+      `total ${Math.round(t2 - t0)}ms`
+  );
   return db;
 }
 
