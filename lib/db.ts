@@ -77,14 +77,32 @@ const DDL = [
 // function logs: one "[db abc123] cold init" line per instance.
 const INSTANCE = Math.random().toString(36).slice(2, 8);
 
+// Arbitrary constant; it only has to be the same in every instance of this
+// app so that they all queue on the same advisory lock.
+const SCHEMA_LOCK_KEY = 7_201_314;
+
 // The Neon driver talks over HTTP: every statement is its own request, and a
 // Netlify → Neon round trip costs ~200–300 ms. Running the DDL list one
 // statement at a time therefore cost ~3 s on every cold start. Wrapping the
 // whole list in one anonymous code block (DO $$ … $$) sends it as a single
 // statement, so the entire schema check is one round trip. Each statement is
 // still IF NOT EXISTS, so the block is safe to run on every cold start.
+//
+// The block is also ONE transaction, so every lock it takes is held until
+// END. Two instances cold-starting together (Lambda serves one request per
+// instance, so a page that fires two fetches can spawn two) each took a
+// ShareLock on `videos` at CREATE INDEX IF NOT EXISTS, then both asked for
+// the AccessExclusiveLock that ALTER TABLE needs — each waiting on the
+// other's ShareLock: a deadlock (seen in production, SQLSTATE 40P01). The
+// advisory lock on line one makes the second instance wait there, holding
+// nothing, until the first commits; it is released automatically at END.
 function schemaSetupBlock(): string {
-  return `DO $$ BEGIN\n${DDL.join(";\n")};\nEND $$`;
+  return [
+    "DO $$ BEGIN",
+    `PERFORM pg_advisory_xact_lock(${SCHEMA_LOCK_KEY});`,
+    `${DDL.join(";\n")};`,
+    "END $$",
+  ].join("\n");
 }
 
 async function init(): Promise<Db> {
