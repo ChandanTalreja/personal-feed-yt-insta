@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { notifyNavChanged } from "@/lib/nav-events";
 
 interface Props {
   videoId: number;
@@ -9,6 +10,8 @@ interface Props {
   onSaved?: (note: string | null, savedAt: string | null) => void;
   autoFocus?: boolean;
   rows?: number;
+  /** Bigger text for roomy places (the study panel). */
+  large?: boolean;
 }
 
 type Status = "idle" | "saving" | "saved" | "error";
@@ -28,6 +31,7 @@ export default function NoteEditor({
   onSaved,
   autoFocus,
   rows = 4,
+  large = false,
 }: Props) {
   const [text, setText] = useState(initial ?? "");
   const [status, setStatus] = useState<Status>("idle");
@@ -68,6 +72,7 @@ export default function NoteEditor({
         if (!res.ok) throw new Error(data.error ?? "Save failed");
         savedRef.current = value.trim();
         onSavedRef.current?.(data.video.personalNote, data.video.personalNoteAt);
+        notifyNavChanged();
         if (!final) setStatus("saved");
       })
       .catch(() => {
@@ -108,7 +113,9 @@ export default function NoteEditor({
   return (
     <div className="flex flex-col gap-1">
       <textarea
-        className="nb-input w-full resize-y rounded p-2 text-xs leading-relaxed"
+        className={`nb-input w-full resize-y rounded leading-relaxed ${
+          large ? "p-3 text-[15px]" : "p-2 text-xs"
+        }`}
         rows={rows}
         maxLength={MAX_CHARS}
         placeholder="Your note on this video — timestamps, what to revise, what to skip…"

@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "./db";
-import { channels, videos, type Channel } from "./schema";
-import { getVideoDetails, isShortVideo, listUploadsSince } from "./youtube";
+import { appMeta, channels, videos, type Channel } from "./schema";
+import { getVideoDetails, isShortVideo, listUploadsPage } from "./youtube";
 
 /** Deepest window the add-channel picker offers: 5 years. A caller-supplied
  *  window is clamped to this so a backfill can't walk a channel's entire
@@ -27,20 +27,20 @@ export function backfillSince(months?: number | null): Date {
   return d;
 }
 
-/**
- * Fetches uploads for one channel published after `since` and inserts the
- * ones we don't have yet. Used both for the initial backfill (since = the
- * chosen window, default 1 year) and by the cron (since = a short lookback
- * window; the unique yt_video_id constraint makes overlapping runs harmless).
- */
-export async function ingestChannel(
-  db: Db,
-  channel: Pick<Channel, "id" | "uploadsPlaylistId">,
-  since: Date
-): Promise<number> {
-  const ids = await listUploadsSince(channel.uploadsPlaylistId, since);
-  if (ids.length === 0) return 0;
+/** Safety net for a run with no time budget: 20 pages = the 1,000 newest uploads. */
+const MAX_PAGES_UNBUDGETED = 20;
 
+/**
+ * Stores one page of upload ids: skips the ones we already have, fetches
+ * details for the rest, works out which are shorts, and inserts them.
+ * Returns how many were added.
+ */
+async function storePage(
+  db: Db,
+  channelId: number,
+  ids: string[]
+): Promise<number> {
+  if (ids.length === 0) return 0;
   const existing = await db
     .select({ ytVideoId: videos.ytVideoId })
     .from(videos)
@@ -55,7 +55,7 @@ export async function ingestChannel(
   );
   const rows = details.map((d, i) => ({
     ytVideoId: d.ytVideoId,
-    channelId: channel.id,
+    channelId,
     title: d.title,
     thumbnail: d.thumbnail,
     durationSeconds: d.durationSeconds,
@@ -63,12 +63,71 @@ export async function ingestChannel(
     isLive: d.isLive,
     publishedAt: d.publishedAt,
   }));
-
   if (rows.length > 0) {
     await db.insert(videos).values(rows).onConflictDoNothing();
   }
   return rows.length;
 }
+
+export interface BackfillStep {
+  /** Videos added by this call. */
+  added: number;
+  /** Where to carry on (YouTube's page bookmark), or null when finished. */
+  cursor: string | null;
+}
+
+/**
+ * Fetches a channel's uploads published after `since`, one page of 50 at a
+ * time, saving each page before reading the next — so if the request is cut
+ * off, everything up to that point is kept.
+ *
+ * With a `deadline` (a timestamp), it stops *starting* new pages once that
+ * time has passed and returns the bookmark of the next page as `cursor`;
+ * calling again with that cursor carries on exactly there. That's how a deep
+ * backfill of a busy channel fits Netlify's 10-second limit: several short
+ * requests instead of one long one that gets killed. Already-stored videos
+ * are skipped, so overlapping or repeated runs are harmless.
+ */
+export async function backfillChannel(
+  db: Db,
+  channel: Pick<Channel, "id" | "uploadsPlaylistId">,
+  since: Date,
+  opts: { cursor?: string | null; deadline?: number } = {}
+): Promise<BackfillStep> {
+  let cursor: string | undefined = opts.cursor ?? undefined;
+  let added = 0;
+  for (let page = 0; ; page++) {
+    if (opts.deadline == null && page >= MAX_PAGES_UNBUDGETED) break;
+    if (opts.deadline != null && page > 0 && Date.now() > opts.deadline) {
+      return { added, cursor: cursor ?? null };
+    }
+    const { ids, next } = await listUploadsPage(channel.uploadsPlaylistId, since, cursor);
+    added += await storePage(db, channel.id, ids);
+    if (!next) break;
+    cursor = next;
+  }
+  return { added, cursor: null };
+}
+
+/**
+ * The whole job in one go, no time budget — the scheduled sync's short
+ * lookback (a page or two per channel). Same result as before, but saved
+ * page by page.
+ */
+export async function ingestChannel(
+  db: Db,
+  channel: Pick<Channel, "id" | "uploadsPlaylistId">,
+  since: Date
+): Promise<number> {
+  return (await backfillChannel(db, channel, since)).added;
+}
+
+/**
+ * Time budget for one backfill request. Netlify stops a request at 10 s;
+ * a page can take ~2 s (list, details, shorts check, insert), so no new page
+ * starts after 6 s.
+ */
+export const BACKFILL_BUDGET_MS = 6_000;
 
 const CRON_LOOKBACK_DAYS = 14;
 
@@ -78,7 +137,12 @@ export interface RefreshResult {
   errors: string[];
   /** Channels that actually had new videos, e.g. [{ title, added }] */
   breakdown: { title: string; added: number }[];
+  /** When this sync finished (ISO). */
+  syncedAt: string;
 }
+
+/** app_meta key holding the last full sync time. */
+export const LAST_SYNC_KEY = "last_sync_at";
 
 export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
   const active = await db
@@ -98,5 +162,21 @@ export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
       errors.push(`${channel.title}: ${(err as Error).message}`);
     }
   }
-  return { channels: active.length, added, errors, breakdown };
+  // Remember when this sync finished — the top bar's "Synced 4 min ago".
+  // Upsert, so the same row is simply updated every time.
+  const syncedAt = new Date();
+  await db
+    .insert(appMeta)
+    .values({ key: LAST_SYNC_KEY, value: syncedAt.toISOString(), updatedAt: syncedAt })
+    .onConflictDoUpdate({
+      target: appMeta.key,
+      set: { value: syncedAt.toISOString(), updatedAt: syncedAt },
+    });
+  return {
+    channels: active.length,
+    added,
+    errors,
+    breakdown,
+    syncedAt: syncedAt.toISOString(),
+  };
 }

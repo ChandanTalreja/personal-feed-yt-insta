@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { notifyNavChanged } from "@/lib/nav-events";
 
 interface TrackRow {
   id: number;
@@ -96,6 +97,7 @@ export default function TrackMenu(props: Props) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Couldn't create the track");
+      notifyNavChanged();
       setNewName("");
       if (props.mode === "pick") {
         props.onPick({ id: data.track.id, name: data.track.name });

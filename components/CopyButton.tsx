@@ -1,12 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import Icon from "./ui/Icon";
 
 /**
  * Small copy-to-clipboard chip with a transient "COPIED ✓" confirmation.
  * Shared by every AI output panel (summary, ask answers, transcript).
  */
-export default function CopyButton({ text }: { text: string }) {
+export default function CopyButton({
+  text,
+  quiet = false,
+}: {
+  text: string;
+  /** Redesign style: a plain "⧉ Copy" link instead of a chip. */
+  quiet?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -17,6 +25,19 @@ export default function CopyButton({ text }: { text: string }) {
     } catch {
       // Clipboard needs a secure context (https/localhost); ignore failures.
     }
+  }
+
+  if (quiet) {
+    return (
+      <button
+        type="button"
+        className="flex shrink-0 items-center gap-1 text-xs font-bold text-ink hover:underline"
+        onClick={copy}
+      >
+        <Icon name={copied ? "check" : "copy"} size={13} />
+        {copied ? "Copied" : "Copy"}
+      </button>
+    );
   }
 
   return (

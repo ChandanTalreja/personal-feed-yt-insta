@@ -29,6 +29,10 @@ export interface TrackSummary {
   remainingSeconds: number;
   /** What CONTINUE opens: the first unwatched video in track order. */
   nextVideoId: number | null;
+  /** When any of its videos was last played; null = not since this was recorded. */
+  lastPlayedAt: Date | null;
+  /** The genre most of its videos belong to (for the colour square). */
+  genreId: number | null;
   /** Only when asked about a specific video: is it in this track? */
   contains?: boolean;
 }
@@ -54,6 +58,15 @@ function isUniqueViolation(err: unknown): boolean {
   );
 }
 
+/** The value that appears most often (ignoring nulls); null if none. */
+function mostCommon(values: (number | null)[]): number | null {
+  const counts = new Map<number, number>();
+  for (const v of values) if (v != null) counts.set(v, (counts.get(v) ?? 0) + 1);
+  let best: number | null = null;
+  for (const [v, n] of counts) if (best == null || n > counts.get(best)!) best = v;
+  return best;
+}
+
 /** All tracks with their progress stats, newest first. */
 export async function listTracks(
   db: Db,
@@ -68,9 +81,12 @@ export async function listTracks(
         durationSeconds: videos.durationSeconds,
         watched: videos.watched,
         watchProgress: videos.watchProgress,
+        lastPlayedAt: videos.lastPlayedAt,
+        genreId: channels.genreId,
       })
       .from(trackVideos)
       .innerJoin(videos, eq(trackVideos.videoId, videos.id))
+      .innerJoin(channels, eq(videos.channelId, channels.id))
       .orderBy(asc(trackVideos.position)),
   ]);
 
@@ -93,6 +109,11 @@ export async function listTracks(
       totalSeconds: mine.reduce((s, v) => s + v.durationSeconds, 0),
       remainingSeconds: Math.round(remaining),
       nextVideoId: mine.find((v) => !v.watched)?.videoId ?? null,
+      lastPlayedAt: mine.reduce<Date | null>(
+        (latest, v) => (v.lastPlayedAt && (!latest || v.lastPlayedAt > latest) ? v.lastPlayedAt : latest),
+        null
+      ),
+      genreId: mostCommon(mine.map((v) => v.genreId)),
     };
     if (forVideoId != null) {
       summary.contains = mine.some((v) => v.videoId === forVideoId);

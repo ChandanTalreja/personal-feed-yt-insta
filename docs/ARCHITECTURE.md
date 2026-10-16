@@ -251,9 +251,17 @@ window); that's why fps+resolution tuning matters.
   **"how far back" backfill-window picker, 1–5 years, default 1**), genre
   editor (color, ✎ suggested-question editor, delete), per-channel genre
   assignment, ACTIVE/PAUSED toggle, DELETE (cascades to videos).
-- **Manage page repair tool — RE-SYNC** per channel: re-runs the full
-  backfill window (heals holes from interrupted backfills, which the
-  cron's 14-day lookback never would). Idempotent, safe anytime.
+- **Backfill 1Y–5Y** per channel or in bulk (Channels page; replaced
+  RE-SYNC on 2026-10-17): "make sure every upload from the last N years is
+  stored". 1Y heals holes the cron's 14-day lookback never would; 3Y+
+  reaches further back on a channel added with a shorter window. Idempotent.
+  **Ingestion is page-by-page** (`lib/ingest.ts → backfillChannel`): each
+  page of 50 uploads is stored before the next is read, and with a deadline
+  (`BACKFILL_BUDGET_MS` = 6 s, under Netlify's 10 s) it returns YouTube's
+  page token as a `cursor`; the client calls `/api/channels/:id/backfill`
+  again with it until done. Add-channel uses the same budget + cursor. The
+  cron calls `ingestChannel` (no budget, ≤20 pages) — same results as
+  before, just saved per page.
 - **Auth**: single `APP_PASSWORD` env → sha256 cookie (httpOnly,
   SameSite=Lax), 30 days. Unset = open (local dev). All routes check it;
   `/api/cron` alternatively accepts `CRON_SECRET`. Login is protected by
@@ -308,10 +316,10 @@ window); that's why fps+resolution tuning matters.
 | `GEMINI_DAILY_LIMIT` | no | App-level cap on total Gemini calls/day across all models (default 100) |
 | `APIFY_TOKEN` | hosted only | Enables the Apify transcript fallback (datacenter IPs can't use InnerTube) |
 | `APIFY_TRANSCRIPT_ACTOR` | no | Override the transcript Actor (default `starvibe~youtube-video-transcript`) |
-| `BACKFILL_MONTHS` | no | Default backfill depth (months) when the add-channel picker isn't used, and the window RE-SYNC uses (default 12 = 1 year). The picker overrides per-add, clamped to 1–60 months (max 5 years) |
+| `BACKFILL_MONTHS` | no | Default backfill depth (months) when no window is passed (default 12 = 1 year). The add picker and Backfill 1Y–5Y always pass one, clamped to 1–60 months (max 5 years) |
 | `PGLITE_DIR` | no | Local embedded DB location (default `.data/pglite`) |
 
-## 11. Deploy checklist (Netlify — not yet done)
+## 11. Deploy checklist (Netlify — done; live at personal-tubebox.netlify.app)
 
 1. Push repo to GitHub (secrets live only in `.env.local`, which is
    gitignored; `.env.example` documents the shape).
@@ -325,6 +333,55 @@ window); that's why fps+resolution tuning matters.
 5. Watch the first cron run's function logs once.
 
 ## 12. Roadmap
+
+**In progress — UI/UX redesign (from 2026-10-16):** planned and tracked in
+[REDESIGN.md](REDESIGN.md). This section gets a one-line pointer per phase as
+each lands; the detail lives there.
+- Phase 1 (2026-10-16): design tokens in `globals.css` `@theme`, square
+  corners, lighter shadows, Space Mono, `components/ui/*` building blocks,
+  `/styleguide` — see REDESIGN.md UI-01, UI-02, UI-05, REF-03.
+- Phase 2 (2026-10-16): `components/TopBar.tsx` on every page (nav counts
+  via `/api/nav` + `lib/nav.ts`, live recount via the `tubebox:nav-changed`
+  event in `lib/nav-events.ts`); new **`app_meta`** key/value table, where
+  `refreshAllChannels` records `last_sync_at` for "Synced X ago"; ticker
+  removed — see REDESIGN.md UX-03, REF-01, REF-05, FEAT-02.
+- Phase 3 (2026-10-16): feed rebuilt as sidebar (`FeedSidebar`) + grid +
+  study panel (`StudyPanel`; tabs load on demand, once). `/api/videos`
+  returns `facets` (view + genre counts, first page only, via `count(*)
+  FILTER`); every FeedVideo carries `answerCount` (index
+  `video_notes_video_idx`); everyday Ask suggestions in `app_meta`
+  (`lib/askSuggestions.ts`, `/api/ask-suggestions`) — see REDESIGN.md UX-01,
+  UX-02, UX-04, UX-05, FEAT-02, FEAT-03, FEAT-09, REF-04.
+- Phase 4 (2026-10-17): `/channels` (`ChannelsClient`, `GenresPanel`)
+  replaces Manage; `next.config.ts` forwards `/manage`. `GET /api/channels`
+  adds `lastUploadAt` (one grouped `max(published_at)` + `count FILTER`
+  pass); new `POST /api/channels/bulk` (move/pause/resume/delete in one
+  statement); backfill stays one channel at a time (10 s limit) — see
+  REDESIGN.md UX-09, FEAT-07, FEAT-08.
+- Phase 4.1 (2026-10-17): RE-SYNC → Backfill 1Y–5Y; page-by-page ingestion
+  with a time budget and cursor (see "Backfill 1Y–5Y" above) — REDESIGN.md
+  FEAT-10.
+- Phase 5 (2026-10-17): Notebook rebuilt as list + reader
+  (`NotebookClient`; still one `/api/notebook` request, filtering in the
+  browser); follow-up Ask from the reader reuses `/api/videos/:id/ask`; open
+  video kept in `?v=` — see REDESIGN.md UX-07, FEAT-05.
+- Phase 6 (2026-10-17): Tracks rebuilt as list + path (`TracksClient`);
+  new **`videos.last_played_at`** (stamped by every progress save in
+  `PATCH /api/videos/:id`; a hand-ticked ✓ doesn't set it) feeds a track's
+  "last watched" and the list order; `listTracks` also returns the most
+  common genre of a track's videos. Shared `PlayerModal` header restyled —
+  see REDESIGN.md UX-08, FEAT-06.
+- Phase 7 (2026-10-17): Shorts title row + "Play unseen in a row"
+  (client-side queue in `FeedClient`; marks seen on the player's "ended",
+  Next skips; grows by loading the next page) — see REDESIGN.md UX-06,
+  FEAT-04.
+- Phase 8 (2026-10-17): global search — `lib/search.ts` +
+  `GET /api/search?q=` (channels / videos / answers & notes in one parallel
+  round trip; ILIKE + trigram, `%`/`_` escaped; `@` = channels only);
+  `GlobalSearch` in the top bar (⌘K); results open existing screens via
+  `/?channel=`, `/?video=`, `/?q=` (FeedClient applies then clears them) and
+  `/notebook?v=`; new `GET /api/videos/:id`. All 8 redesign phases done —
+  see REDESIGN.md FEAT-01.
 
 **Built 2026-10-16:**
 - **Next.js 16.2.10 → 16.3.8 (security)** — `npm audit` listed 19
@@ -505,9 +562,8 @@ unavailable/restricted, watch-length cap).
 - **"Channels ▾" dropdown** (Option C) — the other candidate for the
   channel filter; unneeded now that the rail (Option B) shipped, parked in
   case the rail ever feels too heavy.
-- **Per-channel backfill window**: store the picked depth on the channel
-  row so RE-SYNC re-pulls the same window (today RE-SYNC uses the default);
-  deferred alongside the backfill-window picker.
+- ~~Per-channel backfill window~~ — superseded 2026-10-17: Backfill takes
+  the window each time (1Y–5Y), so nothing needs storing.
 - Read-only public demo mode (visitors browse, can't mutate) — for
   "show people the project" without sharing the password.
 - Auth: APP_PASSWORD is correct for single-user; if ever multi-user, use

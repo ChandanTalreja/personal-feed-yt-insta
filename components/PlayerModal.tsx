@@ -5,6 +5,9 @@ import type { FeedVideo } from "./types";
 import { formatDuration } from "@/lib/format";
 import { CHUNK_SECONDS, chunkCount, mergeProgress } from "@/lib/progress";
 import { loadYouTubeApi, type YTPlayer } from "@/lib/youtubePlayer";
+import Button from "./ui/Button";
+import Icon from "./ui/Icon";
+import IconButton from "./ui/IconButton";
 
 /** What the server sends back after a progress save. */
 export interface ProgressUpdate {
@@ -21,6 +24,9 @@ interface Props {
   onProgress: (update: ProgressUpdate) => void;
   /** Called when the video plays to the end (tracks use it to auto-advance). */
   onEnded?: () => void;
+  /** Playing through a list (Shorts' "Play unseen in a row"): shows where
+   *  you are and a Next button that skips ahead without marking it seen. */
+  queue?: { label: string; onNext: () => void };
 }
 
 const TICK_MS = 1000;
@@ -38,6 +44,7 @@ export default function PlayerModal({
   onClose,
   onProgress,
   onEnded,
+  queue,
 }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
@@ -211,31 +218,40 @@ export default function PlayerModal({
       onClick={onClose}
     >
       <div
-        className="nb w-full max-w-4xl rounded-xl bg-[var(--paper)] p-3"
+        className="w-full max-w-4xl border-2 border-ink bg-surface p-3 shadow-[5px_5px_0_var(--color-ink)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-2 flex items-start justify-between gap-3">
-          <h2 className="font-display text-sm sm:text-base">{video.title}</h2>
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {queue && (
+              <p className="mb-1 font-display text-[10.5px] tracking-widest text-warn">{queue.label}</p>
+            )}
+            <h2 className="text-[15px] font-bold leading-snug sm:text-base">{video.title}</h2>
+            <p className="mt-0.5 text-xs text-ink/70">
+              {video.channelTitle}
+              {video.durationSeconds > 0 && <> · <span className="font-mono">{formatDuration(video.durationSeconds)}</span></>}
+            </p>
+          </div>
           <div className="flex shrink-0 items-center gap-2">
             {resumedAt > 0 && !startedOver && !fallback && (
-              <button
-                className="nb-chip rounded px-2.5 py-1 text-xs"
-                onClick={startOver}
-                title="Play from the beginning"
-              >
-                RESUMED AT {formatDuration(resumedAt)} · START OVER
-              </button>
+              <Button size="sm" onClick={startOver} title="Play from the beginning">
+                <Icon name="undo" size={13} />
+                Resumed at <span className="font-mono">{formatDuration(resumedAt)}</span> · Start over
+              </Button>
             )}
-            <button
-              className="nb-btn rounded px-3 py-1 text-sm"
-              onClick={onClose}
-            >
-              ✕ CLOSE
-            </button>
+            {queue && (
+              <Button size="sm" onClick={queue.onNext} title="Skip to the next one (this one isn't marked seen)">
+                Next
+                <Icon name="chev" size={13} strokeWidth={3} className="-rotate-90" />
+              </Button>
+            )}
+            <IconButton label="Close (Esc)" align="right" className="h-8 min-w-8" onClick={onClose}>
+              <Icon name="x" size={16} strokeWidth={3} />
+            </IconButton>
           </div>
         </div>
         <div
-          className={`relative w-full overflow-hidden rounded-lg border-3 border-[var(--ink)] ${
+          className={`relative w-full overflow-hidden border-2 border-ink bg-ink ${
             video.isShort ? "mx-auto aspect-[9/16] max-w-sm" : "aspect-video"
           }`}
         >

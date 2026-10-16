@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo_Black, Space_Grotesk } from "next/font/google";
+import { Archivo_Black, Space_Grotesk, Space_Mono } from "next/font/google";
 import "./globals.css";
 
 const display = Archivo_Black({
@@ -10,6 +10,14 @@ const display = Archivo_Black({
 
 const body = Space_Grotesk({
   variable: "--font-body",
+  subsets: ["latin"],
+});
+
+// Numbers (counts, durations, times) — used via Tailwind's `font-mono`,
+// which globals.css maps to this variable.
+const mono = Space_Mono({
+  variable: "--font-space-mono",
+  weight: ["400", "700"],
   subsets: ["latin"],
 });
 
@@ -27,7 +35,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${display.variable} ${body.variable} h-full antialiased`}
+      className={`${display.variable} ${body.variable} ${mono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

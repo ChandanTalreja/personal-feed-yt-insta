@@ -2,15 +2,17 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import Mascot from "./Mascot";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import TopBar from "./TopBar";
 import CopyButton from "./CopyButton";
 import NoteEditor from "./NoteEditor";
 import Markdown from "./Markdown";
 import PlayerModal, { type ProgressUpdate } from "./PlayerModal";
-import { textColorFor } from "@/lib/color";
-import { timeAgo } from "@/lib/format";
+import Button from "./ui/Button";
+import Icon from "./ui/Icon";
+import SegmentedControl from "./ui/SegmentedControl";
+import { formatDuration, timeAgo } from "@/lib/format";
+import { notifyNavChanged } from "@/lib/nav-events";
 import type { FeedVideo, GenreItem } from "./types";
 
 interface Answer {
@@ -21,25 +23,38 @@ interface Answer {
   createdAt: string;
 }
 
-interface Group {
+/** One video in the list: the video, its answers (oldest first), and when it was last touched. */
+interface Entry {
   video: FeedVideo;
   answers: Answer[];
-  /** Show this video's personal note (and its editor) in the block. */
-  showNote: boolean;
   lastActivity: string;
 }
 
-type TypeFilter = "both" | "answers" | "notes";
+type TypeFilter = "all" | "answers" | "notes";
 
-/** A question becomes a filter chip once you've asked it this many times. */
-const QUESTION_CHIP_MIN_USES = 2;
-const MAX_QUESTION_CHIPS = 6;
-/** Answers longer than this start collapsed. */
-const COLLAPSE_AT_CHARS = 700;
+/** A question shows up in the question filter once you've asked it this many times. */
+const QUESTION_MIN_USES = 2;
 
 const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
-const later = (a: string, b: string | null) => (b && b > a ? b : a);
+const latest = (a: string, b: string | null) => (b && b > a ? b : a);
 
+/** One video as Markdown: title, link, every Q&A, your note. */
+function videoMarkdown(e: Entry): string {
+  const parts = [
+    `## ${e.video.title} — ${e.video.channelTitle}`,
+    `https://youtu.be/${e.video.ytVideoId}`,
+    ...e.answers.map((a) => `**Q: ${a.prompt.trim()}**\n\n${a.answer.trim()}`),
+  ];
+  if (e.video.personalNote) parts.push(`**My note**\n\n${e.video.personalNote.trim()}`);
+  return parts.join("\n\n");
+}
+
+/**
+ * The Notebook: every saved answer and note, by video. A list on the left
+ * (filters on top), a reader on the right showing the chosen video in full,
+ * where you can ask a follow-up or write your note. Everything loads in one
+ * request and filters in the browser — instant at personal scale.
+ */
 export default function NotebookClient() {
   const [genres, setGenres] = useState<GenreItem[]>([]);
   const [answers, setAnswers] = useState<Answer[]>([]);
@@ -47,14 +62,14 @@ export default function NotebookClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [genreFilter, setGenreFilter] = useState<number | "all">("all");
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>("both");
-  const [questionFilter, setQuestionFilter] = useState<string | null>(null);
+  const [genreFilter, setGenreFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [questionFilter, setQuestionFilter] = useState<string>("");
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  // The video whose note is open for editing (kept visible while editing,
-  // even if the text is cleared mid-way).
-  const [editingNote, setEditingNote] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  // Phones show the list or the reader, not both.
+  const [reading, setReading] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [playing, setPlaying] = useState<FeedVideo | null>(null);
 
   useEffect(() => {
@@ -64,513 +79,624 @@ export default function NotebookClient() {
     ])
       .then(([nb, g]) => {
         if (nb.error) throw new Error(nb.error);
-        setAnswers(nb.answers ?? []);
+        // The API sends newest first; a video's answers read oldest first.
+        setAnswers([...(nb.answers ?? [])].reverse());
         setVideos(nb.videos ?? []);
         setGenres(g.genres ?? []);
+        // A link like /notebook?v=123 opens that video.
+        const v = Number(new URLSearchParams(window.location.search).get("v"));
+        if (v) {
+          setSelectedId(v);
+          setReading(true);
+        }
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
   }, []);
 
-  const videoById = useMemo(
-    () => new Map(videos.map((v) => [v.id, v])),
-    [videos]
-  );
+  // Close the ⋯ menu on an outside click or Esc.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e.target instanceof Element && e.target.closest("[data-nb-menu]")) return;
+      setMenuOpen(false);
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [menuOpen]);
 
-  // Questions asked at least twice become chips, most-asked first.
-  const questionChips = useMemo(() => {
+  // Every video with something in it, newest activity first.
+  const entries = useMemo(() => {
+    const byVideo = new Map<number, Entry>();
+    for (const video of videos) {
+      byVideo.set(video.id, {
+        video,
+        answers: [],
+        lastActivity: video.personalNoteAt ?? new Date(0).toISOString(),
+      });
+    }
+    for (const a of answers) {
+      const e = byVideo.get(a.videoId);
+      if (!e) continue;
+      e.answers.push(a);
+      e.lastActivity = latest(e.lastActivity, a.createdAt);
+    }
+    return [...byVideo.values()]
+      .filter((e) => e.answers.length > 0 || e.video.personalNote)
+      .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
+  }, [answers, videos]);
+
+  // Questions asked at least twice, most-asked first.
+  const questions = useMemo(() => {
     const byKey = new Map<string, { label: string; count: number }>();
     for (const a of answers) {
       const key = normalize(a.prompt);
-      const entry = byKey.get(key);
-      if (entry) entry.count++;
+      const q = byKey.get(key);
+      if (q) q.count++;
       else byKey.set(key, { label: a.prompt.trim(), count: 1 });
     }
     return [...byKey.entries()]
-      .filter(([, e]) => e.count >= QUESTION_CHIP_MIN_USES)
+      .filter(([, q]) => q.count >= QUESTION_MIN_USES)
       .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, MAX_QUESTION_CHIPS)
-      .map(([key, e]) => ({ key, ...e }));
+      .map(([key, q]) => ({ key, ...q }));
   }, [answers]);
 
-  // Type + question + search build the video blocks; the genre chip then
-  // picks among them (so genre counts reflect the other filters). Search
-  // matches answer text, the question, the note, or the video/channel name —
-  // a title/channel match shows everything for that video.
   const query = normalize(search);
-  const groupsBeforeGenre = useMemo(() => {
-    const matchesVideo = (v: FeedVideo) =>
-      !query ||
-      v.title.toLowerCase().includes(query) ||
-      v.channelTitle.toLowerCase().includes(query);
-    const groups = new Map<number, Group>();
 
-    if (typeFilter !== "notes") {
-      for (const a of answers) {
-        const video = videoById.get(a.videoId);
-        if (!video) continue;
-        if (questionFilter && normalize(a.prompt) !== questionFilter) continue;
-        if (
-          query &&
-          !matchesVideo(video) &&
-          !a.answer.toLowerCase().includes(query) &&
-          !a.prompt.toLowerCase().includes(query)
-        ) {
-          continue;
-        }
-        const g = groups.get(video.id);
-        if (g) g.answers.push(a);
-        else
-          groups.set(video.id, {
-            video,
-            answers: [a],
-            showNote: false,
-            lastActivity: a.createdAt,
-          });
-      }
-    }
-
-    // Personal notes only appear without a question filter (that filter is
-    // about Gemini's answers). A video already shown for its answers also
-    // shows its note; a note-only video needs the note (or title) to match.
-    if (typeFilter !== "answers" && !questionFilter) {
-      for (const video of videos) {
-        const hasNote = !!video.personalNote || editingNote === video.id;
-        if (!hasNote) continue;
-        const existing = groups.get(video.id);
-        if (existing) {
-          existing.showNote = true;
-          existing.lastActivity = later(existing.lastActivity, video.personalNoteAt);
-          continue;
-        }
-        const noteMatches =
-          matchesVideo(video) ||
-          (video.personalNote ?? "").toLowerCase().includes(query) ||
-          editingNote === video.id;
-        if (!noteMatches) continue;
-        groups.set(video.id, {
-          video,
-          answers: [],
-          showNote: true,
-          lastActivity: video.personalNoteAt ?? new Date(0).toISOString(),
-        });
-      }
-    }
-
-    return [...groups.values()].sort((a, b) =>
-      b.lastActivity.localeCompare(a.lastActivity)
-    );
-  }, [answers, videos, videoById, typeFilter, questionFilter, query, editingNote]);
-
-  const visibleGroups =
-    genreFilter === "all"
-      ? groupsBeforeGenre
-      : groupsBeforeGenre.filter((g) => g.video.genreId === genreFilter);
-  const visibleAnswerCount = visibleGroups.reduce(
-    (n, g) => n + g.answers.length,
-    0
+  /** Does this answer match the question filter and the search? */
+  const answerMatches = useCallback(
+    (a: Answer) =>
+      (!questionFilter || normalize(a.prompt) === questionFilter) &&
+      (!query || a.answer.toLowerCase().includes(query) || a.prompt.toLowerCase().includes(query)),
+    [questionFilter, query]
   );
-  const visibleNoteCount = visibleGroups.filter(
-    (g) => g.showNote && g.video.personalNote
-  ).length;
-  const filtering =
-    genreFilter !== "all" ||
-    typeFilter !== "both" ||
-    questionFilter != null ||
-    query !== "";
-  const hasAnything =
-    answers.length > 0 || videos.some((v) => v.personalNote);
 
-  const genreFor = (video: FeedVideo) =>
-    genres.find((g) => g.id === video.genreId) ?? null;
+  // Everything except genre decides which videos qualify; genre then picks
+  // among them, so each genre's count reflects the other filters.
+  const beforeGenre = useMemo(
+    () =>
+      entries.filter((e) => {
+        const v = e.video;
+        const titleHit = !query || v.title.toLowerCase().includes(query) || v.channelTitle.toLowerCase().includes(query);
+        const noteHit = !!v.personalNote && (!query || v.personalNote.toLowerCase().includes(query));
+        const answerHit = e.answers.some(answerMatches);
+        if (questionFilter) return answerHit; // a question is about answers
+        if (typeFilter === "answers") return e.answers.length > 0 && (titleHit || answerHit);
+        if (typeFilter === "notes") return !!v.personalNote && (titleHit || noteHit);
+        return titleHit || noteHit || answerHit;
+      }),
+    [entries, query, questionFilter, typeFilter, answerMatches]
+  );
+  const visible =
+    genreFilter === "all"
+      ? beforeGenre
+      : beforeGenre.filter((e) => String(e.video.genreId ?? "none") === genreFilter);
 
-  function toggleExpanded(id: number) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  // The open video: the chosen one if it's still listed, else the first.
+  const selected = visible.find((e) => e.video.id === selectedId) ?? visible[0] ?? null;
+
+  function select(id: number) {
+    setSelectedId(id);
+    setReading(true);
+    // Keep the open video in the address, so it can be linked and reloaded.
+    window.history.replaceState(null, "", `/notebook?v=${id}`);
+    // Phones swap the list for the reader: start the reader at its top.
+    if (window.innerWidth < 1024) window.scrollTo({ top: 0 });
   }
 
+  const filtering = genreFilter !== "all" || typeFilter !== "all" || !!questionFilter || !!query;
   function clearFilters() {
     setGenreFilter("all");
-    setTypeFilter("both");
-    setQuestionFilter(null);
+    setTypeFilter("all");
+    setQuestionFilter("");
     setSearch("");
   }
 
-  function noteSaved(videoId: number, note: string | null, at: string | null) {
-    setVideos((list) =>
-      list.map((v) =>
-        v.id === videoId ? { ...v, personalNote: note, personalNoteAt: at } : v
-      )
-    );
+  const answerCount = visible.reduce((n, e) => n + e.answers.length, 0);
+  const noteCount = visible.filter((e) => e.video.personalNote).length;
+  const hasAnything = entries.length > 0;
+
+  // ---------- Changes from the reader ----------
+
+  function patchVideo(id: number, patch: Partial<FeedVideo>) {
+    setVideos((list) => list.map((v) => (v.id === id ? { ...v, ...patch } : v)));
   }
 
-  // "Copy all": everything currently shown, as one plain-text document.
-  function copyAllText(): string {
-    const heading = [
-      "Notebook",
-      genreFilter !== "all"
-        ? genres.find((g) => g.id === genreFilter)?.name
-        : null,
-      typeFilter === "answers" ? "AI answers" : typeFilter === "notes" ? "My notes" : null,
-      questionFilter
-        ? questionChips.find((q) => q.key === questionFilter)?.label
-        : null,
-      query ? `"${search.trim()}"` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const blocks = visibleGroups.map((g) => {
-      const parts = [
-        `## ${g.video.title} — ${g.video.channelTitle}`,
-        `https://youtu.be/${g.video.ytVideoId}`,
-        ...g.answers.map((a) => `Q: ${a.prompt.trim()}\n\n${a.answer.trim()}`),
-      ];
-      if (g.showNote && g.video.personalNote) {
-        parts.push(`My note:\n\n${g.video.personalNote.trim()}`);
-      }
-      return parts.join("\n\n");
-    });
-    return `# ${heading}\n\n${blocks.join("\n\n---\n\n")}\n`;
+  function addAnswer(a: Answer) {
+    // Asking the same thing twice returns the saved answer: don't list it twice.
+    setAnswers((list) => [...list.filter((x) => x.id !== a.id), a]);
   }
 
-  // Watching from the Notebook still records honest progress.
   const closePlayer = useCallback(() => setPlaying(null), []);
+  // Watching from the Notebook still records honest progress.
   function handleProgress(update: ProgressUpdate) {
-    setVideos((list) =>
-      list.map((v) => (v.id === update.id ? { ...v, ...update } : v))
-    );
+    patchVideo(update.id, update);
+    if (update.watched) notifyNavChanged();
   }
 
-  return (
-    <div className="mx-auto w-full max-w-5xl px-4 pb-16">
-      <header className="flex flex-wrap items-center gap-4 py-6">
-        <Mascot size={64} />
-        <div>
-          <h1 className="font-display text-2xl sm:text-3xl">NOTEBOOK</h1>
-          <p className="text-sm font-semibold text-neutral-600">
-            everything you&apos;ve asked and noted, in one place
-          </p>
-        </div>
-        <Link href="/" className="nb-btn ml-auto rounded-lg px-4 py-2 text-sm">
-          ← BACK TO FEED
-        </Link>
-      </header>
+  const copyAll = () =>
+    `# Notebook${filtering ? " (filtered)" : ""}\n\n${visible.map(videoMarkdown).join("\n\n---\n\n")}\n`;
 
-      {/* Search + totals + copy all */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <input
-          className="nb-input w-full max-w-md rounded-lg px-3 py-2 text-sm"
-          placeholder="🔍 Search inside answers, notes, titles…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search the notebook"
-        />
+  // ---------- Layout ----------
+
+  const genreCount = (key: string) =>
+    key === "all"
+      ? beforeGenre.length
+      : beforeGenre.filter((e) => String(e.video.genreId ?? "none") === key).length;
+
+  const list = (
+    <aside className="flex w-full flex-col border-ink lg:sticky lg:top-[58px] lg:h-[calc(100vh-58px)] lg:w-[420px] lg:shrink-0 lg:border-r-2">
+      <div className="flex flex-col gap-3 border-b-2 border-ink bg-panel p-5">
+        <div className="flex items-end gap-3">
+          <h1 className="flex-1 font-display text-[30px] leading-none">Notebook</h1>
+          {visible.length > 0 && (
+            <div className="relative" data-nb-menu>
+              <button
+                type="button"
+                aria-label="More"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen((o) => !o)}
+                className={`flex h-8 w-8 items-center justify-center border-2 ${
+                  menuOpen ? "border-ink bg-ink text-cream" : "border-ink bg-surface hover:bg-tint"
+                }`}
+              >
+                <Icon name="more" size={16} strokeWidth={4} />
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-64 border-2 border-ink bg-surface p-1 shadow-hard">
+                  <CopyAllItem text={copyAll} count={visible.length} onDone={() => setMenuOpen(false)} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <label className="flex h-[38px] items-center gap-2 border-2 border-ink bg-surface px-2.5">
+          <Icon name="search" size={15} className="text-muted-2" />
+          <input
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
+            placeholder="Search answers, notes, titles"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setSearch("")}
+            aria-label="Search the notebook"
+          />
+          {search && (
+            <button type="button" aria-label="Clear search" onClick={() => setSearch("")}>
+              <Icon name="x" size={14} />
+            </button>
+          )}
+        </label>
+        <div className="flex gap-2">
+          <Dropdown
+            label="Genre"
+            value={genreFilter}
+            onChange={setGenreFilter}
+            options={[
+              { value: "all", label: `All genres · ${genreCount("all")}` },
+              ...genres
+                .map((g) => ({ value: String(g.id), label: `${g.name} · ${genreCount(String(g.id))}`, n: genreCount(String(g.id)) }))
+                .filter((o) => o.n > 0 || o.value === genreFilter),
+              ...(genreCount("none") > 0 ? [{ value: "none", label: `No genre · ${genreCount("none")}` }] : []),
+            ]}
+            className="flex-1"
+          />
+          <Dropdown
+            label="Question"
+            value={questionFilter}
+            onChange={setQuestionFilter}
+            disabled={questions.length === 0}
+            options={[
+              { value: "", label: questions.length ? "Any question" : "No repeated questions yet" },
+              ...questions.map((q) => ({ value: q.key, label: `Q: ${q.label} · ${q.count}` })),
+            ]}
+            className="flex-[1.2]"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <SegmentedControl
+            size="sm"
+            label="Show"
+            value={typeFilter}
+            onChange={setTypeFilter}
+            options={[
+              { value: "all", label: "All" },
+              { value: "answers", label: "Answers" },
+              { value: "notes", label: "My notes" },
+            ]}
+          />
+          <span className="ml-auto text-right font-mono text-[11px] font-bold leading-tight text-ink/80">
+            {visible.length} video{visible.length === 1 ? "" : "s"}
+            <br />
+            {answerCount} answer{answerCount === 1 ? "" : "s"} · {noteCount} note{noteCount === 1 ? "" : "s"}
+          </span>
+        </div>
         {filtering && (
-          <button
-            className="nb-chip rounded-full px-3 py-1 text-xs"
-            onClick={clearFilters}
-          >
-            ✕ CLEAR
+          <button type="button" onClick={clearFilters} className="self-start text-xs font-bold text-warn hover:underline">
+            Clear filters
           </button>
         )}
-        <span className="ml-auto text-sm font-bold text-neutral-600">
-          {visibleGroups.length} video{visibleGroups.length === 1 ? "" : "s"} ·{" "}
-          {visibleAnswerCount} answer{visibleAnswerCount === 1 ? "" : "s"} ·{" "}
-          {visibleNoteCount} note{visibleNoteCount === 1 ? "" : "s"}
-        </span>
-        {visibleGroups.length > 0 && <CopyAllButton text={copyAllText} />}
       </div>
 
-      {/* What to show */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        {(
-          [
-            ["both", "BOTH"],
-            ["answers", "💬 AI ANSWERS"],
-            ["notes", "📝 MY NOTES"],
-          ] as [TypeFilter, string][]
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            className="nb-chip rounded-full px-3 py-1 text-xs"
-            data-active={typeFilter === value}
-            onClick={() => setTypeFilter(value)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Genre chips — counts reflect the other filters. */}
-      {groupsBeforeGenre.length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          <button
-            className="nb-chip rounded-full px-3 py-1 text-xs"
-            data-active={genreFilter === "all"}
-            onClick={() => setGenreFilter("all")}
-          >
-            ALL <span className="opacity-60">{groupsBeforeGenre.length}</span>
-          </button>
-          {genres.map((g) => {
-            const count = groupsBeforeGenre.filter(
-              (x) => x.video.genreId === g.id
-            ).length;
-            if (count === 0) return null;
-            const active = genreFilter === g.id;
-            return (
-              <button
-                key={g.id}
-                className="nb-chip rounded-full px-3 py-1 text-xs"
-                data-active={active}
-                style={
-                  active
-                    ? { backgroundColor: g.color, color: textColorFor(g.color) }
-                    : undefined
-                }
-                onClick={() => setGenreFilter(g.id)}
-              >
-                {g.name.toUpperCase()} <span className="opacity-60">{count}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Question chips — only questions asked at least twice; they filter
-          Gemini's answers, so they hide on MY NOTES. */}
-      {questionChips.length > 0 && typeFilter !== "notes" && (
-        <div className="mb-6 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold text-neutral-600">QUESTION:</span>
-          <button
-            className="nb-chip rounded-full px-3 py-1 text-xs"
-            data-active={questionFilter == null}
-            onClick={() => setQuestionFilter(null)}
-          >
-            ANY
-          </button>
-          {questionChips.map((q) => (
-            <button
-              key={q.key}
-              className="nb-chip rounded-full px-3 py-1 text-xs"
-              data-active={questionFilter === q.key}
-              onClick={() => setQuestionFilter(q.key)}
-              title={q.label}
-            >
-              {q.label.length > 42 ? q.label.slice(0, 40) + "…" : q.label}{" "}
-              <span className="opacity-60">{q.count}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {loading && <p className="py-8 text-center font-bold">LOADING…</p>}
-      {error && (
-        <p className="py-8 text-center font-bold text-[var(--accent)]">{error}</p>
-      )}
-
-      {!loading && !error && !hasAnything && (
-        <div className="nb mx-auto max-w-lg rounded-xl p-8 text-center">
-          <p className="font-display text-xl">NOTHING HERE YET</p>
-          <p className="mt-2 text-sm text-neutral-600">
-            Use 💬 ASK or 📝 NOTE on any video. Every answer and note is saved
-            and shows up here, grouped by video.
-          </p>
-        </div>
-      )}
-
-      {!loading && hasAnything && visibleGroups.length === 0 && (
-        <div className="nb mx-auto max-w-lg rounded-xl p-8 text-center">
-          <p className="font-display text-xl">NO MATCHES</p>
-          <p className="mt-2 text-sm text-neutral-600">
-            Nothing in your notebook matches these filters.
-          </p>
-          <button
-            className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
-            onClick={clearFilters}
-          >
-            ✕ CLEAR FILTERS
-          </button>
-        </div>
-      )}
-
-      {/* One block per video, most recent activity first. */}
-      <div className="flex flex-col gap-5">
-        {visibleGroups.map(({ video, answers: list, showNote, lastActivity }) => {
-          const genre = genreFor(video);
-          const accent = genre?.color ?? "#FFC900";
-          const editing = editingNote === video.id;
-          // Offer "+ add a note" on answer blocks when notes are in view.
-          const canAddNote =
-            !showNote && typeFilter === "both" && !questionFilter;
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {visible.map((e) => {
+          const on = selected?.video.id === e.video.id;
           return (
-            <section key={video.id} className="nb rounded-xl p-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  className="relative w-28 shrink-0 overflow-hidden rounded-md border-2 border-[var(--ink)] bg-black"
-                  onClick={() => setPlaying(video)}
-                  aria-label={`Play ${video.title}`}
-                  title="Watch"
-                >
-                  {video.thumbnail ? (
-                    <img
-                      src={video.thumbnail}
-                      alt=""
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="aspect-video w-full object-cover"
-                    />
-                  ) : (
-                    <div className="aspect-video w-full bg-neutral-800" />
-                  )}
-                </button>
-                <div className="min-w-48 flex-1">
-                  <h2 className="font-bold leading-snug">{video.title}</h2>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                    <span
-                      className="rounded border border-[var(--ink)] px-1.5 py-0.5 font-semibold"
-                      style={{
-                        backgroundColor: accent,
-                        color: textColorFor(accent),
-                      }}
-                    >
-                      {video.channelTitle}
-                    </span>
-                    <span className="text-neutral-500">
-                      updated {timeAgo(lastActivity)}
-                      {list.length > 0 &&
-                        ` · ${list.length} answer${list.length === 1 ? "" : "s"}`}
-                      {video.watched ? " · ✓ seen" : ""}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  className="nb-chip shrink-0 rounded px-2.5 py-1 text-xs"
-                  onClick={() => setPlaying(video)}
-                >
-                  ▶ WATCH
-                </button>
-              </div>
-
-              <div className="mt-3 flex flex-col gap-3">
-                {list.map((a) => {
-                  const long = a.answer.length > COLLAPSE_AT_CHARS;
-                  const open = expanded.has(a.id);
-                  return (
-                    <div
-                      key={a.id}
-                      className="rounded-lg border-2 border-[var(--ink)] bg-[var(--paper)] p-3 text-sm leading-relaxed"
-                    >
-                      <div className="mb-1 flex items-start justify-between gap-2">
-                        <p className="font-bold">
-                          <span className="mr-1.5 rounded-full border border-[var(--ink)] bg-[var(--pink)] px-1.5 text-[10px]">
-                            AI ANSWER
-                          </span>
-                          Q: {a.prompt.trim()}
-                        </p>
-                        <CopyButton text={a.answer} />
-                      </div>
-                      <div
-                        className={long && !open ? "max-h-56 overflow-hidden" : ""}
-                      >
-                        <Markdown text={a.answer} />
-                      </div>
-                      {long && (
-                        <button
-                          className="nb-chip mt-2 rounded px-2 py-0.5 text-[10px]"
-                          onClick={() => toggleExpanded(a.id)}
-                        >
-                          {open ? "SHOW LESS ▴" : "SHOW ALL ▾"}
-                        </button>
-                      )}
-                      <p className="mt-1 text-[10px] text-neutral-500">
-                        asked {timeAgo(a.createdAt)}
-                      </p>
-                    </div>
-                  );
-                })}
-
-                {/* Your note — read view, editor, or an "add" button. */}
-                {(showNote || editing) && (
-                  <div className="rounded-lg border-2 border-[var(--ink)] bg-[var(--paper)] p-3 text-sm leading-relaxed">
-                    <div className="mb-1 flex items-start justify-between gap-2">
-                      <p className="font-bold">
-                        <span className="rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-1.5 text-[10px]">
-                          MY NOTE
-                        </span>
-                      </p>
-                      <div className="flex gap-1.5">
-                        {!editing && video.personalNote && (
-                          <CopyButton text={video.personalNote} />
-                        )}
-                        <button
-                          className="nb-chip rounded px-1.5 py-0.5 text-[10px]"
-                          onClick={() =>
-                            setEditingNote(editing ? null : video.id)
-                          }
-                        >
-                          {editing ? "DONE" : "✎ EDIT"}
-                        </button>
-                      </div>
-                    </div>
-                    {editing ? (
-                      <NoteEditor
-                        videoId={video.id}
-                        initial={video.personalNote}
-                        autoFocus
-                        rows={5}
-                        onSaved={(note, at) => noteSaved(video.id, note, at)}
-                      />
-                    ) : (
-                      <div className="whitespace-pre-wrap">
-                        {video.personalNote}
-                      </div>
-                    )}
-                  </div>
+            <li key={e.video.id}>
+              <button
+                type="button"
+                onClick={() => select(e.video.id)}
+                aria-current={on ? "true" : undefined}
+                className={`flex w-full gap-3 border-b-2 border-l-[5px] border-b-line-2 px-5 py-3 text-left ${
+                  on ? "border-l-primary bg-tint" : "border-l-transparent hover:bg-cream"
+                }`}
+              >
+                {e.video.thumbnail ? (
+                  <img
+                    src={e.video.thumbnail}
+                    alt=""
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    className="aspect-video w-20 shrink-0 self-start border-2 border-ink object-cover"
+                  />
+                ) : (
+                  <span className="aspect-video w-20 shrink-0 self-start border-2 border-ink bg-line" />
                 )}
-                {canAddNote && !editing && (
-                  <button
-                    className="nb-chip self-start rounded px-2.5 py-1 text-xs"
-                    onClick={() => setEditingNote(video.id)}
-                  >
-                    + ADD MY NOTE
-                  </button>
-                )}
-              </div>
-            </section>
+                <span className="flex min-w-0 flex-col gap-1">
+                  <span className="line-clamp-2 text-[13.5px] font-bold leading-snug">{e.video.title}</span>
+                  <span className="truncate text-xs text-ink/70">
+                    {e.video.channelTitle}
+                    {e.answers.length > 0 && ` · ${e.answers.length} answer${e.answers.length === 1 ? "" : "s"}`}
+                    {e.video.personalNote && " · note"} · {timeAgo(e.lastActivity)}
+                  </span>
+                </span>
+              </button>
+            </li>
           );
         })}
-      </div>
+      </ul>
+    </aside>
+  );
 
-      {playing && (
-        <PlayerModal
-          video={playing}
-          onClose={closePlayer}
-          onProgress={handleProgress}
-        />
+  return (
+    <>
+      <TopBar flush />
+      {loading && <p className="py-16 text-center text-sm font-bold text-muted-2">Loading your notebook…</p>}
+      {error && <p className="py-16 text-center text-sm font-bold text-danger">{error}</p>}
+
+      {!loading && !error && !hasAnything && (
+        <div className="mx-auto mt-10 max-w-lg border-2 border-ink bg-surface p-8 text-center shadow-hard">
+          <p className="font-display text-xl">Your notebook is empty</p>
+          <p className="mt-2 text-sm text-muted-2">
+            Ask about any video, or write a note on it. Every answer and note is kept here, by video.
+          </p>
+        </div>
       )}
-    </div>
+
+      {!loading && !error && hasAnything && (
+        <div className="flex flex-col lg:flex-row lg:items-start">
+          {/* On wide screens the wrapper disappears (display: contents) so the
+              list is a direct column of the row and can stay put (sticky). */}
+          <div className={`${reading ? "hidden" : "block"} lg:contents`}>{list}</div>
+
+          <main className={`${reading ? "block" : "hidden lg:block"} min-w-0 flex-1 px-4 pb-16 pt-6 sm:px-8 lg:px-11 lg:pt-8`}>
+            <button
+              type="button"
+              onClick={() => setReading(false)}
+              className="mb-4 flex items-center gap-1 text-sm font-bold lg:hidden"
+            >
+              <Icon name="chev" size={14} className="rotate-90" strokeWidth={3} />
+              All videos
+            </button>
+            {selected ? (
+              <Reader
+                key={selected.video.id}
+                entry={selected}
+                genre={genres.find((g) => g.id === selected.video.genreId) ?? null}
+                isMatch={(a) => (questionFilter || query ? answerMatches(a) : false)}
+                onWatch={setPlaying}
+                onAnswer={addAnswer}
+                onNoteSaved={(note, at) => patchVideo(selected.video.id, { personalNote: note, personalNoteAt: at })}
+              />
+            ) : (
+              <div className="mx-auto mt-6 max-w-lg border-2 border-ink bg-surface p-8 text-center shadow-hard">
+                <p className="font-display text-xl">No matches</p>
+                <p className="mt-2 text-sm text-muted-2">Nothing in your notebook matches these filters.</p>
+                <Button className="mt-4" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              </div>
+            )}
+          </main>
+        </div>
+      )}
+
+      {playing && <PlayerModal video={playing} onClose={closePlayer} onProgress={handleProgress} />}
+    </>
   );
 }
 
-/** Like CopyButton, but builds its (possibly large) text only on click. */
-function CopyAllButton({ text }: { text: () => string }) {
-  const [copied, setCopied] = useState(false);
-  async function copy() {
+/** The right-hand side: one video, all its answers, a follow-up box, your note. */
+function Reader({
+  entry,
+  genre,
+  isMatch,
+  onWatch,
+  onAnswer,
+  onNoteSaved,
+}: {
+  entry: Entry;
+  genre: GenreItem | null;
+  /** True for answers that match the active question filter or search. */
+  isMatch: (a: Answer) => boolean;
+  onWatch: (v: FeedVideo) => void;
+  onAnswer: (a: Answer) => void;
+  onNoteSaved: (note: string | null, at: string | null) => void;
+}) {
+  const { video, answers } = entry;
+  const [question, setQuestion] = useState("");
+  const [pending, setPending] = useState<string | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [editingNote, setEditingNote] = useState(false);
+  const latestRef = useRef<HTMLDivElement>(null);
+
+  async function ask(e: React.FormEvent) {
+    e.preventDefault();
+    const text = question.trim();
+    if (!text || pending) return;
+    setPending(text);
+    setAskError(null);
     try {
-      await navigator.clipboard.writeText(text());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard needs a secure context (https/localhost); ignore failures.
+      const res = await fetch(`/api/videos/${video.id}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Couldn't answer that");
+      onAnswer(data.note);
+      setQuestion("");
+      notifyNavChanged();
+      // Bring the new answer into view once it's rendered.
+      setTimeout(() => latestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    } catch (err) {
+      setAskError((err as Error).message);
+    } finally {
+      setPending(null);
     }
   }
+
   return (
-    <button className="nb-btn rounded-lg px-3 py-1.5 text-xs" onClick={copy}>
-      {copied ? "COPIED ✓" : "⧉ COPY ALL"}
+    <article className="flex max-w-[820px] flex-col gap-5">
+      {/* Title and actions */}
+      <header className="flex flex-wrap items-start gap-4">
+        <div className="min-w-[240px] flex-1">
+          <h2 className="font-display text-[26px] leading-[1.15]">{video.title}</h2>
+          <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink/75">
+            {genre && (
+              <span className="h-2.5 w-2.5 border-[1.5px] border-ink" style={{ backgroundColor: genre.color }} />
+            )}
+            <span className="font-bold text-ink">{video.channelTitle}</span>
+            {video.durationSeconds > 0 && <span>· <span className="font-mono">{formatDuration(video.durationSeconds)}</span></span>}
+            <span>· updated {timeAgo(entry.lastActivity)}</span>
+            {video.watched && <span>· seen</span>}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <CopyMarkdownButton text={() => videoMarkdown(entry)} />
+          <Button variant="primary" size="sm" className="h-9" onClick={() => onWatch(video)}>
+            <Icon name="play" size={12} filled />
+            {video.resumeSeconds ? "Resume" : "Watch"}
+          </Button>
+        </div>
+      </header>
+
+      {/* Answers, in the order asked */}
+      {answers.map((a, i) => (
+        <section
+          key={a.id}
+          ref={i === answers.length - 1 ? latestRef : undefined}
+          className={`scroll-mt-20 border-2 border-ink bg-surface shadow-[4px_4px_0_var(--color-ink)] ${
+            isMatch(a) ? "border-l-[6px] border-l-primary" : ""
+          }`}
+        >
+          <div className="flex items-start gap-2.5 border-b-2 border-ink px-4 py-3">
+            <span className="mt-0.5 bg-ink px-1.5 py-1 font-display text-[10px] leading-none tracking-widest text-cream">
+              GEMINI
+            </span>
+            <p className="min-w-0 flex-1 text-base font-bold leading-snug">{a.prompt.trim()}</p>
+            <span className="shrink-0 pt-0.5 text-xs text-ink/70">{timeAgo(a.createdAt)}</span>
+            <span className="shrink-0 pt-0.5">
+              <CopyButton text={a.answer} quiet />
+            </span>
+          </div>
+          <div className="max-w-[760px] px-5 py-4 text-[15.5px] leading-[1.65]">
+            <Markdown text={a.answer} />
+          </div>
+        </section>
+      ))}
+
+      {pending && (
+        <section className="border-2 border-dashed border-ink bg-surface px-4 py-3 text-sm">
+          <p className="font-bold">{pending}</p>
+          <p className="mt-1 text-ink/70">Thinking… a long video without captions can take a minute.</p>
+        </section>
+      )}
+
+      {/* Follow-up */}
+      <form
+        onSubmit={ask}
+        className="flex border-2 border-ink bg-surface focus-within:shadow-[3px_3px_0_var(--color-primary)]"
+      >
+        <span className="flex items-center px-3">
+          <Icon name="ask" size={16} />
+        </span>
+        <input
+          className="min-w-0 flex-1 bg-transparent py-3 text-sm outline-none placeholder:text-muted"
+          placeholder={answers.length ? "Ask a follow-up about this video" : "Ask anything about this video"}
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          aria-label="Ask about this video"
+        />
+        <button
+          type="submit"
+          aria-label="Ask"
+          disabled={!!pending || !question.trim()}
+          className="flex w-[46px] items-center justify-center border-l-2 border-ink bg-primary disabled:opacity-50"
+        >
+          <Icon name="send" size={16} />
+        </button>
+      </form>
+      {askError && <p className="-mt-3 text-sm font-bold text-danger">{askError}</p>}
+
+      {/* Your note */}
+      {editingNote ? (
+        <section className="border-2 border-ink bg-surface p-4">
+          <div className="mb-2 flex items-center">
+            <NoteLabel />
+            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setEditingNote(false)}>
+              Done
+            </Button>
+          </div>
+          <NoteEditor videoId={video.id} initial={video.personalNote} autoFocus large rows={8} onSaved={onNoteSaved} />
+        </section>
+      ) : video.personalNote ? (
+        <section className="border-2 border-ink bg-surface p-4">
+          <div className="mb-2 flex items-center gap-3">
+            <NoteLabel />
+            <span className="ml-auto">
+              <CopyButton text={video.personalNote} quiet />
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditingNote(true)}
+              className="flex items-center gap-1 text-xs font-bold hover:underline"
+            >
+              <Icon name="note" size={13} />
+              Edit
+            </button>
+          </div>
+          <div className="whitespace-pre-wrap text-[15px] leading-relaxed">{video.personalNote}</div>
+        </section>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditingNote(true)}
+          className="flex items-center gap-2.5 border-2 border-dashed border-muted-2 px-4 py-3.5 text-left text-sm text-ink/75 hover:border-ink hover:bg-surface"
+        >
+          <Icon name="note" size={15} />
+          Add your own note. It sits beside the answers and shows up in search.
+        </button>
+      )}
+    </article>
+  );
+}
+
+function NoteLabel() {
+  return (
+    <span className="bg-primary px-1.5 py-1 font-display text-[10px] leading-none tracking-widest text-ink">
+      MY NOTE
+    </span>
+  );
+}
+
+/** A native select dressed as a field: keyboard and screen readers come free. */
+function Dropdown({
+  label,
+  value,
+  onChange,
+  options,
+  disabled = false,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <label className={`relative flex min-w-0 ${className}`}>
+      <span className="sr-only">{label}</span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className={`h-[34px] w-full min-w-0 cursor-pointer appearance-none truncate border-2 border-ink pl-2.5 pr-7 text-[12.5px] font-bold disabled:cursor-default disabled:opacity-60 ${
+          value && value !== "all" ? "bg-primary" : "bg-surface"
+        }`}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <Icon name="chev" size={14} strokeWidth={3} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" />
+    </label>
+  );
+}
+
+/** "Copy as Markdown" for one video; builds the text only when clicked. */
+function CopyMarkdownButton({ text }: { text: () => string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      size="sm"
+      className="h-9"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text());
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          // Clipboard needs a secure context (https/localhost); ignore failures.
+        }
+      }}
+    >
+      <Icon name={copied ? "check" : "copy"} size={14} />
+      {copied ? "Copied" : "Copy as Markdown"}
+    </Button>
+  );
+}
+
+/** "Copy all shown" in the ⋯ menu. */
+function CopyAllItem({ text, count, onDone }: { text: () => string; count: number; onDone: () => void }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <MenuItem
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text());
+          setCopied(true);
+          setTimeout(() => {
+            setCopied(false);
+            onDone();
+          }, 900);
+        } catch {
+          onDone();
+        }
+      }}
+    >
+      <Icon name={copied ? "check" : "copy"} size={14} />
+      {copied ? "Copied" : `Copy all ${count} shown, as Markdown`}
+    </MenuItem>
+  );
+}
+
+function MenuItem({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold hover:bg-tint"
+    >
+      {children}
     </button>
   );
 }

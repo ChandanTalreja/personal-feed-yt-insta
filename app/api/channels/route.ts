@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { count, desc, eq } from "drizzle-orm";
+import { desc, eq, max, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { isAuthed } from "@/lib/auth";
 import { channels, genres, videos } from "@/lib/schema";
 import { resolveChannel } from "@/lib/youtube";
-import { backfillSince, ingestChannel, resolveBackfillMonths } from "@/lib/ingest";
+import {
+  BACKFILL_BUDGET_MS,
+  backfillChannel,
+  backfillSince,
+  resolveBackfillMonths,
+} from "@/lib/ingest";
 
 export const maxDuration = 60;
 
@@ -22,37 +27,38 @@ export async function GET() {
     .leftJoin(genres, eq(channels.genreId, genres.id))
     .orderBy(desc(channels.addedAt));
 
-  // Total items stored per channel, split by kind, so the feed's channel
-  // chips can show archive-size badges (stable numbers that only grow —
-  // deliberately independent of watched state). The badge always matches
-  // what clicking the chip reveals on that tab.
-  const counts = await db
+  // Per channel, in one grouped pass over its videos: how many of each kind
+  // are stored (the feed sidebar's archive-size counts, deliberately
+  // independent of watched state), and when it last uploaded — the Channels
+  // page's "last upload" and "quiet for months" status. Nothing new is
+  // stored; it's all derived from the videos already ingested.
+  const stats = await db
     .select({
       channelId: videos.channelId,
-      isShort: videos.isShort,
-      total: count(),
+      videoCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = false)::int`,
+      shortCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = true)::int`,
+      lastUploadAt: max(videos.publishedAt),
     })
     .from(videos)
-    .groupBy(videos.channelId, videos.isShort);
-  const videosByChannel = new Map<number, number>();
-  const shortsByChannel = new Map<number, number>();
-  for (const c of counts) {
-    (c.isShort ? shortsByChannel : videosByChannel).set(
-      c.channelId,
-      Number(c.total)
-    );
-  }
+    .groupBy(videos.channelId);
+  const byChannel = new Map(stats.map((s) => [s.channelId, s]));
 
   return NextResponse.json({
-    channels: rows.map((row) => ({
-      ...row,
-      videoCount: videosByChannel.get(row.channel.id) ?? 0,
-      shortCount: shortsByChannel.get(row.channel.id) ?? 0,
-    })),
+    channels: rows.map((row) => {
+      const s = byChannel.get(row.channel.id);
+      return {
+        ...row,
+        videoCount: Number(s?.videoCount ?? 0),
+        shortCount: Number(s?.shortCount ?? 0),
+        lastUploadAt: s?.lastUploadAt ?? null,
+      };
+    }),
   });
 }
 
 export async function POST(req: NextRequest) {
+  // The clock starts now: resolving the channel counts toward the budget.
+  const started = Date.now();
   if (!(await isAuthed())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -91,12 +97,17 @@ export async function POST(req: NextRequest) {
       .values({ ...resolved, genreId })
       .returning();
 
-    const videosAdded = await ingestChannel(
-      db,
-      inserted,
-      backfillSince(backfillMonths)
-    );
-    return NextResponse.json({ channel: inserted, videosAdded, backfillMonths });
+    // Same time budget as /backfill: a busy channel with a deep window may
+    // not finish in one request; `cursor` tells the page to carry on there.
+    const step = await backfillChannel(db, inserted, backfillSince(backfillMonths), {
+      deadline: started + BACKFILL_BUDGET_MS,
+    });
+    return NextResponse.json({
+      channel: inserted,
+      videosAdded: step.added,
+      cursor: step.cursor,
+      backfillMonths,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

@@ -1,26 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Mascot from "./Mascot";
-import VideoCard from "./VideoCard";
+import { useRouter, useSearchParams } from "next/navigation";
+import TopBar from "./TopBar";
+import VideoCard, { type StudyTool } from "./VideoCard";
+import StudyPanel, { type StudyTab } from "./StudyPanel";
+import FeedSidebar, { type Facets, type View } from "./FeedSidebar";
 import PlayerModal, { type ProgressUpdate } from "./PlayerModal";
 import TrackMenu from "./TrackMenu";
-import Emoji from "./Emoji";
+import Button, { buttonClass } from "./ui/Button";
+import Icon from "./ui/Icon";
+import SegmentedControl from "./ui/SegmentedControl";
 import type { FeedVideo, GenreItem } from "./types";
-import { textColorFor } from "@/lib/color";
 import { formatTotalTime } from "@/lib/format";
+import { notifyNavChanged } from "@/lib/nav-events";
 
 type Kind = "videos" | "shorts";
-type Watched = "unwatched" | "all" | "watched" | "later";
 type LengthFilter = "any" | "short" | "medium" | "long";
 
-const LENGTH_CHIPS: [LengthFilter, string][] = [
-  ["any", "ANY"],
-  ["short", "< 10 MIN"],
-  ["medium", "10–30"],
-  ["long", "30+"],
-];
+const PAGE_SIZE = 24;
+
+const VIEW_TITLES: Record<View, string> = {
+  unwatched: "Inbox",
+  later: "Later",
+  watched: "History",
+  all: "Everything",
+};
 
 interface FeedChannel {
   id: number;
@@ -32,14 +38,12 @@ interface FeedChannel {
   shortCount: number;
 }
 
-const TICKER_PHRASES = [
-  "NO ALGORITHM",
-  "YOUR CHANNELS ONLY",
-  "STAY FOCUSED",
-  "CHRONOLOGICAL & PROUD",
-  "WATCH IT OR MARK IT",
-  "ZERO RABBIT HOLES",
-];
+/** What the study panel is showing: which video, which tab, track chooser open? */
+interface Study {
+  video: FeedVideo;
+  tab: StudyTab;
+  track: boolean;
+}
 
 export default function FeedClient() {
   const [genres, setGenres] = useState<GenreItem[]>([]);
@@ -47,30 +51,39 @@ export default function FeedClient() {
   const [genreId, setGenreId] = useState<number | null>(null);
   const [channelIds, setChannelIds] = useState<number[]>([]);
   const [kind, setKind] = useState<Kind>("videos");
-  const [watched, setWatched] = useState<Watched>("unwatched");
-  // Watch Later: total saved per kind (ignores filters → the tab badge), and
-  // how many the current filters show (only while on LATER → the hint).
+  const [view, setView] = useState<View>("unwatched");
+  // Watch Later: total saved per kind (ignores filters → the hint below the
+  // title), and how many the current filters show.
   const [laterCounts, setLaterCounts] = useState({ videos: 0, shorts: 0 });
   const [lengthFilter, setLengthFilter] = useState<LengthFilter>("any");
   // "Add these search results to a track" panel.
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   // Count + total duration of everything the current filters match (all
-  // pages, not just the loaded ones). On LATER, the count is also the number
-  // of saved videos visible, which the "N more saved" hint compares against.
-  const [totals, setTotals] = useState<{ count: number; seconds: number } | null>(
-    null
-  );
+  // pages, not just the loaded ones).
+  const [totals, setTotals] = useState<{ count: number; seconds: number } | null>(null);
+  // Sidebar counts (views and genres), from the first page's response.
+  const [facets, setFacets] = useState<Facets | null>(null);
   const [videos, setVideos] = useState<FeedVideo[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // "first" = the whole grid is being replaced (placeholders instead of the
+  // grid); "more" = a page is being appended (placeholders after it).
+  const [loading, setLoading] = useState<"first" | "more" | null>("first");
   const [toast, setToast] = useState<string | null>(null);
   const [playing, setPlaying] = useState<FeedVideo | null>(null);
+  // "Play unseen in a row" (Shorts): the shorts lined up, and which is on.
+  const [queue, setQueue] = useState<{ items: FeedVideo[]; index: number } | null>(null);
+  const [study, setStudy] = useState<Study | null>(null);
+  const [everyday, setEveryday] = useState<string[]>([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [channelSearch, setChannelSearch] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Clicking filters quickly fires several requests; only the newest one
+  // may update the screen, or a slow old answer would overwrite a new one.
+  const requestId = useRef(0);
 
   const loadChannels = useCallback(async () => {
     try {
@@ -79,11 +92,7 @@ export default function FeedClient() {
       if (!res.ok) return;
       setChannels(
         (data.channels ?? []).map(
-          (row: {
-            channel: FeedChannel;
-            videoCount: number;
-            shortCount: number;
-          }) => ({
+          (row: { channel: FeedChannel; videoCount: number; shortCount: number }) => ({
             ...row.channel,
             videoCount: row.videoCount,
             shortCount: row.shortCount,
@@ -98,6 +107,10 @@ export default function FeedClient() {
       .then((r) => r.json())
       .then((d) => setGenres(d.genres ?? []))
       .catch(() => {});
+    fetch("/api/ask-suggestions")
+      .then((r) => r.json())
+      .then((d) => setEveryday(d.suggestions ?? []))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadChannels();
   }, [loadChannels]);
@@ -105,40 +118,39 @@ export default function FeedClient() {
   // The feed's current filters as query params — shared by the page loader
   // and "add these to a track", so both always mean the same videos.
   const filterParams = useCallback(() => {
-    const params = new URLSearchParams({ kind, watched });
+    const params = new URLSearchParams({ kind, watched: view });
     if (genreId != null) params.set("genreId", String(genreId));
-    if (channelIds.length > 0) {
-      params.set("channelIds", channelIds.join(","));
-    }
+    if (channelIds.length > 0) params.set("channelIds", channelIds.join(","));
     if (debouncedSearch) params.set("search", debouncedSearch);
     // Every short is under ~3 min, so the length filter only applies to
-    // VIDEOS (the chips are hidden on SHORTS).
-    if (kind === "videos" && lengthFilter !== "any") {
-      params.set("length", lengthFilter);
-    }
+    // videos (the control is hidden on Shorts).
+    if (kind === "videos" && lengthFilter !== "any") params.set("length", lengthFilter);
     return params;
-  }, [kind, watched, genreId, channelIds, debouncedSearch, lengthFilter]);
+  }, [kind, view, genreId, channelIds, debouncedSearch, lengthFilter]);
 
   const loadPage = useCallback(
-    async (pageToLoad: number, replace: boolean) => {
-      setLoading(true);
+    async (pageToLoad: number, replace: boolean): Promise<FeedVideo[]> => {
+      const id = ++requestId.current;
+      setLoading(replace ? "first" : "more");
       try {
         const params = filterParams();
         params.set("page", String(pageToLoad));
         const res = await fetch(`/api/videos?${params}`);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Failed to load feed");
-        setVideos((prev) =>
-          replace ? data.videos : [...prev, ...data.videos]
-        );
+        if (id !== requestId.current) return []; // a newer request owns the screen
+        if (!res.ok) throw new Error(data.error ?? "Couldn't load the feed");
+        setVideos((prev) => (replace ? data.videos : [...prev, ...data.videos]));
         setHasMore(data.hasMore);
         setPage(pageToLoad);
         if (data.laterCounts) setLaterCounts(data.laterCounts);
         if (data.totals) setTotals(data.totals);
+        if (data.facets) setFacets(data.facets);
+        return data.videos as FeedVideo[];
       } catch (err) {
-        setToast((err as Error).message);
+        if (id === requestId.current) setToast((err as Error).message);
+        return [];
       } finally {
-        setLoading(false);
+        if (id === requestId.current) setLoading(null);
       }
     },
     [filterParams]
@@ -163,35 +175,54 @@ export default function FeedClient() {
     return () => clearTimeout(t);
   }, [search]);
 
-  async function handleRefresh() {
-    setRefreshing(true);
-    try {
-      const res = await fetch("/api/cron");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Refresh failed");
-      if (data.added > 0) {
-        const list: { title: string; added: number }[] = data.breakdown ?? [];
-        const shown = list
-          .slice(0, 4)
-          .map((b) => `${b.title} (${b.added})`)
-          .join(", ");
-        const more =
-          list.length > 4 ? ` …and ${list.length - 4} more` : "";
-        setToast(
-          `Fetched ${data.added} new video${data.added === 1 ? "" : "s"} — ${shown}${more}.`
-        );
-      } else {
-        setToast(
-          `All caught up — ${data.channels} channels checked, nothing new.`
-        );
-      }
-      await Promise.all([loadPage(0, true), loadChannels()]);
-    } catch (err) {
-      setToast((err as Error).message);
-    } finally {
-      setRefreshing(false);
+  // Esc closes the study panel — unless the player is open (Esc is its).
+  useEffect(() => {
+    if (!study || playing) return;
+    function onKey(e: KeyboardEvent) {
+      // Esc inside a text box clears or leaves the box, not the panel.
+      const typing = e.target instanceof Element && e.target.closest("input, textarea");
+      if (e.key === "Escape" && !typing) setStudy(null);
     }
-  }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [study, playing]);
+
+  // Links from global search land here: /?channel=5 (that channel's
+  // videos), /?q=kafka (the search, across everything), /?video=42 (that
+  // video in the study panel). Apply them, then tidy the address back to "/"
+  // so a reload doesn't re-apply them over what you've changed since.
+  useEffect(() => {
+    const channel = Number(searchParams.get("channel"));
+    const q = searchParams.get("q");
+    const video = Number(searchParams.get("video"));
+    if (!channel && !q && !video) return;
+    if (channel) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setGenreId(null);
+      setChannelIds([channel]);
+      setSearch("");
+      setView("all");
+    }
+    if (q) {
+      setGenreId(null);
+      setChannelIds([]);
+      setSearch(q);
+      setView("all");
+    }
+    if (video) {
+      fetch(`/api/videos/${video}`)
+        .then((r) => r.json())
+        .then((d) => d.video && setStudy({ video: d.video, tab: "ask", track: false }))
+        .catch(() => {});
+    }
+    router.replace("/", { scroll: false });
+  }, [searchParams, router]);
+
+  // After a sync from the top bar: new videos may have arrived, so reload
+  // the first page and the channel counts.
+  const reloadAfterSync = useCallback(async () => {
+    await Promise.all([loadPage(0, true), loadChannels()]);
+  }, [loadPage, loadChannels]);
 
   // A video entered or left the current view's set: keep the count and the
   // total time in step without refetching.
@@ -206,51 +237,77 @@ export default function FeedClient() {
     );
   }
 
-  // Keep the LATER badge and hint in step when a video joins or leaves the
-  // list, without refetching the whole page.
+  /**
+   * Keep the sidebar counts in step when a card changes state, without
+   * refetching. `field` changed to `on` for `video`, which matches every
+   * current filter (it's on screen), so only its view and genre move.
+   */
+  function bumpFacets(video: FeedVideo, field: "watched" | "later", on: boolean) {
+    const d = on ? 1 : -1;
+    setFacets((f) => {
+      if (!f) return f;
+      const views = { ...f.views };
+      const genresCount = { ...f.genres };
+      const key = String(video.genreId ?? "none");
+      const bumpGenre = (n: number) => (genresCount[key] = Math.max(0, (genresCount[key] ?? 0) + n));
+      if (field === "watched") {
+        views.unwatched = Math.max(0, views.unwatched - d);
+        views.watched += d;
+        if (view === "unwatched") bumpGenre(-d);
+        if (view === "watched") bumpGenre(d);
+      } else {
+        views.later = Math.max(0, views.later + d);
+        if (view === "later") bumpGenre(d);
+      }
+      return { views, genres: genresCount };
+    });
+  }
+
   function adjustLaterCounts(video: FeedVideo, delta: 1 | -1) {
     const key = video.isShort ? "shorts" : "videos";
     setLaterCounts((c) => ({ ...c, [key]: Math.max(0, c[key] + delta) }));
-    if (watched === "later") adjustTotals(video, delta);
+    bumpFacets(video, "later", delta === 1);
+    if (view === "later") adjustTotals(video, delta);
   }
+
+  /** Apply a change to a video everywhere it's shown (grid and panel). */
+  const patchVideo = useCallback((id: number, patch: Partial<FeedVideo>) => {
+    setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
+    setStudy((s) => (s && s.video.id === id ? { ...s, video: { ...s.video, ...patch } } : s));
+  }, []);
 
   async function toggleWatched(video: FeedVideo) {
     const next = !video.watched;
     // Marking watched also takes it off Watch Later (the server does the
-    // same) — and on the LATER tab the card leaves the list.
+    // same) — and on the Later view the card leaves the list.
     const leavesLater = next && video.laterAt != null;
-    setVideos((prev) =>
-      watched === "later" && leavesLater
-        ? prev.filter((v) => v.id !== video.id)
-        : prev.map((v) =>
-            v.id === video.id
-              ? { ...v, watched: next, laterAt: leavesLater ? null : v.laterAt }
-              : v
-          )
-    );
+    if (view === "later" && leavesLater) {
+      setVideos((prev) => prev.filter((v) => v.id !== video.id));
+    } else {
+      // Everywhere else the card stays put, dimmed, with an Undo.
+      patchVideo(video.id, { watched: next, laterAt: leavesLater ? null : video.laterAt });
+    }
     if (leavesLater) adjustLaterCounts(video, -1);
-    // INBOX counts unwatched videos and HISTORY counts watched ones, so a
-    // toggle moves the video out of (or back into) that tab's total.
-    if (watched === "unwatched") adjustTotals(video, next ? -1 : 1);
-    if (watched === "watched") adjustTotals(video, next ? 1 : -1);
+    bumpFacets(video, "watched", next);
+    // Inbox counts unwatched videos and History counts watched ones, so a
+    // toggle moves the video out of (or back into) that view's total.
+    if (view === "unwatched") adjustTotals(video, next ? -1 : 1);
+    if (view === "watched") adjustTotals(video, next ? 1 : -1);
     await fetch(`/api/videos/${video.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ watched: next }),
     }).catch(() => {});
+    notifyNavChanged();
   }
 
   async function toggleLater(video: FeedVideo) {
     const saving = video.laterAt == null;
-    setVideos((prev) =>
-      watched === "later" && !saving
-        ? prev.filter((v) => v.id !== video.id)
-        : prev.map((v) =>
-            v.id === video.id
-              ? { ...v, laterAt: saving ? new Date().toISOString() : null }
-              : v
-          )
-    );
+    if (view === "later" && !saving) {
+      setVideos((prev) => prev.filter((v) => v.id !== video.id));
+    } else {
+      patchVideo(video.id, { laterAt: saving ? new Date().toISOString() : null });
+    }
     adjustLaterCounts(video, saving ? 1 : -1);
     await fetch(`/api/videos/${video.id}`, {
       method: "PATCH",
@@ -279,9 +336,10 @@ export default function FeedClient() {
       setToast(
         `Added ${data.added} video${data.added === 1 ? "" : "s"} to “${track.name}”` +
           (data.skipped > 0 ? ` (${data.skipped} already there)` : "") +
-          ". Open 🎯 TRACKS to start."
+          ". Open Tracks to start."
       );
       setBulkOpen(false);
+      notifyNavChanged();
     } catch (err) {
       setToast((err as Error).message);
     } finally {
@@ -291,9 +349,50 @@ export default function FeedClient() {
 
   // Stable identity, so the modal's Escape-key listener isn't re-attached on
   // every progress update.
-  const closePlayer = useCallback(() => setPlaying(null), []);
+  const closePlayer = useCallback(() => {
+    setPlaying(null);
+    setQueue(null);
+  }, []);
 
-  // Opening a video no longer marks it seen — the player reports real
+  /**
+   * Shorts' "Play unseen in a row": line up the unseen shorts on screen,
+   * newest first, and play them one after another. When the line runs out
+   * and there are more pages, the next page is loaded and the line grows.
+   */
+  function playUnseen() {
+    const items = videos.filter((v) => !v.watched);
+    if (items.length === 0) return;
+    setQueue({ items, index: 0 });
+    setPlaying(items[0]);
+  }
+
+  async function advanceQueue() {
+    if (!queue) return;
+    let items = queue.items;
+    const index = queue.index + 1;
+    if (index >= items.length && hasMore) {
+      const more = await loadPage(page + 1, false);
+      const known = new Set(items.map((v) => v.id));
+      items = [...items, ...more.filter((v) => !v.watched && !known.has(v.id))];
+    }
+    if (index >= items.length) {
+      setPlaying(null);
+      setQueue(null);
+      setToast("That's every unseen short here. Nice.");
+      return;
+    }
+    setQueue({ items, index });
+    setPlaying(items[index]);
+  }
+
+  /** A short played to the end: it's seen (the honest rule, made explicit). */
+  async function queueEnded() {
+    const current = queue ? videos.find((v) => v.id === queue.items[queue.index]?.id) : null;
+    if (current && !current.watched) await toggleWatched(current);
+    await advanceQueue();
+  }
+
+  // Opening a video doesn't mark it seen — the player reports real
   // progress, and the server marks it watched once half is actually played.
   function handlePlay(video: FeedVideo) {
     setPlaying(video);
@@ -305,582 +404,398 @@ export default function FeedClient() {
     const prev = videos.find((v) => v.id === update.id);
     const becameWatched = prev != null && !prev.watched && update.watched;
     if (becameWatched) {
+      notifyNavChanged();
+      bumpFacets(prev, "watched", true);
       if (prev.laterAt != null) adjustLaterCounts(prev, -1);
-      if (watched === "unwatched") adjustTotals(prev, -1);
-      if (watched === "watched") adjustTotals(prev, 1);
+      if (view === "unwatched") adjustTotals(prev, -1);
+      if (view === "watched") adjustTotals(prev, 1);
     }
-    setVideos((list) =>
-      becameWatched && watched === "later"
-        ? list.filter((v) => v.id !== update.id)
-        : list.map((v) => (v.id === update.id ? { ...v, ...update } : v))
-    );
-  }
-
-  function accentFor(video: FeedVideo): string {
-    const genre = genres.find((g) => g.id === video.genreId);
-    return genre?.color ?? "var(--yellow)";
-  }
-
-  function askPresetFor(video: FeedVideo): string | null {
-    const genre = genres.find((g) => g.id === video.genreId);
-    return genre?.askPrompt ?? null;
-  }
-
-  // Channels are scoped to the active genre (the outer filter); the rail's
-  // search box then narrows within that scope. Both the wide-screen rail and
-  // the narrow-screen chip fallback read from this same scoped list.
-  const visibleChannels = channels.filter(
-    (c) => genreId == null || c.genreId === genreId
-  );
-  const railQuery = channelSearch.trim().toLowerCase();
-  const railChannels = railQuery
-    ? visibleChannels.filter((c) => c.title.toLowerCase().includes(railQuery))
-    : visibleChannels;
-
-  // Watch Later bookkeeping for the tab badge and the "hidden here" hint.
-  const laterTotal = laterCounts.videos + laterCounts.shorts;
-  const otherKind: Kind = kind === "videos" ? "shorts" : "videos";
-  const laterHiddenByFilters =
-    watched === "later" && totals != null
-      ? Math.max(0, laterCounts[kind] - totals.count)
-      : 0;
-  const laterInOtherKind = watched === "later" ? laterCounts[otherKind] : 0;
-
-  // What to say when the grid is empty — the most specific reason wins:
-  // search, then length, then the tab itself.
-  function renderEmptyState() {
-    const btn = "nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm";
-    const noun = kind === "shorts" ? "shorts" : "videos";
-    const lengthActive = kind === "videos" && lengthFilter !== "any";
-    let title = "NOTHING HERE YET";
-    let body =
-      "Add your first channel and TUBEBOX will backfill its last year of uploads.";
-    let action: React.ReactNode = (
-      <Link href="/manage" className={btn}>
-        + ADD CHANNELS
-      </Link>
-    );
-    if (debouncedSearch) {
-      title = "NO MATCHES";
-      body = `No ${noun} match “${debouncedSearch}” in this view. Try EVERYTHING, another genre, or clear the search.`;
-      action = (
-        <button className={btn} onClick={() => setSearch("")}>
-          ✕ CLEAR SEARCH
-        </button>
-      );
-    } else if (lengthActive) {
-      title = "NO MATCHES";
-      body = "Nothing of that length in this view.";
-      action = (
-        <button className={btn} onClick={() => setLengthFilter("any")}>
-          ANY LENGTH
-        </button>
-      );
-    } else if (watched === "later") {
-      title = "NOTHING SAVED HERE";
-      body =
-        "Press + LATER on any video to save it here. Watched videos leave the list on their own.";
-      action = null;
-    } else if (watched === "unwatched") {
-      body =
-        "Inbox zero! Switch to EVERYTHING to browse history, or add more channels.";
+    if (becameWatched && view === "later") {
+      setVideos((list) => list.filter((v) => v.id !== update.id));
+    } else {
+      patchVideo(update.id, update);
     }
-    return (
-      <div className="nb mx-auto max-w-lg rounded-xl p-8 text-center">
-        <p className="font-display text-xl">{title}</p>
-        <p className="mt-2 text-sm text-neutral-600">{body}</p>
-        {action}
-      </div>
-    );
+  }
+
+  /** A card tool was clicked: open the panel there, or close it if it's already showing. */
+  function openTool(video: FeedVideo, tool: StudyTool) {
+    setStudy((s) => {
+      const same = s?.video.id === video.id;
+      if (tool === "track") {
+        if (same && s.track) return { ...s, track: false };
+        return { video, tab: same ? s.tab : "ask", track: true };
+      }
+      if (same && s.tab === tool && !s.track) return null;
+      return { video, tab: tool, track: false };
+    });
+  }
+
+  function genreFor(video: FeedVideo): GenreItem | undefined {
+    return genres.find((g) => g.id === video.genreId);
+  }
+
+  function pickGenre(id: number | null) {
+    // Genre is the outer filter; switching it resets the channel choice so
+    // the feed never silently empties.
+    setGenreId(id);
+    setChannelIds([]);
+    setFiltersOpen(false);
   }
 
   function toggleChannel(id: number) {
-    setChannelIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    setChannelIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function clearFilters() {
+    setGenreId(null);
+    setChannelIds([]);
+    setSearch("");
+    setLengthFilter("any");
+  }
+
+  // Channels are scoped to the active genre (the outer filter).
+  const visibleChannels = channels.filter((c) => genreId == null || c.genreId === genreId);
+
+  // Watch Later bookkeeping for the "hidden here" hint.
+  const otherKind: Kind = kind === "videos" ? "shorts" : "videos";
+  const laterHiddenByFilters =
+    view === "later" && totals != null ? Math.max(0, laterCounts[kind] - totals.count) : 0;
+  const laterInOtherKind = view === "later" ? laterCounts[otherKind] : 0;
+
+  // "124 unseen in DSA · 38h 12m · newest first"
+  function subtitle(): string {
+    if (!totals) return "";
+    const noun =
+      view === "unwatched"
+        ? "unseen"
+        : view === "later"
+          ? "saved"
+          : view === "watched"
+            ? "watched"
+            : kind === "shorts"
+              ? totals.count === 1 ? "short" : "shorts"
+              : totals.count === 1 ? "video" : "videos";
+    const genre = genres.find((g) => g.id === genreId);
+    const scope =
+      channelIds.length === 1
+        ? ` from ${channels.find((c) => c.id === channelIds[0])?.title ?? "1 channel"}`
+        : channelIds.length > 1
+          ? ` from ${channelIds.length} channels`
+          : genre
+            ? ` in ${genre.name}`
+            : "";
+    const matching = debouncedSearch ? ` matching “${debouncedSearch}”` : "";
+    const order = view === "later" ? "newest saved first" : "newest first";
+    return `${totals.count.toLocaleString()} ${noun}${scope}${matching} · ${formatTotalTime(totals.seconds)} · ${order}`;
+  }
+
+  // What to say when the grid is empty — the most specific reason wins.
+  function renderEmptyState() {
+    let title = "Nothing here";
+    let body = "Nothing matches these filters.";
+    let action: React.ReactNode = (
+      <Button onClick={clearFilters}>Clear filters</Button>
+    );
+    if (channels.length === 0) {
+      title = "No channels yet";
+      body = "Add a channel and TUBEBOX fetches its last year of uploads.";
+      action = (
+        <Link href="/channels#add" className={buttonClass("primary")}>
+          + Add channel
+        </Link>
+      );
+    } else if (debouncedSearch) {
+      title = "No matches";
+      body = `Nothing in this view matches “${debouncedSearch}”.`;
+      action = <Button onClick={() => setSearch("")}>Clear search</Button>;
+    } else if (kind === "videos" && lengthFilter !== "any") {
+      title = "Nothing that length here";
+      body = "Try another length, or any length.";
+      action = <Button onClick={() => setLengthFilter("any")}>Any length</Button>;
+    } else if (view === "later") {
+      title = "Nothing saved for later";
+      body = "Use the bookmark on any card. Watched videos leave this list on their own.";
+      action = null;
+    } else if (view === "unwatched") {
+      title = "You're all caught up";
+      body = "Nothing unseen in this view.";
+      action = <Button onClick={() => setView("all")}>See everything</Button>;
+    } else if (view === "watched") {
+      title = "Nothing watched yet";
+      body = "Videos you tick, or watch past halfway, land here.";
+      action = null;
+    }
+    return (
+      <div className="mx-auto mt-6 max-w-lg border-2 border-ink bg-surface p-8 text-center shadow-hard">
+        <p className="font-display text-xl">{title}</p>
+        <p className="mt-2 text-sm text-muted-2">{body}</p>
+        {action && <div className="mt-4">{action}</div>}
+      </div>
     );
   }
 
+  const gridClass =
+    kind === "shorts"
+      ? // Shorts: column counts (2/3/4/6) that all divide the 24-per-page
+        // batch, so every page fills complete rows.
+        "grid grid-cols-2 gap-4 @min-[560px]:grid-cols-3 @min-[760px]:grid-cols-4 @min-[1100px]:grid-cols-6"
+      : // Columns follow the space the grid actually has (it shrinks when
+        // the study panel opens), not the window size.
+        "grid grid-cols-1 gap-5 @min-[460px]:grid-cols-2 @min-[680px]:grid-cols-3 @min-[920px]:grid-cols-4 @min-[1240px]:grid-cols-5 @min-[1500px]:grid-cols-6";
+
+  const studyVideo = study ? (videos.find((v) => v.id === study.video.id) ?? study.video) : null;
+
+  const sidebar = (
+    <FeedSidebar
+      view={view}
+      onView={(v) => {
+        setView(v);
+        setFiltersOpen(false);
+      }}
+      genres={genres}
+      genreId={genreId}
+      onGenre={pickGenre}
+      channels={visibleChannels.map((c) => ({
+        id: c.id,
+        title: c.title,
+        thumbnail: c.thumbnail,
+        count: kind === "videos" ? c.videoCount : c.shortCount,
+      }))}
+      channelIds={channelIds}
+      onToggleChannel={toggleChannel}
+      onClearChannels={() => setChannelIds([])}
+      facets={facets}
+    />
+  );
+
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-4 pb-16">
-      {/* Header */}
-      <header className="flex flex-wrap items-center gap-4 py-6">
-        <Mascot size={72} />
-        <div>
-          <h1 className="font-display text-3xl sm:text-4xl">TUBEBOX</h1>
-          <p className="text-sm font-semibold text-neutral-600">
-            your feed · no algorithm
-          </p>
-        </div>
-        <div className="ml-auto flex gap-3">
-          <button
-            className="nb-btn rounded-lg px-4 py-2 text-sm"
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            {refreshing ? "FETCHING…" : "⟳ REFRESH"}
-          </button>
-          <Link
-            href="/notebook"
-            className="nb-btn rounded-lg px-4 py-2 text-sm"
-            // Inline beats the .nb-btn yellow (a bg-* utility wouldn't).
-            style={{ background: "#fff" }}
-          >
-            📓 NOTEBOOK
-          </Link>
-          <Link
-            href="/tracks"
-            className="nb-btn rounded-lg px-4 py-2 text-sm"
-            style={{ background: "#fff" }}
-          >
-            🎯 TRACKS
-          </Link>
-          <Link
-            href="/manage"
-            className="nb-btn nb-btn-pink rounded-lg px-4 py-2 text-sm"
-          >
-            + ADD / MANAGE
-          </Link>
-        </div>
-      </header>
-
-      {/* Ticker */}
-      <div className="nb-sm nb-ticker mb-6 overflow-hidden rounded-lg py-1.5">
-        <div className="ticker-track">
-          {[0, 1].map((copy) => (
-            <span key={copy} className="inline-flex">
-              {TICKER_PHRASES.map((phrase) => (
-                <span
-                  key={`${copy}-${phrase}`}
-                  className="mx-6 text-xs font-bold tracking-widest"
-                >
-                  ◉ {phrase}
-                </span>
-              ))}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* Toast — page-level (refresh results, errors). */}
-      {toast && (
-        <div className="nb mb-6 rounded-lg bg-[var(--yellow)] px-4 py-2 text-sm font-bold">
-          {toast}
-        </div>
-      )}
-
-      {/* Two columns: a persistent channel rail (wide screens) beside the
-          feed. Below `lg` the rail collapses and channels fall back to the
-          wrapped chip row inside the feed column — the original layout. */}
-      <div className="flex gap-6">
-        {/* Channel rail — wide screens only; scoped to the active genre. */}
-        <aside className="hidden w-64 shrink-0 lg:block">
-          <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col rounded-2xl border-[3px] border-[var(--ink)] bg-[var(--paper)] p-3 shadow-[6px_6px_0_var(--ink)]">
-            <input
-              className="nb-input w-full rounded-lg px-3 py-1.5 text-xs"
-              placeholder="🔍 Search channels…"
-              value={channelSearch}
-              onChange={(e) => setChannelSearch(e.target.value)}
-              aria-label="Search channels"
-            />
-            <div className="mt-3 mb-1 flex items-center justify-between px-1">
-              <span className="font-display text-xs">YOUR CHANNELS</span>
-              <span className="rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-1.5 text-[10px] font-bold">
-                {visibleChannels.length}
-              </span>
-            </div>
-            <div className="-mr-1 flex-1 space-y-0.5 overflow-y-auto pr-1">
-              {railChannels.length === 0 ? (
-                <p className="px-2 py-6 text-center text-xs text-neutral-500">
-                  {channelSearch
-                    ? "No channels match."
-                    : "No channels in this genre yet."}
-                </p>
-              ) : (
-                railChannels.map((channel) => {
-                  const selected = channelIds.includes(channel.id);
-                  const count =
-                    kind === "videos"
-                      ? channel.videoCount
-                      : channel.shortCount;
-                  return (
-                    <button
-                      key={channel.id}
-                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
-                        selected
-                          ? "bg-[var(--ink)] text-[var(--paper)]"
-                          : "hover:bg-black/5"
-                      }`}
-                      data-active={selected}
-                      onClick={() => toggleChannel(channel.id)}
-                      title={
-                        selected
-                          ? `Stop filtering by ${channel.title}`
-                          : `Only show ${channel.title}`
-                      }
-                    >
-                      {channel.thumbnail ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          src={channel.thumbnail}
-                          alt=""
-                          referrerPolicy="no-referrer"
-                          className="h-6 w-6 shrink-0 rounded-full border border-[var(--ink)]"
-                        />
-                      ) : (
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--ink)] bg-[var(--yellow)] text-[10px] font-bold text-[var(--ink)]">
-                          {channel.title.slice(0, 1).toUpperCase()}
-                        </span>
-                      )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {channel.title}
-                      </span>
-                      {count > 0 && (
-                        <span
-                          className={`shrink-0 rounded-full border px-1.5 text-[10px] font-bold ${
-                            selected
-                              ? "border-[var(--paper)] bg-[var(--paper)] text-[var(--ink)]"
-                              : "border-[var(--ink)] bg-[var(--yellow)]"
-                          }`}
-                        >
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
+    <>
+      <TopBar onRefreshed={reloadAfterSync} flush />
+      <div className="flex items-start">
+        {/* Sidebar — wide screens: a fixed column with its own scroll. */}
+        <aside className="sticky top-[58px] hidden h-[calc(100vh-58px)] w-[220px] shrink-0 overflow-y-auto border-r-2 border-ink bg-panel lg:block">
+          {sidebar}
         </aside>
 
-        {/* Feed column */}
-        <main className="min-w-0 flex-1">
-          {/* Genres */}
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="mr-1 font-display text-xs text-neutral-600">
-              GENRES
-            </span>
-            <button
-              className="nb-chip rounded-full px-3 py-1 text-xs"
-              data-active={genreId == null}
-              onClick={() => {
-                setGenreId(null);
-                setChannelIds([]);
-              }}
-            >
-              ALL
-            </button>
-            {genres.map((genre) => (
-              <button
-                key={genre.id}
-                className="nb-chip rounded-full px-3 py-1 text-xs"
-                style={
-                  genreId === genre.id
-                    ? {
-                        backgroundColor: genre.color,
-                        color: textColorFor(genre.color),
-                      }
-                    : undefined
-                }
-                data-active={genreId === genre.id}
-                onClick={() => {
-                  // Genre is the outer filter; switching it resets the
-                  // channel refinement so the feed never silently empties.
-                  setGenreId(genre.id);
-                  setChannelIds([]);
+        <main className="@container min-w-0 flex-1 px-4 pb-16 pt-6 sm:px-6">
+          {/* Title row: where you are, and the two shape-of-feed controls. */}
+          <div className="mb-5 flex flex-wrap items-end gap-3">
+            <div className="min-w-[200px] flex-1">
+              <h1 className="font-display text-[34px] leading-none">
+                {kind === "shorts" ? "Shorts" : VIEW_TITLES[view]}
+              </h1>
+              <p className="mt-2 font-mono text-[13px] font-bold text-ink/85">{subtitle()}&nbsp;</p>
+            </div>
+            <Button className="lg:hidden" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}>
+              Filters
+            </Button>
+            <label className="flex h-[38px] w-full items-center gap-2 border-2 border-ink bg-surface px-2.5 shadow-hard-sm sm:w-56">
+              <Icon name="search" size={14} className="text-muted-2" />
+              <input
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
+                placeholder="Search titles"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setSearch("");
                 }}
-              >
-                {genre.name.toUpperCase()}
-              </button>
-            ))}
-          </div>
-
-          {/* Kind + watched */}
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            {(["videos", "shorts"] as Kind[]).map((k) => (
-              <button
-                key={k}
-                className="nb-chip rounded-full px-3 py-1 text-xs"
-                data-active={kind === k}
-                onClick={() => setKind(k)}
-              >
-                {k === "videos" ? "▶ VIDEOS" : "⚡ SHORTS"}
-              </button>
-            ))}
-
-            <span className="mx-1 hidden h-6 w-0.5 bg-[var(--ink)] sm:block" />
-
-            {(
-              [
-                ["unwatched", "INBOX"],
-                ["all", "EVERYTHING"],
-                ["watched", "HISTORY"],
-                ["later", "LATER"],
-              ] as [Watched, string][]
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                className="nb-chip inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs"
-                data-active={watched === value}
-                onClick={() => setWatched(value)}
-              >
-                {label}
-                {/* Total saved, whatever the filters — so nothing in Watch
-                    Later is ever invisible from the tab row. */}
-                {value === "later" && laterTotal > 0 && (
-                  <span className="rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-1.5 text-[10px] font-bold text-[var(--ink)]">
-                    {laterTotal}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Search — fuzzy title search, scoped to the active filters — plus
-              the length filter (VIDEOS only) and the view's total time. */}
-          <div className="mb-6 flex flex-wrap items-center gap-2">
-            <input
-              className="nb-input w-full max-w-md rounded-lg px-3 py-2 text-sm"
-              placeholder="🔍 Search titles… (typos OK)"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search video titles"
+                aria-label="Search video titles"
+              />
+              {search && (
+                <button type="button" aria-label="Clear search" onClick={() => setSearch("")}>
+                  <Icon name="x" size={14} />
+                </button>
+              )}
+            </label>
+            <SegmentedControl
+              label="Type"
+              value={kind}
+              onChange={setKind}
+              options={[
+                { value: "videos", label: "Videos" },
+                { value: "shorts", label: "Shorts" },
+              ]}
             />
-            {search && (
-              <button
-                className="nb-chip rounded-full px-3 py-1 text-xs"
-                onClick={() => setSearch("")}
-                title="Clear search"
-              >
-                ✕ CLEAR
-              </button>
-            )}
             {kind === "videos" && (
-              <div className="flex flex-wrap gap-1.5 sm:ml-2">
-                {LENGTH_CHIPS.map(([value, label]) => (
-                  <button
-                    key={value}
-                    className="nb-chip rounded-full px-3 py-1 text-xs"
-                    data-active={lengthFilter === value}
-                    onClick={() => setLengthFilter(value)}
-                    title={
-                      value === "any"
-                        ? "Any length"
-                        : `Only videos ${label.toLowerCase()}`
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                label="Video length"
+                value={lengthFilter}
+                onChange={setLengthFilter}
+                options={[
+                  { value: "any", label: "Any length" },
+                  { value: "short", label: "< 10m" },
+                  { value: "medium", label: "10–30m" },
+                  { value: "long", label: "30m +" },
+                ]}
+              />
             )}
-            {totals && (
-              <span className="ml-auto text-sm font-bold text-neutral-600">
-                {totals.count}{" "}
-                {kind === "shorts"
-                  ? totals.count === 1
-                    ? "short"
-                    : "shorts"
-                  : totals.count === 1
-                    ? "video"
-                    : "videos"}{" "}
-                · {formatTotalTime(totals.seconds)}
-              </span>
-            )}
-            {debouncedSearch && totals && totals.count > 0 && (
-              <button
-                className="nb-chip rounded-full px-3 py-1 text-xs"
-                data-active={bulkOpen}
-                onClick={() => setBulkOpen((o) => !o)}
-                title="Add every result of this search to a learning track"
-              >
-                🎯 ADD THESE {totals.count} TO A TRACK
-              </button>
+            {/* Shorts: watch the unseen ones back to back. */}
+            {kind === "shorts" && videos.some((v) => !v.watched) && (
+              <Button variant="primary" className="h-[38px]" onClick={playUnseen}>
+                <Icon name="play" size={13} filled />
+                Play unseen in a row
+              </Button>
             )}
           </div>
 
-          {bulkOpen && debouncedSearch && totals && totals.count > 0 && (
-            <div className="nb-sm mb-6 max-w-md rounded-lg bg-white p-3">
-              <p className="mb-2 text-xs font-bold">
-                Add all {Math.min(totals.count, 300)} results for “{debouncedSearch}”,
-                oldest first, to:
-              </p>
-              {totals.count > 300 && (
-                <p className="mb-2 text-[11px] font-semibold text-[var(--accent)]">
-                  That&apos;s a lot — only the 300 oldest will be added. Narrow the
-                  search for a tighter track.
-                </p>
-              )}
-              <TrackMenu mode="pick" onPick={addResultsToTrack} busy={bulkBusy} />
-              {bulkBusy && (
-                <p className="mt-2 text-xs font-semibold">Adding…</p>
-              )}
+          {/* Narrow screens: the sidebar opens here instead. */}
+          {filtersOpen && (
+            <div className="mb-5 border-2 border-ink bg-surface shadow-hard lg:hidden">{sidebar}</div>
+          )}
+
+          {toast && (
+            <div className="mb-5 border-2 border-ink bg-primary px-4 py-2 text-sm font-bold shadow-hard">
+              {toast}
             </div>
           )}
 
-          {/* Channel chips — narrow-screen fallback for the rail: the same
-              genre-scoped multi-select, as the original wrapped row. */}
-          {visibleChannels.length >= 2 && (
-            <div className="mb-6 flex flex-wrap gap-2 lg:hidden">
-              {visibleChannels.map((channel) => {
-                const selected = channelIds.includes(channel.id);
-                return (
-                  <button
-                    key={channel.id}
-                    className="nb-chip flex shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs"
-                    data-active={selected}
-                    onClick={() => toggleChannel(channel.id)}
-                    title={
-                      selected
-                        ? `Stop filtering by ${channel.title}`
-                        : `Only show ${channel.title}`
-                    }
-                  >
-                    {channel.thumbnail ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={channel.thumbnail}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                        className="h-5 w-5 rounded-full border border-[var(--ink)]"
-                      />
-                    ) : (
-                      <span className="h-5 w-5 rounded-full border border-[var(--ink)] bg-[var(--yellow)]" />
-                    )}
-                    {channel.title}
-                    {(kind === "videos"
-                      ? channel.videoCount
-                      : channel.shortCount) > 0 && (
-                      <span
-                        className={`rounded-full border px-1.5 text-[10px] font-bold ${
-                          selected
-                            ? "border-[var(--paper)] bg-[var(--paper)] text-[var(--ink)]"
-                            : "border-[var(--ink)] bg-[var(--yellow)]"
-                        }`}
-                      >
-                        {kind === "videos"
-                          ? channel.videoCount
-                          : channel.shortCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+          {/* Search results can become a learning track. */}
+          {debouncedSearch && totals && totals.count > 0 && (
+            <div className="mb-5">
+              <Button size="sm" onClick={() => setBulkOpen((o) => !o)} aria-expanded={bulkOpen}>
+                <Icon name="track" size={14} />
+                Add these {totals.count} to a track
+              </Button>
+              {bulkOpen && (
+                <div className="mt-3 max-w-md border-2 border-ink bg-surface p-3 shadow-hard">
+                  <p className="mb-2 text-xs font-bold">
+                    Add all {Math.min(totals.count, 300)} results for “{debouncedSearch}”, oldest
+                    first, to:
+                  </p>
+                  {totals.count > 300 && (
+                    <p className="mb-2 text-[11px] font-bold text-danger">
+                      That&apos;s a lot — only the 300 oldest will be added. Narrow the search
+                      for a tighter track.
+                    </p>
+                  )}
+                  <TrackMenu mode="pick" onPick={addResultsToTrack} busy={bulkBusy} />
+                  {bulkBusy && <p className="mt-2 text-xs font-bold">Adding…</p>}
+                </div>
+              )}
             </div>
           )}
 
           {/* Watch Later hint — saved videos the current filters hide, so
-              following the genre/channel chips never "loses" anything. */}
+              following the sidebar never "loses" anything. */}
           {(laterHiddenByFilters > 0 || laterInOtherKind > 0) && (
-            <div className="nb-sm mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-[var(--paper)] px-4 py-2 text-sm font-semibold">
+            <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 border-2 border-ink bg-tint px-4 py-2 text-sm font-bold">
               {laterHiddenByFilters > 0 && (
                 <span className="flex items-center gap-2">
                   {laterHiddenByFilters} more saved outside these filters
-                  <button
-                    className="nb-chip rounded-full px-3 py-0.5 text-xs"
-                    onClick={() => {
-                      setGenreId(null);
-                      setChannelIds([]);
-                      setSearch("");
-                      setLengthFilter("any");
-                    }}
-                  >
-                    SHOW ALL
-                  </button>
+                  <Button size="sm" onClick={clearFilters}>
+                    Show all
+                  </Button>
                 </span>
               )}
               {laterInOtherKind > 0 && (
                 <span className="flex items-center gap-2">
-                  {laterInOtherKind} saved in{" "}
-                  {otherKind === "shorts" ? "Shorts" : "Videos"}
-                  <button
-                    className="nb-chip rounded-full px-3 py-0.5 text-xs"
-                    onClick={() => setKind(otherKind)}
-                  >
-                    {otherKind === "shorts" ? "⚡ SHORTS" : "▶ VIDEOS"}
-                  </button>
+                  {laterInOtherKind} saved in {otherKind === "shorts" ? "Shorts" : "Videos"}
+                  <Button size="sm" onClick={() => setKind(otherKind)}>
+                    {otherKind === "shorts" ? "Shorts" : "Videos"}
+                  </Button>
                 </span>
               )}
             </div>
           )}
 
-          {/* Shorts use icon-only buttons — this is their key. */}
-          {kind === "shorts" && videos.length > 0 && (
-            <div className="mb-5 flex flex-wrap items-center gap-2 text-[11px] font-bold tracking-wide">
-              <span className="text-neutral-600">ICONS:</span>
-              {(
-                [
-                  ["✓", "SEEN"],
-                  ["🕑", "LATER"],
-                  ["✨", "SUMMARY"],
-                  ["💬", "ASK"],
-                  ["📄", "TEXT"],
-                  ["📝", "NOTE (• = HAS ONE)"],
-                  ["🎯", "TRACK"],
-                ] as const
-              ).map(([icon, label]) => (
-                <span
-                  key={label}
-                  className="inline-flex items-center gap-1.5 rounded border-2 border-[var(--ink)] bg-white px-2 py-0.5 text-[var(--ink)]"
-                >
-                  <Emoji>{icon}</Emoji>
-                  {label}
-                </span>
+          {/* Grid — placeholders while a new set loads, so the page doesn't jump. */}
+          {loading === "first" ? (
+            <div className={gridClass}>
+              {Array.from({ length: kind === "shorts" ? 12 : 8 }, (_, i) => (
+                <SkeletonCard key={i} />
               ))}
             </div>
-          )}
-
-          {/* Grid */}
-          {videos.length === 0 && !loading ? (
+          ) : videos.length === 0 ? (
             renderEmptyState()
           ) : (
-            <div
-              className={
-                // Shorts: fixed column counts (2/3/4/6) that all divide the
-                // 24-per-page batch, so every page fills complete rows.
-                kind === "shorts"
-                  ? "grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6"
-                  : "grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
-              }
-            >
+            <div className={gridClass}>
               {videos.map((video) => (
                 <VideoCard
                   key={video.id}
                   video={video}
-                  accentColor={accentFor(video)}
-                  askPreset={askPresetFor(video)}
+                  genreColor={genreFor(video)?.color ?? "var(--color-primary)"}
+                  dimSeen={view !== "watched"}
+                  activeTool={
+                    study?.video.id === video.id ? (study.track ? "track" : study.tab) : null
+                  }
                   onPlay={handlePlay}
                   onToggleWatched={toggleWatched}
                   onToggleLater={toggleLater}
+                  onOpenTool={openTool}
                 />
               ))}
+              {loading === "more" &&
+                Array.from({ length: 4 }, (_, i) => <SkeletonCard key={`more-${i}`} />)}
             </div>
-          )}
-
-          {loading && (
-            <p className="py-8 text-center font-bold">LOADING…</p>
           )}
 
           {hasMore && !loading && (
-            <div className="mt-8 text-center">
-              <button
-                className="nb-btn rounded-lg px-6 py-2"
-                onClick={() => loadPage(page + 1, false)}
-              >
-                LOAD MORE ↓
-              </button>
+            <div className="mt-10 flex justify-center">
+              <Button variant="primary" onClick={() => loadPage(page + 1, false)}>
+                Load {PAGE_SIZE} more
+                <Icon name="chev" size={16} strokeWidth={3} />
+              </Button>
             </div>
           )}
         </main>
+
+        {/* Study panel — beside the grid on wide screens (the grid narrows
+            rather than being covered); full screen on narrow ones. */}
+        {study && studyVideo && (
+          <div className="fixed inset-0 z-40 lg:sticky lg:top-[58px] lg:z-auto lg:h-[calc(100vh-58px)] lg:w-[460px] lg:shrink-0">
+            <StudyPanel
+              key={studyVideo.id}
+              video={studyVideo}
+              tab={study.tab}
+              onTab={(tab) => setStudy((s) => (s ? { ...s, tab } : s))}
+              trackOpen={study.track}
+              onTrackOpen={(track) => setStudy((s) => (s ? { ...s, track } : s))}
+              genrePrompt={genreFor(studyVideo)?.askPrompt ?? null}
+              everyday={everyday}
+              onClose={() => setStudy(null)}
+              onWatch={handlePlay}
+              onVideoChange={patchVideo}
+            />
+          </div>
+        )}
       </div>
 
       {playing && (
         <PlayerModal
+          // A new video means a new player (fresh resume point and timers).
+          key={playing.id}
           video={playing}
           onClose={closePlayer}
           onProgress={handleProgress}
+          onEnded={queue ? queueEnded : undefined}
+          queue={
+            queue
+              ? {
+                  label: `SHORT ${queue.index + 1} OF ${Math.max(
+                    queue.items.length,
+                    facets?.views.unwatched ?? 0
+                  ).toLocaleString()} UNSEEN`,
+                  onNext: advanceQueue,
+                }
+              : undefined
+          }
         />
       )}
+    </>
+  );
+}
+
+/** Grey stand-in card while videos load. */
+function SkeletonCard() {
+  return (
+    <div className="flex animate-pulse flex-col border-2 border-line-2 bg-surface" aria-hidden="true">
+      <div className="aspect-video bg-line" />
+      <div className="flex flex-col gap-2 p-3.5">
+        <div className="h-3.5 w-11/12 bg-line" />
+        <div className="h-3.5 w-2/3 bg-line" />
+        <div className="mt-1 h-3 w-1/2 bg-line" />
+      </div>
+      <div className="h-[38px] border-t-2 border-line-2" />
     </div>
   );
 }

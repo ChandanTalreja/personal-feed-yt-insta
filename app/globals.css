@@ -1,20 +1,64 @@
 @import "tailwindcss";
 
+/* Design tokens — the single source of truth (docs/REDESIGN.md §2).
+   Declaring them in @theme makes Tailwind generate utilities from them
+   (bg-surface, text-ink, border-ink, shadow-hard, font-mono…), so a value
+   changes in exactly one place. */
+@theme {
+  --color-cream: #fbf1dd;      /* page background */
+  --color-ink: #15130f;        /* text, borders, shadows, active controls */
+  --color-primary: #ffd02b;    /* the one primary action, current item */
+  --color-surface: #fffaf0;    /* cards, panels, inputs */
+  --color-panel: #fff6de;      /* top bar and sidebar: a soft warm cream, not yellow */
+  --color-tint: #fff3c4;       /* selected row, highlighted match */
+  --color-tint-2: #fff1bf;
+  --color-line: #f4e7ca;       /* subtle fills, dividers */
+  --color-line-2: #e6d5b2;     /* quiet borders inside panels */
+  --color-faint: #cdbb96;      /* disabled, placeholders */
+  --color-muted: #8a7f70;      /* secondary text */
+  --color-muted-2: #62594d;    /* metadata */
+  --color-pink: #ff9be3;       /* small accents */
+  --color-warn: #9a5800;       /* "No uploads 4 mo" and similar */
+  --color-danger: #ff4911;     /* errors, destructive actions */
+
+  /* Hard offset shadows, no blur. Heavy only for primary/selected. */
+  --shadow-hard-sm: 2px 2px 0 var(--color-ink);
+  --shadow-hard: 3px 3px 0 var(--color-ink);
+  --shadow-hard-lg: 5px 5px 0 var(--color-ink);
+
+  /* Square corners everywhere (rounded-full stays round: avatars). */
+  --radius: 0;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+
+  /* Space Mono for numbers: counts, durations, times. */
+  --font-mono: var(--font-space-mono), ui-monospace, monospace;
+}
+
+/* Older names, kept as aliases so existing screens pick up the refined
+   palette without edits. New code uses the theme tokens above. */
 :root {
-  --paper: #faf1de;
-  --ink: #161616;
-  --accent: #ff4911;
-  --yellow: #ffc900;
+  --paper: var(--color-cream);
+  --ink: var(--color-ink);
+  --accent: var(--color-danger);
+  --yellow: var(--color-primary);
   --blue: #4da6ff;
   --green: #2fcc71;
-  --pink: #ff90e8;
+  --pink: var(--color-pink);
 }
 
 body {
-  background-color: var(--paper);
-  background-image: radial-gradient(rgba(22, 22, 22, 0.07) 1.2px, transparent 1.2px);
+  background-color: var(--color-cream);
+  /* A very faint dot grid — texture, not noise. */
+  background-image: radial-gradient(rgba(21, 19, 15, 0.07) 1.2px, transparent 1.2px);
   background-size: 16px 16px;
-  color: var(--ink);
+  color: var(--color-ink);
   font-family: var(--font-body), sans-serif;
 }
 
@@ -23,23 +67,24 @@ body {
   letter-spacing: 0.01em;
 }
 
-/* Neobrutalist building blocks */
+/* Neobrutalist building blocks — 2px outlines; 3px hard shadows for normal
+   things, heavier only for the primary button (UI-02). */
 .nb {
-  border: 3px solid var(--ink);
-  box-shadow: 6px 6px 0 var(--ink);
-  background: #fff;
+  border: 2px solid var(--color-ink);
+  box-shadow: var(--shadow-hard);
+  background: var(--color-surface);
 }
 
 .nb-sm {
-  border: 2px solid var(--ink);
-  box-shadow: 3px 3px 0 var(--ink);
-  background: #fff;
+  border: 2px solid var(--color-ink);
+  box-shadow: var(--shadow-hard-sm);
+  background: var(--color-surface);
 }
 
 .nb-btn {
-  border: 3px solid var(--ink);
-  box-shadow: 4px 4px 0 var(--ink);
-  background: var(--yellow);
+  border: 2px solid var(--color-ink);
+  box-shadow: 4px 4px 0 var(--color-ink);
+  background: var(--color-primary);
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.08s ease, box-shadow 0.08s ease;
@@ -48,34 +93,34 @@ body {
 
 .nb-btn:hover {
   transform: translate(-1px, -1px);
-  box-shadow: 5px 5px 0 var(--ink);
+  box-shadow: var(--shadow-hard-lg);
 }
 
 .nb-btn:active {
   transform: translate(3px, 3px);
-  box-shadow: 1px 1px 0 var(--ink);
+  box-shadow: 1px 1px 0 var(--color-ink);
 }
 
 .nb-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
-  box-shadow: 4px 4px 0 var(--ink);
+  box-shadow: 4px 4px 0 var(--color-ink);
 }
 
 .nb-chip {
-  border: 2px solid var(--ink);
-  box-shadow: 3px 3px 0 var(--ink);
+  border: 2px solid var(--color-ink);
+  box-shadow: var(--shadow-hard);
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.08s ease, box-shadow 0.08s ease;
   user-select: none;
-  background: #fff;
+  background: var(--color-surface);
 }
 
 .nb-chip:hover {
   transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 var(--ink);
+  box-shadow: 4px 4px 0 var(--color-ink);
 }
 
 .nb-chip[data-active="true"] {
@@ -94,37 +139,15 @@ body {
   color: #fff;
 }
 
-.nb-ticker {
-  /* White card stays (from .nb-sm); text is a readable dark shade of the
-     brand yellow (#ffc900 darkened until it has contrast on white). */
-  color: #b8860b;
-}
-
 .nb-input {
-  border: 3px solid var(--ink);
-  background: #fff;
-  box-shadow: 4px 4px 0 var(--ink);
+  border: 2px solid var(--color-ink);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-hard);
   outline: none;
 }
 
 .nb-input:focus {
-  box-shadow: 4px 4px 0 var(--accent);
-}
-
-/* Scrolling ticker strip */
-@keyframes marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-.ticker-track {
-  display: inline-flex;
-  white-space: nowrap;
-  animation: marquee 30s linear infinite;
+  box-shadow: 3px 3px 0 var(--color-primary);
 }
 
 /* Video card hover lift */
@@ -134,7 +157,7 @@ body {
 
 .video-card:hover {
   transform: translate(-2px, -2px);
-  box-shadow: 8px 8px 0 var(--ink);
+  box-shadow: var(--shadow-hard-lg);
 }
 
 .line-clamp-2 {

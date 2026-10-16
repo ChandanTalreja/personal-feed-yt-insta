@@ -57,6 +57,9 @@ export const videos = pgTable("videos", {
   // and the second to resume from. Both null until first played.
   watchProgress: text("watch_progress"),
   resumeSeconds: integer("resume_seconds"),
+  /** When it was last actually played (set by every progress save). Feeds
+   *  a track's "last watched yesterday"; a hand-ticked ✓ doesn't count. */
+  lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
   // Your own note on this video (one per video; null = none). Separate
   // from video_notes, which holds Gemini's saved Ask answers.
   personalNote: text("personal_note"),
@@ -98,6 +101,16 @@ export const geminiUsage = pgTable("gemini_usage", {
   model: text("model").notNull(),
   tokens: integer("tokens"),
   usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Small app-wide values, one row per key (e.g. "last_sync_at"). A key/value
+// table so future settings don't each need a table of their own.
+export const appMeta = pgTable("app_meta", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 // Learning tracks: named, ordered collections of videos to work through.

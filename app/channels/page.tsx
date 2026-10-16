@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 import { isAuthed } from "@/lib/auth";
-import ManageClient from "@/components/ManageClient";
+import ChannelsClient from "@/components/ChannelsClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function ManagePage() {
+export default async function ChannelsPage() {
   if (!(await isAuthed())) redirect("/login");
-  return <ManageClient />;
+  return <ChannelsClient />;
 }

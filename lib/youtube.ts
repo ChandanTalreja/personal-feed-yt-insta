@@ -91,36 +91,36 @@ export async function resolveChannel(input: string): Promise<ResolvedChannel> {
 }
 
 /**
- * Walks a channel's uploads playlist (newest first) and returns video ids
- * published on or after `since`. Each page of 50 costs 1 quota unit.
+ * One page (up to 50) of a channel's uploads playlist, newest first, keeping
+ * only videos published on or after `since`. Costs 1 quota unit.
+ *
+ * `next` is YouTube's bookmark for the following page — or null when there's
+ * nothing more to read (the end of the playlist, or this page already
+ * reached videos older than `since`). Passing it back as `pageToken` carries
+ * on exactly where this page stopped, even from a later request.
  */
-export async function listUploadsSince(
+export async function listUploadsPage(
   uploadsPlaylistId: string,
   since: Date,
-  maxPages = 20
-): Promise<string[]> {
+  pageToken?: string
+): Promise<{ ids: string[]; next: string | null }> {
+  const data = await yt("playlistItems", {
+    part: "contentDetails",
+    playlistId: uploadsPlaylistId,
+    maxResults: "50",
+    ...(pageToken ? { pageToken } : {}),
+  });
   const ids: string[] = [];
-  let pageToken: string | undefined;
-  for (let page = 0; page < maxPages; page++) {
-    const data = await yt("playlistItems", {
-      part: "contentDetails",
-      playlistId: uploadsPlaylistId,
-      maxResults: "50",
-      ...(pageToken ? { pageToken } : {}),
-    });
-    let sawOlder = false;
-    for (const item of data.items ?? []) {
-      const published = new Date(item.contentDetails.videoPublishedAt ?? 0);
-      if (published >= since) {
-        ids.push(item.contentDetails.videoId);
-      } else {
-        sawOlder = true;
-      }
+  let sawOlder = false;
+  for (const item of data.items ?? []) {
+    const published = new Date(item.contentDetails.videoPublishedAt ?? 0);
+    if (published >= since) {
+      ids.push(item.contentDetails.videoId);
+    } else {
+      sawOlder = true;
     }
-    pageToken = data.nextPageToken;
-    if (sawOlder || !pageToken) break;
   }
-  return ids;
+  return { ids, next: sawOlder ? null : (data.nextPageToken ?? null) };
 }
 
 export interface VideoDetails {

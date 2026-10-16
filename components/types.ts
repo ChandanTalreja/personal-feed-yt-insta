@@ -21,6 +21,8 @@ export interface FeedVideo {
   channelTitle: string;
   channelThumbnail: string | null;
   genreId: number | null;
+  /** Saved Ask answers for this video. */
+  answerCount: number;
 }
 
 export interface GenreItem {
