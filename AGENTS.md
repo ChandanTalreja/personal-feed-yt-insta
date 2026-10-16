@@ -4,6 +4,14 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# Current focus: UI/UX redesign
+
+Read **[docs/REDESIGN.md](docs/REDESIGN.md)** first, starting at "Resume
+here" — it says which phase is next, what's done, and how every change is
+documented (problem, change, how it works, key code, alternatives, files,
+verified). Update its "Resume here" block and changelog at the end of each
+session. Use docs/ARCHITECTURE.md for how the system works underneath.
+
 # Project: TUBEBOX (its own project — a personal YouTube feed)
 
 This repo is TUBEBOX: a personal, distraction-free YouTube feed with AI
