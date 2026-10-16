@@ -4,11 +4,23 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Mascot from "./Mascot";
 import VideoCard from "./VideoCard";
-import PlayerModal from "./PlayerModal";
+import PlayerModal, { type ProgressUpdate } from "./PlayerModal";
+import TrackMenu from "./TrackMenu";
+import Emoji from "./Emoji";
 import type { FeedVideo, GenreItem } from "./types";
+import { textColorFor } from "@/lib/color";
+import { formatTotalTime } from "@/lib/format";
 
 type Kind = "videos" | "shorts";
-type Watched = "unwatched" | "all" | "watched";
+type Watched = "unwatched" | "all" | "watched" | "later";
+type LengthFilter = "any" | "short" | "medium" | "long";
+
+const LENGTH_CHIPS: [LengthFilter, string][] = [
+  ["any", "ANY"],
+  ["short", "< 10 MIN"],
+  ["medium", "10–30"],
+  ["long", "30+"],
+];
 
 interface FeedChannel {
   id: number;
@@ -36,6 +48,19 @@ export default function FeedClient() {
   const [channelIds, setChannelIds] = useState<number[]>([]);
   const [kind, setKind] = useState<Kind>("videos");
   const [watched, setWatched] = useState<Watched>("unwatched");
+  // Watch Later: total saved per kind (ignores filters → the tab badge), and
+  // how many the current filters show (only while on LATER → the hint).
+  const [laterCounts, setLaterCounts] = useState({ videos: 0, shorts: 0 });
+  const [lengthFilter, setLengthFilter] = useState<LengthFilter>("any");
+  // "Add these search results to a track" panel.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  // Count + total duration of everything the current filters match (all
+  // pages, not just the loaded ones). On LATER, the count is also the number
+  // of saved videos visible, which the "N more saved" hint compares against.
+  const [totals, setTotals] = useState<{ count: number; seconds: number } | null>(
+    null
+  );
   const [videos, setVideos] = useState<FeedVideo[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -77,20 +102,29 @@ export default function FeedClient() {
     loadChannels();
   }, [loadChannels]);
 
+  // The feed's current filters as query params — shared by the page loader
+  // and "add these to a track", so both always mean the same videos.
+  const filterParams = useCallback(() => {
+    const params = new URLSearchParams({ kind, watched });
+    if (genreId != null) params.set("genreId", String(genreId));
+    if (channelIds.length > 0) {
+      params.set("channelIds", channelIds.join(","));
+    }
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    // Every short is under ~3 min, so the length filter only applies to
+    // VIDEOS (the chips are hidden on SHORTS).
+    if (kind === "videos" && lengthFilter !== "any") {
+      params.set("length", lengthFilter);
+    }
+    return params;
+  }, [kind, watched, genreId, channelIds, debouncedSearch, lengthFilter]);
+
   const loadPage = useCallback(
     async (pageToLoad: number, replace: boolean) => {
       setLoading(true);
       try {
-        const params = new URLSearchParams({
-          kind,
-          watched,
-          page: String(pageToLoad),
-        });
-        if (genreId != null) params.set("genreId", String(genreId));
-        if (channelIds.length > 0) {
-          params.set("channelIds", channelIds.join(","));
-        }
-        if (debouncedSearch) params.set("search", debouncedSearch);
+        const params = filterParams();
+        params.set("page", String(pageToLoad));
         const res = await fetch(`/api/videos?${params}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Failed to load feed");
@@ -99,13 +133,15 @@ export default function FeedClient() {
         );
         setHasMore(data.hasMore);
         setPage(pageToLoad);
+        if (data.laterCounts) setLaterCounts(data.laterCounts);
+        if (data.totals) setTotals(data.totals);
       } catch (err) {
         setToast((err as Error).message);
       } finally {
         setLoading(false);
       }
     },
-    [kind, watched, genreId, channelIds, debouncedSearch]
+    [filterParams]
   );
 
   useEffect(() => {
@@ -157,11 +193,46 @@ export default function FeedClient() {
     }
   }
 
+  // A video entered or left the current view's set: keep the count and the
+  // total time in step without refetching.
+  function adjustTotals(video: FeedVideo, delta: 1 | -1) {
+    setTotals((t) =>
+      t
+        ? {
+            count: Math.max(0, t.count + delta),
+            seconds: Math.max(0, t.seconds + delta * video.durationSeconds),
+          }
+        : t
+    );
+  }
+
+  // Keep the LATER badge and hint in step when a video joins or leaves the
+  // list, without refetching the whole page.
+  function adjustLaterCounts(video: FeedVideo, delta: 1 | -1) {
+    const key = video.isShort ? "shorts" : "videos";
+    setLaterCounts((c) => ({ ...c, [key]: Math.max(0, c[key] + delta) }));
+    if (watched === "later") adjustTotals(video, delta);
+  }
+
   async function toggleWatched(video: FeedVideo) {
     const next = !video.watched;
+    // Marking watched also takes it off Watch Later (the server does the
+    // same) — and on the LATER tab the card leaves the list.
+    const leavesLater = next && video.laterAt != null;
     setVideos((prev) =>
-      prev.map((v) => (v.id === video.id ? { ...v, watched: next } : v))
+      watched === "later" && leavesLater
+        ? prev.filter((v) => v.id !== video.id)
+        : prev.map((v) =>
+            v.id === video.id
+              ? { ...v, watched: next, laterAt: leavesLater ? null : v.laterAt }
+              : v
+          )
     );
+    if (leavesLater) adjustLaterCounts(video, -1);
+    // INBOX counts unwatched videos and HISTORY counts watched ones, so a
+    // toggle moves the video out of (or back into) that tab's total.
+    if (watched === "unwatched") adjustTotals(video, next ? -1 : 1);
+    if (watched === "watched") adjustTotals(video, next ? 1 : -1);
     await fetch(`/api/videos/${video.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -169,9 +240,80 @@ export default function FeedClient() {
     }).catch(() => {});
   }
 
+  async function toggleLater(video: FeedVideo) {
+    const saving = video.laterAt == null;
+    setVideos((prev) =>
+      watched === "later" && !saving
+        ? prev.filter((v) => v.id !== video.id)
+        : prev.map((v) =>
+            v.id === video.id
+              ? { ...v, laterAt: saving ? new Date().toISOString() : null }
+              : v
+          )
+    );
+    adjustLaterCounts(video, saving ? 1 : -1);
+    await fetch(`/api/videos/${video.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ later: saving }),
+    }).catch(() => {});
+  }
+
+  // Adds every video matching the current filters (all pages, not just the
+  // loaded ones) to a track, oldest upload first — a series in order.
+  async function addResultsToTrack(track: { id: number; name: string }) {
+    setBulkBusy(true);
+    try {
+      const params = filterParams();
+      params.set("ids", "1");
+      const idsRes = await fetch(`/api/videos?${params}`);
+      const { ids, error } = await idsRes.json();
+      if (!idsRes.ok) throw new Error(error ?? "Couldn't list the results");
+      const res = await fetch(`/api/tracks/${track.id}/videos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoIds: ids, order: "oldest" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Couldn't add to the track");
+      setToast(
+        `Added ${data.added} video${data.added === 1 ? "" : "s"} to “${track.name}”` +
+          (data.skipped > 0 ? ` (${data.skipped} already there)` : "") +
+          ". Open 🎯 TRACKS to start."
+      );
+      setBulkOpen(false);
+    } catch (err) {
+      setToast((err as Error).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  // Stable identity, so the modal's Escape-key listener isn't re-attached on
+  // every progress update.
+  const closePlayer = useCallback(() => setPlaying(null), []);
+
+  // Opening a video no longer marks it seen — the player reports real
+  // progress, and the server marks it watched once half is actually played.
   function handlePlay(video: FeedVideo) {
     setPlaying(video);
-    if (!video.watched) toggleWatched(video);
+  }
+
+  // A progress save came back: update the card (progress bar, resume point)
+  // and, if the server just marked it watched, the counts and lists too.
+  function handleProgress(update: ProgressUpdate) {
+    const prev = videos.find((v) => v.id === update.id);
+    const becameWatched = prev != null && !prev.watched && update.watched;
+    if (becameWatched) {
+      if (prev.laterAt != null) adjustLaterCounts(prev, -1);
+      if (watched === "unwatched") adjustTotals(prev, -1);
+      if (watched === "watched") adjustTotals(prev, 1);
+    }
+    setVideos((list) =>
+      becameWatched && watched === "later"
+        ? list.filter((v) => v.id !== update.id)
+        : list.map((v) => (v.id === update.id ? { ...v, ...update } : v))
+    );
   }
 
   function accentFor(video: FeedVideo): string {
@@ -194,6 +336,63 @@ export default function FeedClient() {
   const railChannels = railQuery
     ? visibleChannels.filter((c) => c.title.toLowerCase().includes(railQuery))
     : visibleChannels;
+
+  // Watch Later bookkeeping for the tab badge and the "hidden here" hint.
+  const laterTotal = laterCounts.videos + laterCounts.shorts;
+  const otherKind: Kind = kind === "videos" ? "shorts" : "videos";
+  const laterHiddenByFilters =
+    watched === "later" && totals != null
+      ? Math.max(0, laterCounts[kind] - totals.count)
+      : 0;
+  const laterInOtherKind = watched === "later" ? laterCounts[otherKind] : 0;
+
+  // What to say when the grid is empty — the most specific reason wins:
+  // search, then length, then the tab itself.
+  function renderEmptyState() {
+    const btn = "nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm";
+    const noun = kind === "shorts" ? "shorts" : "videos";
+    const lengthActive = kind === "videos" && lengthFilter !== "any";
+    let title = "NOTHING HERE YET";
+    let body =
+      "Add your first channel and TUBEBOX will backfill its last year of uploads.";
+    let action: React.ReactNode = (
+      <Link href="/manage" className={btn}>
+        + ADD CHANNELS
+      </Link>
+    );
+    if (debouncedSearch) {
+      title = "NO MATCHES";
+      body = `No ${noun} match “${debouncedSearch}” in this view. Try EVERYTHING, another genre, or clear the search.`;
+      action = (
+        <button className={btn} onClick={() => setSearch("")}>
+          ✕ CLEAR SEARCH
+        </button>
+      );
+    } else if (lengthActive) {
+      title = "NO MATCHES";
+      body = "Nothing of that length in this view.";
+      action = (
+        <button className={btn} onClick={() => setLengthFilter("any")}>
+          ANY LENGTH
+        </button>
+      );
+    } else if (watched === "later") {
+      title = "NOTHING SAVED HERE";
+      body =
+        "Press + LATER on any video to save it here. Watched videos leave the list on their own.";
+      action = null;
+    } else if (watched === "unwatched") {
+      body =
+        "Inbox zero! Switch to EVERYTHING to browse history, or add more channels.";
+    }
+    return (
+      <div className="nb mx-auto max-w-lg rounded-xl p-8 text-center">
+        <p className="font-display text-xl">{title}</p>
+        <p className="mt-2 text-sm text-neutral-600">{body}</p>
+        {action}
+      </div>
+    );
+  }
 
   function toggleChannel(id: number) {
     setChannelIds((prev) =>
@@ -220,6 +419,21 @@ export default function FeedClient() {
           >
             {refreshing ? "FETCHING…" : "⟳ REFRESH"}
           </button>
+          <Link
+            href="/notebook"
+            className="nb-btn rounded-lg px-4 py-2 text-sm"
+            // Inline beats the .nb-btn yellow (a bg-* utility wouldn't).
+            style={{ background: "#fff" }}
+          >
+            📓 NOTEBOOK
+          </Link>
+          <Link
+            href="/tracks"
+            className="nb-btn rounded-lg px-4 py-2 text-sm"
+            style={{ background: "#fff" }}
+          >
+            🎯 TRACKS
+          </Link>
           <Link
             href="/manage"
             className="nb-btn nb-btn-pink rounded-lg px-4 py-2 text-sm"
@@ -362,7 +576,10 @@ export default function FeedClient() {
                 className="nb-chip rounded-full px-3 py-1 text-xs"
                 style={
                   genreId === genre.id
-                    ? { backgroundColor: genre.color, color: "var(--ink)" }
+                    ? {
+                        backgroundColor: genre.color,
+                        color: textColorFor(genre.color),
+                      }
                     : undefined
                 }
                 data-active={genreId === genre.id}
@@ -398,21 +615,30 @@ export default function FeedClient() {
                 ["unwatched", "INBOX"],
                 ["all", "EVERYTHING"],
                 ["watched", "HISTORY"],
+                ["later", "LATER"],
               ] as [Watched, string][]
             ).map(([value, label]) => (
               <button
                 key={value}
-                className="nb-chip rounded-full px-3 py-1 text-xs"
+                className="nb-chip inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs"
                 data-active={watched === value}
                 onClick={() => setWatched(value)}
               >
                 {label}
+                {/* Total saved, whatever the filters — so nothing in Watch
+                    Later is ever invisible from the tab row. */}
+                {value === "later" && laterTotal > 0 && (
+                  <span className="rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-1.5 text-[10px] font-bold text-[var(--ink)]">
+                    {laterTotal}
+                  </span>
+                )}
               </button>
             ))}
           </div>
 
-          {/* Search — fuzzy title search, scoped to the active filters. */}
-          <div className="mb-6 flex items-center gap-2">
+          {/* Search — fuzzy title search, scoped to the active filters — plus
+              the length filter (VIDEOS only) and the view's total time. */}
+          <div className="mb-6 flex flex-wrap items-center gap-2">
             <input
               className="nb-input w-full max-w-md rounded-lg px-3 py-2 text-sm"
               placeholder="🔍 Search titles… (typos OK)"
@@ -429,7 +655,68 @@ export default function FeedClient() {
                 ✕ CLEAR
               </button>
             )}
+            {kind === "videos" && (
+              <div className="flex flex-wrap gap-1.5 sm:ml-2">
+                {LENGTH_CHIPS.map(([value, label]) => (
+                  <button
+                    key={value}
+                    className="nb-chip rounded-full px-3 py-1 text-xs"
+                    data-active={lengthFilter === value}
+                    onClick={() => setLengthFilter(value)}
+                    title={
+                      value === "any"
+                        ? "Any length"
+                        : `Only videos ${label.toLowerCase()}`
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {totals && (
+              <span className="ml-auto text-sm font-bold text-neutral-600">
+                {totals.count}{" "}
+                {kind === "shorts"
+                  ? totals.count === 1
+                    ? "short"
+                    : "shorts"
+                  : totals.count === 1
+                    ? "video"
+                    : "videos"}{" "}
+                · {formatTotalTime(totals.seconds)}
+              </span>
+            )}
+            {debouncedSearch && totals && totals.count > 0 && (
+              <button
+                className="nb-chip rounded-full px-3 py-1 text-xs"
+                data-active={bulkOpen}
+                onClick={() => setBulkOpen((o) => !o)}
+                title="Add every result of this search to a learning track"
+              >
+                🎯 ADD THESE {totals.count} TO A TRACK
+              </button>
+            )}
           </div>
+
+          {bulkOpen && debouncedSearch && totals && totals.count > 0 && (
+            <div className="nb-sm mb-6 max-w-md rounded-lg bg-white p-3">
+              <p className="mb-2 text-xs font-bold">
+                Add all {Math.min(totals.count, 300)} results for “{debouncedSearch}”,
+                oldest first, to:
+              </p>
+              {totals.count > 300 && (
+                <p className="mb-2 text-[11px] font-semibold text-[var(--accent)]">
+                  That&apos;s a lot — only the 300 oldest will be added. Narrow the
+                  search for a tighter track.
+                </p>
+              )}
+              <TrackMenu mode="pick" onPick={addResultsToTrack} busy={bulkBusy} />
+              {bulkBusy && (
+                <p className="mt-2 text-xs font-semibold">Adding…</p>
+              )}
+            </div>
+          )}
 
           {/* Channel chips — narrow-screen fallback for the rail: the same
               genre-scoped multi-select, as the original wrapped row. */}
@@ -482,40 +769,77 @@ export default function FeedClient() {
             </div>
           )}
 
-          {/* Grid */}
-          {videos.length === 0 && !loading ? (
-            <div className="nb mx-auto max-w-lg rounded-xl p-8 text-center">
-              <p className="font-display text-xl">
-                {debouncedSearch ? "NO MATCHES" : "NOTHING HERE YET"}
-              </p>
-              <p className="mt-2 text-sm text-neutral-600">
-                {debouncedSearch
-                  ? `No ${kind === "shorts" ? "shorts" : "videos"} match “${debouncedSearch}” in this view. Try EVERYTHING, another genre, or clear the search.`
-                  : watched === "unwatched"
-                    ? "Inbox zero! Switch to EVERYTHING to browse history, or add more channels."
-                    : "Add your first channel and TUBEBOX will backfill its last year of uploads."}
-              </p>
-              {debouncedSearch ? (
-                <button
-                  className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
-                  onClick={() => setSearch("")}
-                >
-                  ✕ CLEAR SEARCH
-                </button>
-              ) : (
-                <Link
-                  href="/manage"
-                  className="nb-btn mt-4 inline-block rounded-lg px-4 py-2 text-sm"
-                >
-                  + ADD CHANNELS
-                </Link>
+          {/* Watch Later hint — saved videos the current filters hide, so
+              following the genre/channel chips never "loses" anything. */}
+          {(laterHiddenByFilters > 0 || laterInOtherKind > 0) && (
+            <div className="nb-sm mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-[var(--paper)] px-4 py-2 text-sm font-semibold">
+              {laterHiddenByFilters > 0 && (
+                <span className="flex items-center gap-2">
+                  {laterHiddenByFilters} more saved outside these filters
+                  <button
+                    className="nb-chip rounded-full px-3 py-0.5 text-xs"
+                    onClick={() => {
+                      setGenreId(null);
+                      setChannelIds([]);
+                      setSearch("");
+                      setLengthFilter("any");
+                    }}
+                  >
+                    SHOW ALL
+                  </button>
+                </span>
+              )}
+              {laterInOtherKind > 0 && (
+                <span className="flex items-center gap-2">
+                  {laterInOtherKind} saved in{" "}
+                  {otherKind === "shorts" ? "Shorts" : "Videos"}
+                  <button
+                    className="nb-chip rounded-full px-3 py-0.5 text-xs"
+                    onClick={() => setKind(otherKind)}
+                  >
+                    {otherKind === "shorts" ? "⚡ SHORTS" : "▶ VIDEOS"}
+                  </button>
+                </span>
               )}
             </div>
+          )}
+
+          {/* Shorts use icon-only buttons — this is their key. */}
+          {kind === "shorts" && videos.length > 0 && (
+            <div className="mb-5 flex flex-wrap items-center gap-2 text-[11px] font-bold tracking-wide">
+              <span className="text-neutral-600">ICONS:</span>
+              {(
+                [
+                  ["✓", "SEEN"],
+                  ["🕑", "LATER"],
+                  ["✨", "SUMMARY"],
+                  ["💬", "ASK"],
+                  ["📄", "TEXT"],
+                  ["📝", "NOTE (• = HAS ONE)"],
+                  ["🎯", "TRACK"],
+                ] as const
+              ).map(([icon, label]) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-1.5 rounded border-2 border-[var(--ink)] bg-white px-2 py-0.5 text-[var(--ink)]"
+                >
+                  <Emoji>{icon}</Emoji>
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Grid */}
+          {videos.length === 0 && !loading ? (
+            renderEmptyState()
           ) : (
             <div
               className={
+                // Shorts: fixed column counts (2/3/4/6) that all divide the
+                // 24-per-page batch, so every page fills complete rows.
                 kind === "shorts"
-                  ? "grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]"
+                  ? "grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6"
                   : "grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
               }
             >
@@ -527,6 +851,7 @@ export default function FeedClient() {
                   askPreset={askPresetFor(video)}
                   onPlay={handlePlay}
                   onToggleWatched={toggleWatched}
+                  onToggleLater={toggleLater}
                 />
               ))}
             </div>
@@ -550,7 +875,11 @@ export default function FeedClient() {
       </div>
 
       {playing && (
-        <PlayerModal video={playing} onClose={() => setPlaying(null)} />
+        <PlayerModal
+          video={playing}
+          onClose={closePlayer}
+          onProgress={handleProgress}
+        />
       )}
     </div>
   );

@@ -9,6 +9,16 @@ export function formatDuration(totalSeconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** A total viewing time in words: "6h 20m", "45m", "under 1m". */
+export function formatTotalTime(totalSeconds: number): string {
+  const minutes = Math.round(totalSeconds / 60);
+  if (minutes < 1) return totalSeconds > 0 ? "under 1m" : "0m";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 export function timeAgo(iso: string | Date): string {
   const date = typeof iso === "string" ? new Date(iso) : iso;
   const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000);

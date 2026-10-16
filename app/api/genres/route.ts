@@ -3,6 +3,7 @@ import { asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { isAuthed } from "@/lib/auth";
 import { genres } from "@/lib/schema";
+import { isHexColor } from "@/lib/color";
 
 export async function GET() {
   if (!(await isAuthed())) {
@@ -20,10 +21,16 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const name = String(body.name ?? "").trim();
-    const color = String(body.color ?? "#FFC900");
+    const color = body.color ?? "#FFC900";
     const askPrompt = String(body.askPrompt ?? "").trim() || null;
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    }
+    if (!isHexColor(color)) {
+      return NextResponse.json(
+        { error: "Color must be a hex value like #FFC900." },
+        { status: 400 }
+      );
     }
     const db = await getDb();
     const [inserted] = await db

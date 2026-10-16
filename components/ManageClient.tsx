@@ -5,16 +5,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Mascot from "./Mascot";
+import GenreColorPicker from "./GenreColorPicker";
+import { GENRE_PALETTE, sameColor, textColorFor } from "@/lib/color";
 import type { ChannelItem, GenreItem } from "./types";
-
-const GENRE_COLORS = [
-  "#FFC900",
-  "#FF4911",
-  "#4DA6FF",
-  "#2FCC71",
-  "#FF90E8",
-  "#A78BFA",
-];
 
 interface ChannelRow {
   channel: ChannelItem;
@@ -46,13 +39,20 @@ export default function ManageClient() {
   const [backfillYears, setBackfillYears] = useState(1);
   const [toast, setToast] = useState<string | null>(null);
   const [newGenreName, setNewGenreName] = useState("");
-  const [newGenreColor, setNewGenreColor] = useState(GENRE_COLORS[0]);
+  const [newGenreColor, setNewGenreColor] = useState(GENRE_PALETTE[0]);
   const [newGenrePrompt, setNewGenrePrompt] = useState("");
   const [showGenreForm, setShowGenreForm] = useState(false);
   const [editingGenre, setEditingGenre] = useState<GenreItem | null>(null);
   const [editPrompt, setEditPrompt] = useState("");
+  const [editColor, setEditColor] = useState(GENRE_PALETTE[0]);
   const [pending, setPending] = useState<ResolvedPreview | null>(null);
   const [resyncingId, setResyncingId] = useState<number | null>(null);
+  // Channel-list filters. Everything is already loaded (no paging), so these
+  // filter in the browser — instant, no API calls.
+  const [channelQuery, setChannelQuery] = useState("");
+  const [genreFilter, setGenreFilter] = useState<"all" | "none" | number>(
+    "all"
+  );
 
   const load = useCallback(async () => {
     const [channelsRes, genresRes] = await Promise.all([
@@ -152,13 +152,13 @@ export default function ManageClient() {
     await load();
   }
 
-  async function saveGenrePrompt(e: React.FormEvent) {
+  async function saveGenreEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editingGenre) return;
     const res = await fetch(`/api/genres/${editingGenre.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ askPrompt: editPrompt }),
+      body: JSON.stringify({ askPrompt: editPrompt, color: editColor }),
     });
     if (!res.ok) {
       const data = await res.json();
@@ -213,6 +213,21 @@ export default function ManageClient() {
     await fetch(`/api/channels/${row.channel.id}`, { method: "DELETE" });
     await load();
   }
+
+  // Genre chip narrows first, then the search box matches name or @handle.
+  const query = channelQuery.trim().toLowerCase();
+  const visibleRows = rows.filter((row) => {
+    if (genreFilter === "none" && row.channel.genreId != null) return false;
+    if (typeof genreFilter === "number" && row.channel.genreId !== genreFilter) {
+      return false;
+    }
+    if (!query) return true;
+    return (
+      row.channel.title.toLowerCase().includes(query) ||
+      (row.channel.handle ?? "").toLowerCase().includes(query)
+    );
+  });
+  const filtering = query !== "" || genreFilter !== "all";
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16">
@@ -340,16 +355,17 @@ export default function ManageClient() {
             <span
               key={g.id}
               className="nb-sm inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold"
-              style={{ backgroundColor: g.color }}
+              style={{ backgroundColor: g.color, color: textColorFor(g.color) }}
             >
               {g.name}
               {g.askPrompt && <span title={`Suggested question: ${g.askPrompt}`}>💬</span>}
               <button
                 type="button"
-                title={`Edit suggested question for ${g.name}`}
+                title={`Edit color and suggested question for ${g.name}`}
                 onClick={() => {
                   setEditingGenre(g);
                   setEditPrompt(g.askPrompt ?? "");
+                  setEditColor(g.color);
                 }}
                 className="cursor-pointer opacity-60 hover:opacity-100"
               >
@@ -372,74 +388,161 @@ export default function ManageClient() {
           <button
             type="button"
             className="nb-chip rounded-full px-3 py-1 text-xs"
-            onClick={() => setShowGenreForm((s) => !s)}
+            onClick={() => {
+              // Start a new genre on the first color nobody uses yet.
+              if (!showGenreForm) {
+                setNewGenreColor(
+                  GENRE_PALETTE.find(
+                    (c) => !genres.some((g) => sameColor(g.color, c))
+                  ) ?? GENRE_PALETTE[0]
+                );
+              }
+              setShowGenreForm((s) => !s);
+            }}
           >
             + NEW GENRE
           </button>
         </div>
         {editingGenre && (
           <form
-            onSubmit={saveGenrePrompt}
-            className="mt-3 flex flex-wrap items-center gap-3"
+            onSubmit={saveGenreEdit}
+            className="mt-3 flex flex-col gap-3"
           >
-            <span className="text-sm font-bold">{editingGenre.name}:</span>
-            <input
-              className="nb-input min-w-64 flex-1 rounded-lg px-3 py-1.5 text-sm"
-              placeholder='Suggested question (e.g. "List all the questions asked in this video") — empty to remove'
-              value={editPrompt}
-              onChange={(e) => setEditPrompt(e.target.value)}
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm font-bold">{editingGenre.name}:</span>
+              <input
+                className="nb-input min-w-64 flex-1 rounded-lg px-3 py-1.5 text-sm"
+                placeholder='Suggested question (e.g. "List all the questions asked in this video") — empty to remove'
+                value={editPrompt}
+                onChange={(e) => setEditPrompt(e.target.value)}
+              />
+            </div>
+            <GenreColorPicker
+              value={editColor}
+              onChange={setEditColor}
+              taken={genres.filter((g) => g.id !== editingGenre.id)}
+              previewName={editingGenre.name}
             />
-            <button type="submit" className="nb-btn rounded-lg px-4 py-1.5 text-sm">
-              SAVE
-            </button>
-            <button
-              type="button"
-              className="nb-chip rounded-lg px-4 py-1.5 text-sm"
-              onClick={() => setEditingGenre(null)}
-            >
-              CANCEL
-            </button>
+            <div className="flex gap-3">
+              <button type="submit" className="nb-btn rounded-lg px-4 py-1.5 text-sm">
+                SAVE
+              </button>
+              <button
+                type="button"
+                className="nb-chip rounded-lg px-4 py-1.5 text-sm"
+                onClick={() => setEditingGenre(null)}
+              >
+                CANCEL
+              </button>
+            </div>
           </form>
         )}
         {showGenreForm && (
-          <form onSubmit={addGenre} className="mt-3 flex flex-wrap items-center gap-3">
-            <input
-              className="nb-input rounded-lg px-3 py-1.5 text-sm"
-              placeholder="Genre name (e.g. Finance)"
-              value={newGenreName}
-              onChange={(e) => setNewGenreName(e.target.value)}
-            />
-            <input
-              className="nb-input min-w-56 rounded-lg px-3 py-1.5 text-sm"
-              placeholder="Suggested question (optional)"
-              value={newGenrePrompt}
-              onChange={(e) => setNewGenrePrompt(e.target.value)}
-            />
-            <div className="flex gap-1.5">
-              {GENRE_COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  aria-label={`Pick color ${color}`}
-                  className="h-7 w-7 cursor-pointer rounded-full border-2 border-[var(--ink)]"
-                  style={{
-                    backgroundColor: color,
-                    outline:
-                      newGenreColor === color
-                        ? "3px solid var(--ink)"
-                        : "none",
-                    outlineOffset: "2px",
-                  }}
-                  onClick={() => setNewGenreColor(color)}
-                />
-              ))}
+          <form onSubmit={addGenre} className="mt-3 flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                className="nb-input rounded-lg px-3 py-1.5 text-sm"
+                placeholder="Genre name (e.g. Finance)"
+                value={newGenreName}
+                onChange={(e) => setNewGenreName(e.target.value)}
+              />
+              <input
+                className="nb-input min-w-56 rounded-lg px-3 py-1.5 text-sm"
+                placeholder="Suggested question (optional)"
+                value={newGenrePrompt}
+                onChange={(e) => setNewGenrePrompt(e.target.value)}
+              />
             </div>
-            <button type="submit" className="nb-btn rounded-lg px-4 py-1.5 text-sm">
-              SAVE
-            </button>
+            <GenreColorPicker
+              value={newGenreColor}
+              onChange={setNewGenreColor}
+              taken={genres}
+              previewName={newGenreName}
+            />
+            <div>
+              <button type="submit" className="nb-btn rounded-lg px-4 py-1.5 text-sm">
+                SAVE
+              </button>
+            </div>
           </form>
         )}
       </div>
+
+      {/* Channel search — matches name or @handle, in the browser. */}
+      {rows.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <input
+            className="nb-input w-full max-w-md rounded-lg px-3 py-2 text-sm"
+            placeholder="🔍 Search channels…"
+            value={channelQuery}
+            onChange={(e) => setChannelQuery(e.target.value)}
+            aria-label="Search channels"
+          />
+          <span className="rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-2 py-0.5 text-xs font-bold">
+            {filtering
+              ? `${visibleRows.length} of ${rows.length}`
+              : `${rows.length} channels`}
+          </span>
+          {filtering && (
+            <button
+              type="button"
+              className="nb-chip rounded-full px-3 py-1 text-xs"
+              onClick={() => {
+                setChannelQuery("");
+                setGenreFilter("all");
+              }}
+            >
+              ✕ CLEAR
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Genre filter chips — self-contained block; delete it to go back to
+          search-only (the search above doesn't depend on it). */}
+      {rows.length > 0 && genres.length > 0 && (
+        <div className="mb-5 flex flex-wrap gap-2">
+          {(
+            [
+              ["all", "ALL", rows.length, null],
+              ...genres.map(
+                (g) =>
+                  [
+                    g.id,
+                    g.name.toUpperCase(),
+                    rows.filter((r) => r.channel.genreId === g.id).length,
+                    g.color,
+                  ] as const
+              ),
+              [
+                "none",
+                "NO GENRE",
+                rows.filter((r) => r.channel.genreId == null).length,
+                null,
+              ],
+            ] as const
+          ).map(([value, label, count, color]) => {
+            const active = genreFilter === value;
+            if (value === "none" && count === 0) return null;
+            return (
+              <button
+                key={String(value)}
+                type="button"
+                className="nb-chip rounded-full px-3 py-1 text-xs"
+                data-active={active}
+                style={
+                  active && color
+                    ? { backgroundColor: color, color: textColorFor(color) }
+                    : undefined
+                }
+                onClick={() => setGenreFilter(value)}
+              >
+                {label} <span className="opacity-60">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Channel list */}
       <div className="flex flex-col gap-4">
@@ -448,7 +551,22 @@ export default function ManageClient() {
             No channels yet — add your first one above.
           </p>
         )}
-        {rows.map((row) => (
+        {rows.length > 0 && visibleRows.length === 0 && (
+          <div className="nb rounded-xl p-6 text-center">
+            <p className="font-display">NO MATCHES</p>
+            <p className="mt-1 text-sm text-neutral-600">
+              No channels match
+              {query ? ` “${channelQuery.trim()}”` : ""}
+              {typeof genreFilter === "number"
+                ? ` in ${genres.find((g) => g.id === genreFilter)?.name ?? "this genre"}`
+                : genreFilter === "none"
+                  ? " without a genre"
+                  : ""}
+              .
+            </p>
+          </div>
+        )}
+        {visibleRows.map((row) => (
           <div
             key={row.channel.id}
             className={`nb flex flex-wrap items-center gap-3 rounded-xl p-3 ${

@@ -53,6 +53,14 @@ const DDL = [
   )`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS transcript text`,
   `ALTER TABLE genres ADD COLUMN IF NOT EXISTS ask_prompt text`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS later_at timestamptz`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS watch_progress text`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS resume_seconds integer`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS personal_note text`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS personal_note_at timestamptz`,
+  // Partial index: only the handful of saved videos are indexed, so the
+  // LATER tab and its counts stay instant however big the archive grows.
+  `CREATE INDEX IF NOT EXISTS videos_later_idx ON videos (later_at DESC) WHERE later_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS login_attempts (
     id serial PRIMARY KEY,
     ip text NOT NULL,
@@ -68,6 +76,19 @@ const DDL = [
     source text,
     created_at timestamptz NOT NULL DEFAULT now()
   )`,
+  `CREATE TABLE IF NOT EXISTS tracks (
+    id serial PRIMARY KEY,
+    name text NOT NULL UNIQUE,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS track_videos (
+    track_id integer NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    video_id integer NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    position integer NOT NULL,
+    added_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (track_id, video_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS track_videos_video_idx ON track_videos (video_id)`,
 ];
 
 // Short random tag for this server process. On Netlify the app runs on AWS

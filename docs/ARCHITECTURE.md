@@ -326,6 +326,136 @@ window); that's why fps+resolution tuning matters.
 
 ## 12. Roadmap
 
+**Built 2026-10-16:**
+- **Next.js 16.2.10 → 16.3.8 (security)** — `npm audit` listed 19
+  advisories; 17 were in Next.js itself (incl. critical RCE via the Image
+  Optimization API / next/og, cache poisoning, SSRF), all affecting only
+  versions < 16.3.8. Upgraded `next` + `eslint-config-next` (kept matched,
+  pinned exactly) to 16.3.8 — chosen over the day-old 16.4.2 as the patched
+  end of a 2-week-old line — which also brings patched postcss 8.5.23 and
+  sharp 0.35.5; then `npm audit fix` (no `--force`) for in-range bumps.
+  Result: `npm audit --omit=dev` = **0 vulnerabilities**. 9 remain, all
+  dev-only (ESLint plugin chain, drizzle-kit's bundled esbuild); npm's only
+  "fixes" for them are downgrades, so they're accepted. Verified: tsc, eslint,
+  `npm run build` (25 routes), tracks API suite 20/20, every page with zero
+  console errors. Exposure was already limited (no middleware, no next/image
+  or next/og, auth checked per route), but the upgrade closes it entirely.
+- **Markdown rendering for Gemini text** — `components/Markdown.tsx` wraps
+  `react-markdown` 10.1.0 (pinned) with site-styled headings, bold, bullet
+  and numbered lists, code, links (new tab). Used for the card's SUMMARY
+  panel, Ask answers on cards, and Notebook answers; transcripts and
+  personal notes stay plain text. COPY still copies the raw markdown.
+  Security: react-markdown builds React elements and never renders raw HTML
+  (no `rehype-raw`), and it neutralises `javascript:` URLs — verified with a
+  `<script>`/`onerror`/`javascript:` payload rendering as inert text. The
+  "no dangerouslySetInnerHTML anywhere" rule still holds.
+- **Shorts polish** — instant capitalised hover labels on the shorts icons
+  (custom, not the ~1s-delayed `title`), icons outlined via
+  `components/Emoji.tsx` so pale glyphs (✨ 💬 📄) stay visible, and the legend
+  restyled as bordered capital chips.
+- **Shorts layout fix** — shorts cards had grown into tall towers (narrow
+  ≥150px auto-fill columns × 7 full-text buttons, wrapping channel tags),
+  and the last row of every page left empty slots (24 per page in 7
+  columns = 3 full rows + 3). Now: shorts use fixed column counts
+  2 / 3 / 4 / 6 (`grid-cols-2 sm:3 lg:4 2xl:6`) — all divisors of the
+  24-per-page batch, so every page fills complete rows; cards are compact
+  (`VideoCard` `compact = video.isShort`: icon-only actions ✓ 🕑 ✨ 💬 📄 📝 🎯
+  with hover/aria labels, one-line truncated channel tag) — 272px tall at
+  6 columns. A legend line above the shorts grid explains the icons.
+  Regular video cards are unchanged.
+- **Learning tracks** (`/tracks`, header button 🎯 TRACKS) — named, ordered
+  collections. Tables `tracks` (name unique) and `track_videos` (PK
+  `(track_id, video_id)` → adding is idempotent; both FKs cascade, so
+  deleting a channel's videos also drops them from tracks). Rules in
+  `lib/tracks.ts` (routes stay thin; `app/api/tracks/respond.ts` maps
+  `TrackError` → HTTP): stats per track ("4 of 9 watched · 2h 10m left",
+  remaining time uses honest-watched coverage), CONTINUE = first unwatched
+  in order, append at max(position)+1, move = swap with the neighbour in ONE
+  `UPDATE … CASE` (`::int` casts — untyped params in a CASE resolve to
+  text). Adding: `🎯 TRACK` panel on every card (inline, since cards clip
+  pop-ups; tick/untick, or create by name — `components/TrackMenu.tsx`), and
+  in the feed, with a search active, "🎯 ADD THESE N TO A TRACK" — fetches
+  every matching id via `GET /api/videos?…&ids=1` (same filters as the
+  feed, oldest upload first, capped at 300) and appends them. Track page:
+  progress bars, UP NEXT, ▲▼ reorder, ✕ remove, rename (name pre-selected),
+  delete. Playing from the track page auto-advances to the next video when
+  one ends (`PlayerModal` `onEnded`); the normal feed never does. Also
+  extracted `lib/videoColumns.ts` (`feedVideoColumns`) — the one definition
+  of the FeedVideo select shared by feed, notebook and tracks queries.
+- **Notebook** (`/notebook`, header button 📓 NOTEBOOK) — every saved Ask
+  answer (`video_notes`) and personal note in one place, grouped by video,
+  most recent activity first. `GET /api/notebook` returns all answers plus
+  their videos (each once, incl. note-only videos) in ONE request; the page
+  filters/groups/searches in the browser (personal scale → instant, no round
+  trips). Filters: BOTH / AI ANSWERS / MY NOTES; genre chips with counts;
+  question chips for prompts asked ≥2 times (one-offs stay searchable);
+  search inside answers, questions, notes and titles. Long answers collapse
+  (SHOW ALL); per-answer COPY; COPY ALL builds one plain-text document of
+  exactly what's filtered (heading names the filters, one section per video
+  with its link). ▶ WATCH opens the same player (progress still recorded).
+  Read-only over answers: zero Gemini calls.
+- **Personal notes** — `videos.personal_note` + `personal_note_at`, one note
+  per video. `📝 NOTE` on every card (a "•" when one exists) opens
+  `components/NoteEditor.tsx`: autosaves ~0.8s after typing stops, on blur
+  and on close (`keepalive`), retries on failure; clearing the text deletes
+  the note. The same editor works inline in the Notebook (✎ EDIT / + ADD MY
+  NOTE). `PATCH /api/videos/[id]` validates `personalNote` (text, ≤20,000
+  chars). Note: Gemini answers contain markdown (`**bold**`) shown as raw
+  text, on cards and in the Notebook alike — rendering it is a candidate fix.
+- **Honest watched + resume + progress bar** — opening a video no longer
+  marks it seen. The player modal uses YouTube's IFrame Player API
+  (`lib/youtubePlayer.ts`, loaded once, `youtube-nocookie` host) and polls
+  the playhead every second; only normal forward playback counts (seeks and
+  rewinds don't). Progress is a string of 10-second chunks, "1" = played
+  (`videos.watch_progress`; rules in `lib/progress.ts`, shared by client and
+  server): a chunk counts once half of it was really played, sittings
+  OR-merge, rewatching never double-counts. Saved every 15s, on pause/end,
+  and on close (`keepalive`), with `videos.resume_seconds`.
+  `PATCH /api/videos/[id]` merges progress server-side and marks the video
+  watched (and clears `later_at`) only when coverage CROSSES 50% on that
+  save — so a video you un-mark by hand stays un-marked. The modal resumes
+  at the saved second (not if <10s in or within 15s of the end) with a
+  "RESUMED AT m:ss · START OVER" chip; cards show a thin progress bar. If
+  the API can't load (8s timeout), it falls back to the plain embed with no
+  tracking — MARK SEEN still works. The PATCH now returns only the fields
+  the UI needs, never the transcript. Fixes the Watch Later caveat below.
+- **Length filter + time totals** — chips ANY / < 10 MIN / 10–30 / 30+ on
+  the search row (VIDEOS only; every Short is under ~3 min, so they hide on
+  SHORTS), sent as `length` = short | medium | long; duration 0 ("unknown")
+  only appears under ANY. `/api/videos` now also returns `totals` (count +
+  summed `duration_seconds` of everything the filters match, all pages — one
+  extra query run in parallel), shown as "559 videos · 215h 14m". On LATER
+  that count doubles as "how many saved videos are visible", replacing the
+  separate count query. The client adjusts totals optimistically on
+  mark-seen / LATER toggles. The empty state picks the most specific reason
+  (search, then length, then tab) via `renderEmptyState()`.
+- **Watch Later** — `videos.later_at` (nullable timestamptz; null = not
+  saved, a timestamp = saved then, also the sort key) plus a partial index
+  on the saved rows only. `+ LATER` / `✓ LATER` on every card; a **LATER**
+  tab beside INBOX / EVERYTHING / HISTORY that, like them, follows the
+  genre, channel, kind and search filters, sorted newest-saved first. Its
+  badge is the *unfiltered* total, and a hint names what the filters hide
+  ("N more saved outside these filters — SHOW ALL", "N saved in Shorts"), so
+  a saved video is never invisible. Marking a video watched clears
+  `later_at` (server-side in `PATCH /api/videos/[id]`), so the list empties
+  as you go. Caveat until "honest watched" ships: pressing play still marks
+  a video watched immediately, so an accidental open drops it from LATER.
+
+**Built 2026-10-15:**
+- **Manage-page channel search + genre filter chips** — filters the channel
+  list in the browser (the page already loads every channel; no paging, no
+  API call). Search matches name or @handle; chips are ALL / each genre /
+  NO GENRE with counts; the two combine. The chip row is a self-contained
+  block — delete it to go back to search-only.
+- **Genre colors** (`lib/color.ts`, `components/GenreColorPicker.tsx`): a
+  14-color curated palette, a dot on swatches other genres already use, a
+  custom swatch backed by the browser's color wheel, a live preview chip,
+  and color editing for existing genres (the ✎ editor). `textColorFor()`
+  picks ink or white text by WCAG contrast, used everywhere a genre color is
+  a background (feed genre tabs, video-card channel tag, Manage chips) — so
+  any custom color stays readable. The genre API now rejects anything but a
+  6-digit hex color (`isHexColor`), validating at the boundary.
+
 **Built 2026-08-28:**
 - **Fuzzy title search** on the feed — debounced, scoped to the active
   filters (`search` param on `/api/videos`).

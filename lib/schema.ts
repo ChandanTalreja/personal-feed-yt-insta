@@ -5,6 +5,7 @@ import {
   integer,
   boolean,
   timestamp,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 export const genres = pgTable("genres", {
@@ -49,6 +50,17 @@ export const videos = pgTable("videos", {
   watched: boolean("watched").notNull().default(false),
   summary: text("summary"),
   transcript: text("transcript"),
+  // Watch Later: null = not saved; a timestamp = saved at that moment (also
+  // the LATER tab's sort key, newest first). Cleared when marked watched.
+  laterAt: timestamp("later_at", { withTimezone: true }),
+  // Honest watched: a map of played 10-second chunks (see lib/progress.ts)
+  // and the second to resume from. Both null until first played.
+  watchProgress: text("watch_progress"),
+  resumeSeconds: integer("resume_seconds"),
+  // Your own note on this video (one per video; null = none). Separate
+  // from video_notes, which holds Gemini's saved Ask answers.
+  personalNote: text("personal_note"),
+  personalNoteAt: timestamp("personal_note_at", { withTimezone: true }),
   fetchedAt: timestamp("fetched_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -87,6 +99,34 @@ export const geminiUsage = pgTable("gemini_usage", {
   tokens: integer("tokens"),
   usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Learning tracks: named, ordered collections of videos to work through.
+export const tracks = pgTable("tracks", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// Which videos are in which track, and in what order. The (track, video)
+// key makes adding idempotent; deleting a track or a video cascades here.
+export const trackVideos = pgTable(
+  "track_videos",
+  {
+    trackId: integer("track_id")
+      .notNull()
+      .references(() => tracks.id, { onDelete: "cascade" }),
+    videoId: integer("video_id")
+      .notNull()
+      .references(() => videos.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    addedAt: timestamp("added_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.trackId, t.videoId] })]
+);
 
 export type Genre = typeof genres.$inferSelect;
 export type Channel = typeof channels.$inferSelect;

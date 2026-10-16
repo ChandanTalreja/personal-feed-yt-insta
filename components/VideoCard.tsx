@@ -5,6 +5,12 @@
 import { useState } from "react";
 import { formatDuration, timeAgo } from "@/lib/format";
 import CopyButton from "./CopyButton";
+import NoteEditor from "./NoteEditor";
+import TrackMenu from "./TrackMenu";
+import Emoji from "./Emoji";
+import Markdown from "./Markdown";
+import { textColorFor } from "@/lib/color";
+import { coveredRatio } from "@/lib/progress";
 import type { FeedVideo } from "./types";
 
 interface Note {
@@ -22,9 +28,10 @@ interface Props {
   askPreset: string | null;
   onPlay: (video: FeedVideo) => void;
   onToggleWatched: (video: FeedVideo) => void;
+  onToggleLater: (video: FeedVideo) => void;
 }
 
-type Panel = "summary" | "ask" | "transcript" | null;
+type Panel = "summary" | "ask" | "transcript" | "note" | "track" | null;
 
 export default function VideoCard({
   video,
@@ -32,8 +39,44 @@ export default function VideoCard({
   askPreset,
   onPlay,
   onToggleWatched,
+  onToggleLater,
 }: Props) {
   const [panel, setPanel] = useState<Panel>(null);
+  const [note, setNote] = useState<string | null>(video.personalNote);
+  // Shorts sit in narrow columns: icon-only actions, one-line channel tag.
+  const compact = video.isShort;
+  const btn = compact
+    ? "nb-chip group relative rounded px-1.5 py-0.5 text-sm leading-none"
+    : "nb-chip rounded px-2 py-1 text-xs";
+
+  // Shorts: outlined icon + an instant capitalised label on hover/focus (the
+  // browser's own title tooltip waits ~1s). Edge buttons anchor their label
+  // inward so the card's rounded edge never clips it.
+  function iconWithTip(
+    icon: string,
+    label: string,
+    align: "left" | "center" | "right"
+  ) {
+    const anchor =
+      align === "left"
+        ? "left-0"
+        : align === "right"
+          ? "right-0"
+          : "left-1/2 -translate-x-1/2";
+    return (
+      <>
+        <Emoji>{icon}</Emoji>
+        <span
+          className={`pointer-events-none absolute bottom-full z-20 mb-1.5 hidden whitespace-nowrap rounded bg-[var(--ink)] px-1.5 py-1 text-[10px] font-bold leading-none tracking-wide text-white group-hover:block group-focus-visible:block ${anchor}`}
+        >
+          {label}
+        </span>
+      </>
+    );
+  }
+  const progressPct = Math.round(
+    coveredRatio(video.watchProgress, video.durationSeconds) * 100
+  );
 
   const [summary, setSummary] = useState<string | null>(video.summary);
   const [summaryBusy, setSummaryBusy] = useState(false);
@@ -162,6 +205,19 @@ export default function VideoCard({
             {formatDuration(video.durationSeconds)}
           </span>
         )}
+        {progressPct > 0 && (
+          // How much has actually been played (sittings add up) — same
+          // numbers the 50% auto-watched rule uses.
+          <span
+            className="absolute inset-x-0 bottom-0 h-1.5 bg-black/40"
+            title={`${progressPct}% watched`}
+          >
+            <span
+              className="block h-full bg-[var(--accent)]"
+              style={{ width: `${progressPct}%` }}
+            />
+          </span>
+        )}
         {video.isShort && (
           <span className="absolute left-2 top-2 rounded border-2 border-[var(--ink)] bg-[var(--pink)] px-1.5 py-0.5 text-xs font-bold">
             SHORT
@@ -184,56 +240,150 @@ export default function VideoCard({
               src={video.channelThumbnail}
               alt=""
               referrerPolicy="no-referrer"
-              className="h-5 w-5 rounded-full border border-[var(--ink)]"
+              className="h-5 w-5 shrink-0 rounded-full border border-[var(--ink)]"
             />
           )}
           <span
-            className="rounded border border-[var(--ink)] px-1.5 py-0.5 font-semibold"
-            style={{ backgroundColor: accentColor }}
+            className={`rounded border border-[var(--ink)] px-1.5 py-0.5 font-semibold ${
+              compact ? "min-w-0 truncate" : ""
+            }`}
+            style={{
+              backgroundColor: accentColor,
+              color: textColorFor(accentColor),
+            }}
+            title={video.channelTitle}
           >
             {video.channelTitle}
           </span>
-          <span className="ml-auto text-neutral-500">
+          <span
+            className={`ml-auto text-neutral-500 ${
+              compact ? "shrink-0 whitespace-nowrap" : ""
+            }`}
+          >
             {timeAgo(video.publishedAt)}
           </span>
         </div>
 
+        {/* Actions. Shorts are narrow, so they get icon-only buttons (the
+            legend above the shorts grid and each hover label explain them);
+            regular videos keep their full text labels. */}
         <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
           <button
-            className="nb-chip rounded px-2 py-1 text-xs"
+            className={btn}
             data-active={video.watched}
             onClick={() => onToggleWatched(video)}
-            title={video.watched ? "Mark as unwatched" : "Mark as watched"}
+            title={compact ? undefined : video.watched ? "Mark as unwatched" : "Mark as seen"}
+            aria-label={video.watched ? "Mark as unwatched" : "Mark as seen"}
           >
-            {video.watched ? "✓ SEEN" : "MARK SEEN"}
+            {compact
+              ? iconWithTip("✓", video.watched ? "SEEN ✓" : "MARK SEEN", "left")
+              : video.watched
+                ? "✓ SEEN"
+                : "MARK SEEN"}
           </button>
           <button
-            className="nb-chip rounded px-2 py-1 text-xs"
+            className={btn}
+            data-active={video.laterAt != null}
+            onClick={() => onToggleLater(video)}
+            title={
+              compact
+                ? undefined
+                : video.laterAt
+                  ? "Remove from Watch Later"
+                  : "Save to Watch Later"
+            }
+            aria-label={
+              video.laterAt ? "Remove from Watch Later" : "Save to Watch Later"
+            }
+          >
+            {compact
+              ? iconWithTip("🕑", video.laterAt ? "IN LATER ✓" : "+ LATER", "left")
+              : video.laterAt
+                ? "✓ LATER"
+                : "+ LATER"}
+          </button>
+          <button
+            className={btn}
             data-active={panel === "summary"}
             onClick={handleSummarize}
             disabled={summaryBusy}
-            title="Summarize with Gemini"
+            title={compact ? undefined : "Summarize with Gemini"}
+            aria-label="Summary"
           >
-            {summaryBusy ? "…" : "✨ SUMMARY"}
+            {summaryBusy
+              ? "…"
+              : compact
+                ? iconWithTip("✨", "SUMMARY", "center")
+                : "✨ SUMMARY"}
           </button>
           <button
-            className="nb-chip rounded px-2 py-1 text-xs"
+            className={btn}
             data-active={panel === "ask"}
             onClick={openAsk}
-            title="Ask Gemini about this video"
+            title={compact ? undefined : "Ask Gemini about this video"}
+            aria-label="Ask about this video"
           >
-            💬 ASK
+            {compact ? iconWithTip("💬", "ASK", "center") : "💬 ASK"}
           </button>
           <button
-            className="nb-chip rounded px-2 py-1 text-xs"
+            className={btn}
             data-active={panel === "transcript"}
             onClick={handleTranscript}
             disabled={transcriptBusy}
-            title="Full transcript"
+            title={compact ? undefined : "Full transcript"}
+            aria-label="Full transcript"
           >
-            {transcriptBusy ? "…" : "📄 TEXT"}
+            {transcriptBusy
+              ? "…"
+              : compact
+                ? iconWithTip("📄", "TEXT", "center")
+                : "📄 TEXT"}
+          </button>
+          <button
+            className={btn}
+            data-active={panel === "note"}
+            onClick={() => togglePanel("note")}
+            title={
+              compact
+                ? undefined
+                : note
+                  ? "Your note on this video"
+                  : "Write a note on this video"
+            }
+            aria-label={note ? "Your note on this video" : "Write a note"}
+          >
+            {/* The dot means a note already exists. */}
+            {compact
+              ? iconWithTip(note ? "📝•" : "📝", note ? "NOTE •" : "NOTE", "right")
+              : `📝 NOTE${note ? " •" : ""}`}
+          </button>
+          <button
+            className={btn}
+            data-active={panel === "track"}
+            onClick={() => togglePanel("track")}
+            title={compact ? undefined : "Add to a learning track"}
+            aria-label="Add to a learning track"
+          >
+            {compact ? iconWithTip("🎯", "TRACK", "right") : "🎯 TRACK"}
           </button>
         </div>
+
+        {panel === "track" && (
+          <div className="nb-sm mt-1 rounded p-2">
+            <TrackMenu mode="toggle" videoId={video.id} />
+          </div>
+        )}
+
+        {panel === "note" && (
+          <div className="nb-sm mt-1 rounded p-2">
+            <NoteEditor
+              videoId={video.id}
+              initial={note}
+              autoFocus
+              onSaved={(saved) => setNote(saved)}
+            />
+          </div>
+        )}
 
         {panel === "summary" && (summary || summaryError || summaryBusy) && (
           <div className="nb-sm mt-1 rounded p-2 text-xs leading-relaxed">
@@ -246,7 +396,7 @@ export default function VideoCard({
                 <div className="mb-1 flex justify-end">
                   <CopyButton text={summary ?? ""} />
                 </div>
-                <div className="whitespace-pre-wrap">{summary}</div>
+                <Markdown text={summary ?? ""} />
               </>
             )}
           </div>
@@ -321,13 +471,13 @@ export default function VideoCard({
                 {notes.map((note) => (
                   <div
                     key={note.id}
-                    className="nb-sm whitespace-pre-wrap rounded p-2 text-xs leading-relaxed"
+                    className="nb-sm rounded p-2 text-xs leading-relaxed"
                   >
                     <div className="mb-1 flex items-start justify-between gap-2">
                       <p className="font-bold">Q: {note.prompt}</p>
                       <CopyButton text={note.answer} />
                     </div>
-                    {note.answer}
+                    <Markdown text={note.answer} />
                   </div>
                 ))}
               </div>

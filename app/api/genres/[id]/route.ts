@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { isAuthed } from "@/lib/auth";
 import { genres } from "@/lib/schema";
+import { isHexColor } from "@/lib/color";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -19,7 +20,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if ("name" in body && String(body.name).trim()) {
     updates.name = String(body.name).trim();
   }
-  if ("color" in body) updates.color = String(body.color);
+  if ("color" in body) {
+    if (!isHexColor(body.color)) {
+      return NextResponse.json(
+        { error: "Color must be a hex value like #FFC900." },
+        { status: 400 }
+      );
+    }
+    updates.color = body.color;
+  }
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
