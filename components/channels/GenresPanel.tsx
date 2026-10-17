@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import GenreColorPicker from "./GenreColorPicker";
-import Button from "./ui/Button";
-import Icon from "./ui/Icon";
+import Button from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
 import { GENRE_PALETTE, sameColor } from "@/lib/color";
-import type { GenreItem } from "./types";
+import type { GenreItem } from "@/components/types";
+import { api } from "@/lib/api-client";
 
 export type GenreFilter = "all" | "none" | number;
 
@@ -62,13 +63,11 @@ export default function GenresPanel({
     if (!draft.name.trim() || busy) return;
     setBusy(true);
     try {
-      const res = await fetch(editing === "new" ? "/api/genres" : `/api/genres/${editing}`, {
+      await api(editing === "new" ? "/api/genres" : `/api/genres/${editing}`, {
         method: editing === "new" ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
+        body: draft,
+        fallback: "Couldn't save the genre",
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Couldn't save the genre");
       setEditing(null);
       await onChanged();
     } catch (err) {
@@ -81,7 +80,9 @@ export default function GenresPanel({
   async function remove(id: number) {
     setBusy(true);
     try {
-      await fetch(`/api/genres/${id}`, { method: "DELETE" });
+      await api(`/api/genres/${id}`, { method: "DELETE", fallback: "Couldn't delete the genre" }).catch((err) =>
+        onError((err as Error).message)
+      );
       if (filter === id) onFilter("all");
       setEditing(null);
       await onChanged();
@@ -93,7 +94,7 @@ export default function GenresPanel({
   const editor = (g: GenreItem | null) => (
     <form onSubmit={save} className="flex flex-col gap-2.5 border-t border-line bg-cream p-3">
       <input
-        className="nb-input h-9 px-2.5 text-sm"
+        className="field h-9 px-2.5 text-sm"
         placeholder="Genre name, e.g. Finance"
         value={draft.name}
         maxLength={40}
@@ -102,7 +103,7 @@ export default function GenresPanel({
         aria-label="Genre name"
       />
       <input
-        className="nb-input h-9 px-2.5 text-sm"
+        className="field h-9 px-2.5 text-sm"
         placeholder="Suggested question (optional)"
         value={draft.askPrompt}
         onChange={(e) => setDraft({ ...draft, askPrompt: e.target.value })}
@@ -212,7 +213,7 @@ export default function GenresPanel({
   return (
     <section className="overflow-hidden rounded-lg border border-line bg-surface">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">Genres</h2>
+        <h2 className="label-caps">Genres</h2>
         <button
           type="button"
           onClick={startNew}

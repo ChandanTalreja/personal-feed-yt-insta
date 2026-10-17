@@ -13,7 +13,7 @@ const LIMIT = { channels: 8, videos: 10, answers: 10 };
 const BEFORE = 50;
 const AFTER = 110;
 
-export interface SearchResults {
+interface SearchResults {
   query: string;
   /** True when the query started with "@": channels only. */
   channelsOnly: boolean;
@@ -59,7 +59,7 @@ function likePattern(term: string): string {
  * The text around the first match, flattened to one line. Markdown marks
  * (#, *, `) are dropped so the snippet reads as plain text.
  */
-export function snippetAround(text: string, term: string): string {
+function snippetAround(text: string, term: string): string {
   const flat = text.replace(/[#*`>_]+/g, "").replace(/\s+/g, " ").trim();
   const at = flat.toLowerCase().indexOf(term.toLowerCase());
   if (at === -1) return flat.slice(0, BEFORE + AFTER) + (flat.length > BEFORE + AFTER ? "…" : "");

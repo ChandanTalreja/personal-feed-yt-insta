@@ -4,7 +4,7 @@ import { appMeta } from "./schema";
 
 /** app_meta key holding the everyday Ask suggestions (a JSON array). */
 const KEY = "ask_suggestions";
-export const MAX_SUGGESTIONS = 3;
+const MAX_SUGGESTIONS = 3;
 const MAX_LENGTH = 200;
 
 /**

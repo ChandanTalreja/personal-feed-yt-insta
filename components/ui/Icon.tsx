@@ -1,4 +1,4 @@
-import { ICONS } from "./iconPaths";
+import { ICONS, type IconShape } from "./iconPaths";
 
 export type IconName = keyof typeof ICONS;
 
@@ -30,7 +30,7 @@ export default function Icon({
   duotone?: boolean;
   className?: string;
 }) {
-  const shape: { fill?: readonly string[]; line: readonly string[] } = ICONS[name];
+  const shape: IconShape = ICONS[name];
   const layer = filled ? "icon-solid" : lit ? "icon-fill icon-lit" : "icon-fill";
   return (
     <svg

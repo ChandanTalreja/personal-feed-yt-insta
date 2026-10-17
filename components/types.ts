@@ -25,6 +25,15 @@ export interface FeedVideo {
   answerCount: number;
 }
 
+/** A saved Ask answer (a row of video_notes). */
+export interface Answer {
+  id: number;
+  videoId: number;
+  prompt: string;
+  answer: string;
+  createdAt: string;
+}
+
 export interface GenreItem {
   id: number;
   name: string;

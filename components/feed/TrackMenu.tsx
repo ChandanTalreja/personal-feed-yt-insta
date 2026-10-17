@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { buttonClass } from "./ui/Button";
-import Icon from "./ui/Icon";
-import Spinner from "./ui/Spinner";
+import { buttonClass } from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
+import Spinner from "@/components/ui/Spinner";
 import { notifyNavChanged } from "@/lib/nav-events";
+import { api } from "@/lib/api-client";
 
 interface TrackRow {
   id: number;
@@ -63,17 +64,10 @@ export default function TrackMenu(props: Props) {
       ) ?? null
     );
     try {
-      const res = adding
-        ? await fetch(`/api/tracks/${track.id}/videos`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ videoIds: [props.videoId] }),
-          })
-        : await fetch(
-            `/api/tracks/${track.id}/videos?videoId=${props.videoId}`,
-            { method: "DELETE" }
-          );
-      if (!res.ok) throw new Error((await res.json()).error ?? "Failed");
+      const fallback = "Couldn't update the track";
+      await (adding
+        ? api(`/api/tracks/${track.id}/videos`, { method: "POST", body: { videoIds: [props.videoId] }, fallback })
+        : api(`/api/tracks/${track.id}/videos?videoId=${props.videoId}`, { method: "DELETE", fallback }));
     } catch (err) {
       setError((err as Error).message);
       setTracks((list) =>
@@ -91,15 +85,11 @@ export default function TrackMenu(props: Props) {
     setWorking("new");
     setError(null);
     try {
-      const res = await fetch("/api/tracks", {
+      const data = await api("/api/tracks", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          props.mode === "toggle" ? { name, videoIds: [props.videoId] } : { name }
-        ),
+        body: props.mode === "toggle" ? { name, videoIds: [props.videoId] } : { name },
+        fallback: "Couldn't create the track",
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Couldn't create the track");
       notifyNavChanged();
       setNewName("");
       if (props.mode === "pick") {
@@ -146,7 +136,7 @@ export default function TrackMenu(props: Props) {
             ) : (
               <button
                 key={t.id}
-                className="nb-chip flex h-8 items-center justify-between rounded-sm px-2.5 text-left"
+                className="chip flex h-8 items-center justify-between rounded-sm px-2.5 text-left"
                 disabled={busy}
                 onClick={() => props.onPick({ id: t.id, name: t.name })}
               >
@@ -159,7 +149,7 @@ export default function TrackMenu(props: Props) {
       )}
       <form onSubmit={create} className="flex gap-1.5">
         <input
-          className="nb-input h-8 min-w-0 flex-1 rounded-sm px-2.5"
+          className="field h-8 min-w-0 flex-1 rounded-sm px-2.5"
           placeholder="New track name, e.g. Kubernetes"
           value={newName}
           maxLength={60}

@@ -15,7 +15,7 @@ import {
   sum,
 } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { channels, videos } from "@/lib/schema";
 
 const PAGE_SIZE = 24;
@@ -23,9 +23,8 @@ const PAGE_SIZE = 24;
 const MAX_BULK_IDS = 300;
 
 export async function GET(req: NextRequest) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   const q = req.nextUrl.searchParams;
   const kind = q.get("kind") ?? "videos"; // videos | shorts | all
   const watched = q.get("watched") ?? "all"; // unwatched | watched | all | later

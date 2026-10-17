@@ -1,10 +1,10 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import Icon from "./ui/Icon";
+import { Avatar, Thumb } from "./ui/Media";
+import { highlight } from "./ui/highlight";
+import SearchField from "./ui/SearchField";
 import Spinner from "./ui/Spinner";
 import { formatDuration, timeAgo } from "@/lib/format";
 
@@ -44,26 +44,6 @@ interface Item {
   key: string;
   href: string;
   node: ReactNode;
-}
-
-/** Wrap every case-insensitive match of `term` in the highlight. */
-function highlight(text: string, term: string): ReactNode {
-  if (!term) return text;
-  const lower = text.toLowerCase();
-  const t = term.toLowerCase();
-  const out: ReactNode[] = [];
-  let from = 0;
-  for (let at = lower.indexOf(t); at !== -1; at = lower.indexOf(t, from)) {
-    out.push(text.slice(from, at));
-    out.push(
-      <mark key={at} className="rounded-xs bg-primary/45 text-ink">
-        {text.slice(at, at + t.length)}
-      </mark>
-    );
-    from = at + t.length;
-  }
-  out.push(text.slice(from));
-  return out;
 }
 
 /**
@@ -150,13 +130,7 @@ export default function GlobalSearch() {
           href: `/?channel=${c.id}`,
           node: (
             <>
-              {c.thumbnail ? (
-                <img src={c.thumbnail} alt="" referrerPolicy="no-referrer" className="h-[30px] w-[30px] shrink-0 rounded-full bg-line" />
-              ) : (
-                <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-line text-xs font-bold">
-                  {c.title.slice(0, 2).toUpperCase()}
-                </span>
-              )}
+              <Avatar src={c.thumbnail} name={c.title} size={30} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{highlight(c.title, term)}</span>
                 <span className="block truncate text-meta text-muted">
@@ -184,11 +158,7 @@ export default function GlobalSearch() {
           href: `/?video=${v.id}`,
           node: (
             <>
-              {v.thumbnail ? (
-                <img src={v.thumbnail} alt="" referrerPolicy="no-referrer" className="aspect-video w-16 shrink-0 rounded-xs object-cover" />
-              ) : (
-                <span className="aspect-video w-16 shrink-0 rounded-xs bg-line" />
-              )}
+              <Thumb src={v.thumbnail} className="w-16 shrink-0 rounded-xs" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{highlight(v.title, term)}</span>
                 <span className="block truncate text-meta text-muted">
@@ -279,32 +249,25 @@ export default function GlobalSearch() {
   let index = -1; // running position across sections, for the active row
   return (
     <div className="relative">
-      <label className="nb-input flex h-9 w-full items-center gap-2 px-3 focus-within:border-ink focus-within:shadow-[0_0_0_3px_rgb(255_208_43/0.45)] md:w-56 xl:w-72">
-        <Icon name="search" size={16} className="text-muted" />
-        <input
-          ref={inputRef}
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
-          placeholder="Search everything"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            if (!open) openPanel();
-          }}
-          onFocus={openPanel}
-          onKeyDown={onKeyDown}
-          aria-label="Search channels, videos, answers and notes"
-          aria-expanded={open}
-          role="combobox"
-          aria-controls="global-search-results"
-        />
-        {q ? (
-          <button type="button" aria-label="Clear search" className="text-muted hover:text-ink" onClick={() => setQ("")}>
-            <Icon name="x" size={14} />
-          </button>
-        ) : (
-          <kbd className="hidden rounded-xs border border-line px-1.5 font-mono text-xs text-muted sm:block">⌘K</kbd>
-        )}
-      </label>
+      <SearchField
+        inputRef={inputRef}
+        value={q}
+        onChange={(v) => {
+          setQ(v);
+          if (!open) openPanel();
+        }}
+        onFocus={openPanel}
+        onKeyDown={onKeyDown}
+        onClear={() => setQ("")} // empty the box without opening the panel
+        escClears={false} // Esc closes the panel instead (onKeyDown)
+        placeholder="Search everything"
+        label="Search channels, videos, answers and notes"
+        aria-expanded={open}
+        role="combobox"
+        aria-controls="global-search-results"
+        hint={<kbd className="hidden rounded-xs border border-line px-1.5 font-mono text-xs text-muted sm:block">⌘K</kbd>}
+        className="w-full md:w-56 xl:w-72"
+      />
 
       {open && (
         <>
@@ -359,7 +322,7 @@ export default function GlobalSearch() {
               {sections.map((section, si) => (
                 <div key={section.title} className={si > 0 ? "border-t border-line" : ""}>
                   <div className="flex items-center justify-between px-4 pb-1.5 pt-3">
-                    <span className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">{section.title}</span>
+                    <span className="label-caps">{section.title}</span>
                     {section.more && (
                       <button
                         type="button"

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { isAuthed } from "@/lib/auth";
-import FeedClient from "@/components/FeedClient";
+import FeedClient from "@/components/feed/FeedClient";
 
 export const dynamic = "force-dynamic";
 

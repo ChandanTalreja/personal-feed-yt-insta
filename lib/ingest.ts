@@ -69,7 +69,7 @@ async function storePage(
   return rows.length;
 }
 
-export interface BackfillStep {
+interface BackfillStep {
   /** Videos added by this call. */
   added: number;
   /** Where to carry on (YouTube's page bookmark), or null when finished. */
@@ -114,7 +114,7 @@ export async function backfillChannel(
  * lookback (a page or two per channel). Same result as before, but saved
  * page by page.
  */
-export async function ingestChannel(
+async function ingestChannel(
   db: Db,
   channel: Pick<Channel, "id" | "uploadsPlaylistId">,
   since: Date
@@ -131,7 +131,10 @@ export const BACKFILL_BUDGET_MS = 6_000;
 
 const CRON_LOOKBACK_DAYS = 14;
 
-export interface RefreshResult {
+/** Channels checked at the same time during a refresh. */
+const REFRESH_CONCURRENCY = 5;
+
+interface RefreshResult {
   channels: number;
   added: number;
   errors: string[];
@@ -150,18 +153,41 @@ export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
     .from(channels)
     .where(eq(channels.isActive, true));
   const since = new Date(Date.now() - CRON_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+  // A few channels at a time, not one after another: each channel is mostly
+  // waiting on YouTube, and one-by-one took ~25s for the whole list — so a
+  // cold start (~2–5s) pushed it past Netlify's 30s cut-off. Same YouTube
+  // calls, same quota; just fewer waits in a row. Channels never share
+  // videos, and inserts skip duplicates anyway, so the order doesn't matter.
+  const outcomes: ({ count: number } | { error: string })[] = new Array(active.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < active.length) {
+      const i = nextIndex++;
+      try {
+        outcomes[i] = { count: await ingestChannel(db, active[i], since) };
+      } catch (err) {
+        outcomes[i] = { error: (err as Error).message };
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(REFRESH_CONCURRENCY, active.length) }, worker)
+  );
+
+  // Totals in channel order, as before.
   let added = 0;
   const errors: string[] = [];
   const breakdown: { title: string; added: number }[] = [];
-  for (const channel of active) {
-    try {
-      const count = await ingestChannel(db, channel, since);
-      added += count;
-      if (count > 0) breakdown.push({ title: channel.title, added: count });
-    } catch (err) {
-      errors.push(`${channel.title}: ${(err as Error).message}`);
+  outcomes.forEach((outcome, i) => {
+    const { title } = active[i];
+    if ("error" in outcome) {
+      errors.push(`${title}: ${outcome.error}`);
+    } else {
+      added += outcome.count;
+      if (outcome.count > 0) breakdown.push({ title, added: outcome.count });
     }
-  }
+  });
   // Remember when this sync finished — the top bar's "Synced 4 min ago".
   // Upsert, so the same row is simply updated every time.
   const syncedAt = new Date();

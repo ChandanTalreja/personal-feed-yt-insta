@@ -25,7 +25,7 @@ async function yt(path: string, params: Record<string, string>): Promise<any> {
   return res.json();
 }
 
-export interface ResolvedChannel {
+interface ResolvedChannel {
   ytChannelId: string;
   title: string;
   handle: string | null;
@@ -123,7 +123,7 @@ export async function listUploadsPage(
   return { ids, next: sawOlder ? null : (data.nextPageToken ?? null) };
 }
 
-export interface VideoDetails {
+interface VideoDetails {
   ytVideoId: string;
   title: string;
   thumbnail: string | null;
@@ -168,7 +168,7 @@ export async function getVideoDetails(
   return out;
 }
 
-export function parseISODuration(duration: string | undefined): number {
+function parseISODuration(duration: string | undefined): number {
   const m = duration?.match(
     /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/
   );

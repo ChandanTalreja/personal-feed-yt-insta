@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { channels } from "@/lib/schema";
 
 /** More than any real channel list; stops a malformed request doing damage. */
@@ -23,9 +23,8 @@ type Action = "move" | "pause" | "resume" | "delete";
  * answers, notes and track places), via ON DELETE CASCADE in the schema.
  */
 export async function POST(req: NextRequest) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const ids: number[] = Array.isArray(body.ids)
     ? [...new Set<number>(body.ids.map(Number))].filter((n) => Number.isInteger(n) && n > 0)

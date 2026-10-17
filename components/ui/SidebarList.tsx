@@ -14,7 +14,7 @@ export function SidebarSection({
   return (
     <section className="px-3 [&+&]:mt-5">
       <div className="mb-1.5 flex items-center justify-between px-2.5">
-        <h3 className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">{title}</h3>
+        <h3 className="label-caps">{title}</h3>
         {aside}
       </div>
       <ul className="space-y-px">{children}</ul>

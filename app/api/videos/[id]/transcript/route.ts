@@ -1,24 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { videos } from "@/lib/schema";
 import { transcribeVideo } from "@/lib/gemini";
+import { badId, parseId } from "@/lib/http";
 
 export const maxDuration = 300;
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function POST(_req: NextRequest, { params }: Params) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const { id } = await params;
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
+  const id = parseId((await params).id);
+  if (id == null) return badId();
   const db = await getDb();
   const [video] = await db
     .select()
     .from(videos)
-    .where(eq(videos.id, Number(id)));
+    .where(eq(videos.id, id));
   if (!video) {
     return NextResponse.json({ error: "Video not found" }, { status: 404 });
   }

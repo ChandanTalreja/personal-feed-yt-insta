@@ -9,7 +9,7 @@ export interface YTPlayer {
   destroy(): void;
 }
 
-export interface YTPlayerOptions {
+interface YTPlayerOptions {
   host?: string;
   videoId: string;
   width?: string | number;
@@ -21,7 +21,7 @@ export interface YTPlayerOptions {
   };
 }
 
-export interface YTNamespace {
+interface YTNamespace {
   Player: new (el: HTMLElement, options: YTPlayerOptions) => YTPlayer;
   PlayerState: {
     UNSTARTED: number;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { channels, videos } from "@/lib/schema";
 import { feedVideoColumns } from "@/lib/videoColumns";
 import {
@@ -10,6 +10,7 @@ import {
   isValidProgress,
   mergeProgress,
 } from "@/lib/progress";
+import { badId, parseId } from "@/lib/http";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -18,26 +19,26 @@ const MAX_NOTE_CHARS = 20_000;
 
 /** GET /api/videos/:id — one video in the feed's shape (global search opens it in the study panel). */
 export async function GET(_req: NextRequest, { params }: Params) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const { id } = await params;
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
+  const id = parseId((await params).id);
+  if (id == null) return badId();
   const db = await getDb();
   const [video] = await db
     .select(feedVideoColumns)
     .from(videos)
     .innerJoin(channels, eq(videos.channelId, channels.id))
-    .where(eq(videos.id, Number(id)));
+    .where(eq(videos.id, id));
   if (!video) return NextResponse.json({ error: "Video not found" }, { status: 404 });
   return NextResponse.json({ video });
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const { id } = await params;
-  const videoId = Number(id);
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
+  const id = parseId((await params).id);
+  if (id == null) return badId();
+  const videoId = id;
   const body = await req.json();
   const updates: Partial<typeof videos.$inferInsert> = {};
   if ("later" in body) {

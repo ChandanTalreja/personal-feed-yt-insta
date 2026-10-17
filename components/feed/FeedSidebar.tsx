@@ -1,11 +1,11 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import { useState } from "react";
-import Icon, { type IconName } from "./ui/Icon";
-import { SidebarItem, SidebarSection, SidebarTile } from "./ui/SidebarList";
-import type { GenreItem } from "./types";
+import Icon, { type IconName } from "@/components/ui/Icon";
+import { Avatar } from "@/components/ui/Media";
+import SearchField from "@/components/ui/SearchField";
+import { SidebarItem, SidebarSection, SidebarTile } from "@/components/ui/SidebarList";
+import type { GenreItem } from "@/components/types";
 
 export type View = "unwatched" | "later" | "watched" | "all";
 
@@ -15,7 +15,7 @@ export interface Facets {
   genres: Record<string, number>;
 }
 
-export interface SidebarChannel {
+interface SidebarChannel {
   id: number;
   title: string;
   thumbnail: string | null;
@@ -143,19 +143,15 @@ export default function FeedSidebar({
         }
       >
         <li className="px-1 pb-1.5">
-          <label className="relative block">
-            <Icon name="search" size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-          <input
-            className="nb-input h-8 w-full rounded-sm pl-8 pr-2 text-meta"
-            placeholder="Filter channels"
+          <SearchField
+            size="sm"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setQuery("");
-            }}
-            aria-label="Filter channels"
+            onChange={setQuery}
+            placeholder="Filter channels"
+            label="Filter channels"
+            clearable={false}
+            className="w-full rounded-sm [&_input]:text-meta"
           />
-          </label>
           {q && (
             <p className="mt-1 px-1 font-mono text-xs text-muted">
               {matches.length} of {channels.length} · Esc clears
@@ -174,20 +170,7 @@ export default function FeedSidebar({
             active={channelIds.includes(c.id)}
             count={c.count > 0 ? short(c.count) : undefined}
             onClick={() => onToggleChannel(c.id)}
-            leading={
-              c.thumbnail ? (
-                <img
-                  src={c.thumbnail}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  className="h-[22px] w-[22px] shrink-0 rounded-full bg-line"
-                />
-              ) : (
-                <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-line text-xs font-bold tracking-tighter">
-                  {c.title.slice(0, 2).toUpperCase()}
-                </span>
-              )
-            }
+            leading={<Avatar src={c.thumbnail} name={c.title} size={22} />}
           />
         ))}
         {!q && ordered.length > CHANNEL_PREVIEW && (

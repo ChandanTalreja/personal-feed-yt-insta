@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { isAuthed, unauthorized } from "@/lib/auth";
 import { refreshAllChannels } from "@/lib/ingest";
 
 export const maxDuration = 60;
@@ -14,9 +14,7 @@ export async function GET(req: NextRequest) {
   const provided =
     req.headers.get("x-cron-secret") ?? req.nextUrl.searchParams.get("secret");
   const authorized = (secret && provided === secret) || (await isAuthed());
-  if (!authorized) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!authorized) return unauthorized();
   try {
     const db = await getDb();
     const result = await refreshAllChannels(db);

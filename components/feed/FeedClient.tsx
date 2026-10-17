@@ -1,176 +1,103 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import TopBar from "./TopBar";
-import VideoCard, { type StudyTool } from "./VideoCard";
-import StudyPanel, { type StudyTab } from "./StudyPanel";
-import FeedSidebar, { type Facets, type View } from "./FeedSidebar";
-import PlayerModal, { type ProgressUpdate } from "./PlayerModal";
+import TopBar from "@/components/TopBar";
+import FeedEmptyState from "./FeedEmptyState";
+import { PAGE_SIZE, VIEW_NOTES, VIEW_TITLES, type FeedChannel, type Kind, type LengthFilter, type Study } from "./model";
+import { useFeedData } from "./useFeedData";
+import VideoCard, { VideoCardSkeleton, type StudyTool } from "./VideoCard";
+import StudyPanel from "./StudyPanel";
+import FeedSidebar, { type View } from "./FeedSidebar";
+import PlayerModal from "@/components/PlayerModal";
 import TrackMenu from "./TrackMenu";
-import Button, { buttonClass } from "./ui/Button";
-import Icon from "./ui/Icon";
-import Spinner from "./ui/Spinner";
-import PageTitle from "./ui/PageTitle";
-import SegmentedControl from "./ui/SegmentedControl";
-import type { FeedVideo, GenreItem } from "./types";
+import Button from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
+import Spinner from "@/components/ui/Spinner";
+import PageTitle from "@/components/ui/PageTitle";
+import SearchField from "@/components/ui/SearchField";
+import SegmentedControl from "@/components/ui/SegmentedControl";
+import type { FeedVideo, GenreItem } from "@/components/types";
 import { formatWatchTime } from "@/lib/format";
+import { api, rememberedReply } from "@/lib/api-client";
 import { notifyNavChanged } from "@/lib/nav-events";
 
-type Kind = "videos" | "shorts";
-type LengthFilter = "any" | "short" | "medium" | "long";
-
-const PAGE_SIZE = 24;
-
-const VIEW_TITLES: Record<View, string> = {
-  unwatched: "Inbox",
-  later: "Watch later",
-  watched: "Watched",
-  all: "Everything",
-};
-
-/** The blue pen note beside the title (REF-07): what makes the page different. */
-const VIEW_NOTES: Record<View, string | undefined> = {
-  unwatched: "newest first, no algorithm",
-  later: "saved for a slower day",
-  watched: "seen it, kept it",
-  all: undefined,
-};
-
-interface FeedChannel {
-  id: number;
-  title: string;
-  thumbnail: string | null;
-  genreId: number | null;
-  isActive: boolean;
-  videoCount: number;
-  shortCount: number;
-}
-
-/** What the study panel is showing: which video, which tab, track chooser open? */
-interface Study {
-  video: FeedVideo;
-  tab: StudyTab;
-  track: boolean;
+/** The channels reply, as the sidebar's channel list (with per-kind counts). */
+function toFeedChannels(reply: { channels?: { channel: FeedChannel; videoCount: number; shortCount: number }[] } | undefined): FeedChannel[] {
+  return (reply?.channels ?? []).map((row) => ({
+    ...row.channel,
+    videoCount: row.videoCount,
+    shortCount: row.shortCount,
+  }));
 }
 
 export default function FeedClient() {
-  const [genres, setGenres] = useState<GenreItem[]>([]);
-  const [channels, setChannels] = useState<FeedChannel[]>([]);
+  // Each starts from the copy remembered in this tab (instant when coming
+  // back), then refreshes (see lib/api-client.ts).
+  const [genres, setGenres] = useState<GenreItem[]>(() => rememberedReply("/api/genres")?.genres ?? []);
+  const [channels, setChannels] = useState<FeedChannel[]>(() => toFeedChannels(rememberedReply("/api/channels")));
   const [genreId, setGenreId] = useState<number | null>(null);
   const [channelIds, setChannelIds] = useState<number[]>([]);
   const [kind, setKind] = useState<Kind>("videos");
   const [view, setView] = useState<View>("unwatched");
-  // Watch Later: total saved per kind (ignores filters → the hint below the
-  // title), and how many the current filters show.
-  const [laterCounts, setLaterCounts] = useState({ videos: 0, shorts: 0 });
   const [lengthFilter, setLengthFilter] = useState<LengthFilter>("any");
   // "Add these search results to a track" panel.
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
-  // Count + total duration of everything the current filters match (all
-  // pages, not just the loaded ones).
-  const [totals, setTotals] = useState<{ count: number; seconds: number } | null>(null);
-  // Sidebar counts (views and genres), from the first page's response.
-  const [facets, setFacets] = useState<Facets | null>(null);
-  const [videos, setVideos] = useState<FeedVideo[]>([]);
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  // "first" = the whole grid is being replaced (placeholders instead of the
-  // grid); "more" = a page is being appended (placeholders after it).
-  const [loading, setLoading] = useState<"first" | "more" | null>("first");
   const [toast, setToast] = useState<string | null>(null);
   const [playing, setPlaying] = useState<FeedVideo | null>(null);
   // "Play unseen in a row" (Shorts): the shorts lined up, and which is on.
   const [queue, setQueue] = useState<{ items: FeedVideo[]; index: number } | null>(null);
   const [study, setStudy] = useState<Study | null>(null);
-  const [everyday, setEveryday] = useState<string[]>([]);
+  const [everyday, setEveryday] = useState<string[]>(() => rememberedReply("/api/ask-suggestions")?.suggestions ?? []);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Clicking filters quickly fires several requests; only the newest one
-  // may update the screen, or a slow old answer would overwrite a new one.
-  const requestId = useRef(0);
+
+  // The videos for these filters, their counts, and the card changes that
+  // keep both in step (useFeedData.ts).
+  const {
+    videos,
+    page,
+    hasMore,
+    loading,
+    totals,
+    facets,
+    laterCounts,
+    filterParams,
+    loadPage,
+    patchVideo,
+    toggleWatched,
+    toggleLater,
+    applyProgress,
+  } = useFeedData(
+    { kind, view, genreId, channelIds, search: debouncedSearch, lengthFilter },
+    {
+      onError: setToast,
+      // The study panel holds its own copy of the video: keep it in step.
+      onPatched: (id, patch) =>
+        setStudy((s) => (s && s.video.id === id ? { ...s, video: { ...s.video, ...patch } } : s)),
+    }
+  );
 
   const loadChannels = useCallback(async () => {
     try {
-      const res = await fetch("/api/channels");
-      const data = await res.json();
-      if (!res.ok) return;
-      setChannels(
-        (data.channels ?? []).map(
-          (row: { channel: FeedChannel; videoCount: number; shortCount: number }) => ({
-            ...row.channel,
-            videoCount: row.videoCount,
-            shortCount: row.shortCount,
-          })
-        )
-      );
+      setChannels(toFeedChannels(await api("/api/channels")));
     } catch {}
   }, []);
 
   useEffect(() => {
-    fetch("/api/genres")
-      .then((r) => r.json())
+    api("/api/genres")
       .then((d) => setGenres(d.genres ?? []))
       .catch(() => {});
-    fetch("/api/ask-suggestions")
-      .then((r) => r.json())
+    api("/api/ask-suggestions")
       .then((d) => setEveryday(d.suggestions ?? []))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadChannels();
   }, [loadChannels]);
-
-  // The feed's current filters as query params — shared by the page loader
-  // and "add these to a track", so both always mean the same videos.
-  const filterParams = useCallback(() => {
-    const params = new URLSearchParams({ kind, watched: view });
-    if (genreId != null) params.set("genreId", String(genreId));
-    if (channelIds.length > 0) params.set("channelIds", channelIds.join(","));
-    if (debouncedSearch) params.set("search", debouncedSearch);
-    // Every short is under ~3 min, so the length filter only applies to
-    // videos (the control is hidden on Shorts).
-    if (kind === "videos" && lengthFilter !== "any") params.set("length", lengthFilter);
-    return params;
-  }, [kind, view, genreId, channelIds, debouncedSearch, lengthFilter]);
-
-  const loadPage = useCallback(
-    async (pageToLoad: number, replace: boolean): Promise<FeedVideo[]> => {
-      const id = ++requestId.current;
-      setLoading(replace ? "first" : "more");
-      try {
-        const params = filterParams();
-        params.set("page", String(pageToLoad));
-        const res = await fetch(`/api/videos?${params}`);
-        const data = await res.json();
-        if (id !== requestId.current) return []; // a newer request owns the screen
-        if (!res.ok) throw new Error(data.error ?? "Couldn't load the feed");
-        setVideos((prev) => (replace ? data.videos : [...prev, ...data.videos]));
-        setHasMore(data.hasMore);
-        setPage(pageToLoad);
-        if (data.laterCounts) setLaterCounts(data.laterCounts);
-        if (data.totals) setTotals(data.totals);
-        if (data.facets) setFacets(data.facets);
-        return data.videos as FeedVideo[];
-      } catch (err) {
-        if (id === requestId.current) setToast((err as Error).message);
-        return [];
-      } finally {
-        if (id === requestId.current) setLoading(null);
-      }
-    },
-    [filterParams]
-  );
-
-  useEffect(() => {
-    // Async server fetch, not a synchronous state cascade.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadPage(0, true);
-  }, [loadPage]);
 
   useEffect(() => {
     if (!toast) return;
@@ -234,98 +161,6 @@ export default function FeedClient() {
     await Promise.all([loadPage(0, true), loadChannels()]);
   }, [loadPage, loadChannels]);
 
-  // A video entered or left the current view's set: keep the count and the
-  // total time in step without refetching.
-  function adjustTotals(video: FeedVideo, delta: 1 | -1) {
-    setTotals((t) =>
-      t
-        ? {
-            count: Math.max(0, t.count + delta),
-            seconds: Math.max(0, t.seconds + delta * video.durationSeconds),
-          }
-        : t
-    );
-  }
-
-  /**
-   * Keep the sidebar counts in step when a card changes state, without
-   * refetching. `field` changed to `on` for `video`, which matches every
-   * current filter (it's on screen), so only its view and genre move.
-   */
-  function bumpFacets(video: FeedVideo, field: "watched" | "later", on: boolean) {
-    const d = on ? 1 : -1;
-    setFacets((f) => {
-      if (!f) return f;
-      const views = { ...f.views };
-      const genresCount = { ...f.genres };
-      const key = String(video.genreId ?? "none");
-      const bumpGenre = (n: number) => (genresCount[key] = Math.max(0, (genresCount[key] ?? 0) + n));
-      if (field === "watched") {
-        views.unwatched = Math.max(0, views.unwatched - d);
-        views.watched += d;
-        if (view === "unwatched") bumpGenre(-d);
-        if (view === "watched") bumpGenre(d);
-      } else {
-        views.later = Math.max(0, views.later + d);
-        if (view === "later") bumpGenre(d);
-      }
-      return { views, genres: genresCount };
-    });
-  }
-
-  function adjustLaterCounts(video: FeedVideo, delta: 1 | -1) {
-    const key = video.isShort ? "shorts" : "videos";
-    setLaterCounts((c) => ({ ...c, [key]: Math.max(0, c[key] + delta) }));
-    bumpFacets(video, "later", delta === 1);
-    if (view === "later") adjustTotals(video, delta);
-  }
-
-  /** Apply a change to a video everywhere it's shown (grid and panel). */
-  const patchVideo = useCallback((id: number, patch: Partial<FeedVideo>) => {
-    setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
-    setStudy((s) => (s && s.video.id === id ? { ...s, video: { ...s.video, ...patch } } : s));
-  }, []);
-
-  async function toggleWatched(video: FeedVideo) {
-    const next = !video.watched;
-    // Marking watched also takes it off Watch Later (the server does the
-    // same) — and on the Later view the card leaves the list.
-    const leavesLater = next && video.laterAt != null;
-    if (view === "later" && leavesLater) {
-      setVideos((prev) => prev.filter((v) => v.id !== video.id));
-    } else {
-      // Everywhere else the card stays put, dimmed, with an Undo.
-      patchVideo(video.id, { watched: next, laterAt: leavesLater ? null : video.laterAt });
-    }
-    if (leavesLater) adjustLaterCounts(video, -1);
-    bumpFacets(video, "watched", next);
-    // Inbox counts unwatched videos and History counts watched ones, so a
-    // toggle moves the video out of (or back into) that view's total.
-    if (view === "unwatched") adjustTotals(video, next ? -1 : 1);
-    if (view === "watched") adjustTotals(video, next ? 1 : -1);
-    await fetch(`/api/videos/${video.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ watched: next }),
-    }).catch(() => {});
-    notifyNavChanged();
-  }
-
-  async function toggleLater(video: FeedVideo) {
-    const saving = video.laterAt == null;
-    if (view === "later" && !saving) {
-      setVideos((prev) => prev.filter((v) => v.id !== video.id));
-    } else {
-      patchVideo(video.id, { laterAt: saving ? new Date().toISOString() : null });
-    }
-    adjustLaterCounts(video, saving ? 1 : -1);
-    await fetch(`/api/videos/${video.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ later: saving }),
-    }).catch(() => {});
-  }
-
   // Adds every video matching the current filters (all pages, not just the
   // loaded ones) to a track, oldest upload first — a series in order.
   async function addResultsToTrack(track: { id: number; name: string }) {
@@ -333,16 +168,12 @@ export default function FeedClient() {
     try {
       const params = filterParams();
       params.set("ids", "1");
-      const idsRes = await fetch(`/api/videos?${params}`);
-      const { ids, error } = await idsRes.json();
-      if (!idsRes.ok) throw new Error(error ?? "Couldn't list the results");
-      const res = await fetch(`/api/tracks/${track.id}/videos`, {
+      const { ids } = await api(`/api/videos?${params}`, { fallback: "Couldn't list the results" });
+      const data = await api(`/api/tracks/${track.id}/videos`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoIds: ids, order: "oldest" }),
+        body: { videoIds: ids, order: "oldest" },
+        fallback: "Couldn't add to the track",
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Couldn't add to the track");
       setToast(
         `Added ${data.added} video${data.added === 1 ? "" : "s"} to “${track.name}”` +
           (data.skipped > 0 ? ` (${data.skipped} already there)` : "") +
@@ -406,25 +237,6 @@ export default function FeedClient() {
   // progress, and the server marks it watched once half is actually played.
   function handlePlay(video: FeedVideo) {
     setPlaying(video);
-  }
-
-  // A progress save came back: update the card (progress bar, resume point)
-  // and, if the server just marked it watched, the counts and lists too.
-  function handleProgress(update: ProgressUpdate) {
-    const prev = videos.find((v) => v.id === update.id);
-    const becameWatched = prev != null && !prev.watched && update.watched;
-    if (becameWatched) {
-      notifyNavChanged();
-      bumpFacets(prev, "watched", true);
-      if (prev.laterAt != null) adjustLaterCounts(prev, -1);
-      if (view === "unwatched") adjustTotals(prev, -1);
-      if (view === "watched") adjustTotals(prev, 1);
-    }
-    if (becameWatched && view === "later") {
-      setVideos((list) => list.filter((v) => v.id !== update.id));
-    } else {
-      patchVideo(update.id, update);
-    }
   }
 
   /** A card tool was clicked: open the panel there, or close it if it's already showing. */
@@ -498,55 +310,6 @@ export default function FeedClient() {
     return `${totals.count.toLocaleString()} ${noun}${scope}${matching} · ${formatWatchTime(totals.seconds)}`;
   }
 
-  // What to say when the grid is empty — the most specific reason wins.
-  function renderEmptyState() {
-    let title = "Nothing here";
-    let note: string | null = null;
-    let body = "Nothing matches these filters.";
-    let action: React.ReactNode = (
-      <Button onClick={clearFilters}>Clear filters</Button>
-    );
-    if (channels.length === 0) {
-      title = "No channels yet";
-      body = "Add a channel and TUBEBOX fetches its last year of uploads.";
-      action = (
-        <Link href="/channels#add" className={buttonClass("primary")}>
-          <Icon name="plus" size={15} />
-          Add channel
-        </Link>
-      );
-    } else if (debouncedSearch) {
-      title = "No matches";
-      body = `Nothing in this view matches “${debouncedSearch}”.`;
-      action = <Button onClick={() => setSearch("")}>Clear search</Button>;
-    } else if (kind === "videos" && lengthFilter !== "any") {
-      title = "Nothing that length here";
-      body = "Try another length, or any length.";
-      action = <Button onClick={() => setLengthFilter("any")}>Any length</Button>;
-    } else if (view === "later") {
-      title = "Nothing saved for later";
-      body = "Use the bookmark on any card. Watched videos leave this list on their own.";
-      action = null;
-    } else if (view === "unwatched") {
-      title = "You're all caught up";
-      note = "nothing new. go outside?";
-      body = "Nothing unseen in this view.";
-      action = <Button onClick={() => setView("all")}>See everything</Button>;
-    } else if (view === "watched") {
-      title = "Nothing watched yet";
-      body = "Videos you tick, or watch past halfway, land here.";
-      action = null;
-    }
-    return (
-      <div className="mx-auto mt-6 max-w-lg rounded-lg border border-line bg-surface p-8 text-center">
-        <p className="font-display text-xl">{title}</p>
-        {note && <p className="pen-note mt-2">{note}</p>}
-        <p className="mt-2 text-sm text-muted">{body}</p>
-        {action && <div className="mt-4">{action}</div>}
-      </div>
-    );
-  }
-
   const gridClass =
     kind === "shorts"
       ? // Shorts: column counts (2/3/4/6) that all divide the 24-per-page
@@ -600,24 +363,14 @@ export default function FeedClient() {
             <Button className="lg:hidden" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}>
               Filters
             </Button>
-            <label className="nb-input flex h-9 w-full items-center gap-2 px-3 focus-within:border-ink focus-within:shadow-[0_0_0_3px_rgb(255_208_43/0.45)] sm:w-56">
-              <Icon name="search" size={15} className="text-muted" />
-              <input
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
-                placeholder="Filter this list"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setSearch("");
-                }}
-                aria-label="Filter this list by title"
-              />
-              {search && (
-                <button type="button" aria-label="Clear filter" className="text-muted hover:text-ink" onClick={() => setSearch("")}>
-                  <Icon name="x" size={14} />
-                </button>
-              )}
-            </label>
+            <SearchField
+              value={search}
+              onChange={setSearch}
+              placeholder="Filter this list"
+              label="Filter this list by title"
+              clearLabel="Clear filter"
+              className="w-full sm:w-56"
+            />
             <SegmentedControl
               label="Type"
               value={kind}
@@ -713,18 +466,29 @@ export default function FeedClient() {
           {loading === "first" ? (
             <div className={gridClass}>
               {Array.from({ length: kind === "shorts" ? 12 : 8 }, (_, i) => (
-                <SkeletonCard key={i} />
+                <VideoCardSkeleton key={i} />
               ))}
             </div>
           ) : videos.length === 0 ? (
-            renderEmptyState()
+            <FeedEmptyState
+              hasChannels={channels.length > 0}
+              search={debouncedSearch}
+              kind={kind}
+              lengthFilter={lengthFilter}
+              view={view}
+              onClearFilters={clearFilters}
+              onClearSearch={() => setSearch("")}
+              onAnyLength={() => setLengthFilter("any")}
+              onSeeEverything={() => setView("all")}
+            />
           ) : (
             <div className={gridClass}>
               {videos.map((video) => (
                 <VideoCard
                   key={video.id}
                   video={video}
-                  genreColor={genreFor(video)?.color ?? "var(--color-primary)"}
+                  // No genre: a plain grey tag (yellow would read as a button).
+                  genreColor={genreFor(video)?.color ?? "var(--color-line)"}
                   dimSeen={view !== "watched"}
                   activeTool={
                     study?.video.id === video.id ? (study.track ? "track" : study.tab) : null
@@ -736,7 +500,7 @@ export default function FeedClient() {
                 />
               ))}
               {loading === "more" &&
-                Array.from({ length: 4 }, (_, i) => <SkeletonCard key={`more-${i}`} />)}
+                Array.from({ length: 4 }, (_, i) => <VideoCardSkeleton key={`more-${i}`} />)}
             </div>
           )}
 
@@ -777,7 +541,7 @@ export default function FeedClient() {
           key={playing.id}
           video={playing}
           onClose={closePlayer}
-          onProgress={handleProgress}
+          onProgress={applyProgress}
           onEnded={queue ? queueEnded : undefined}
           queue={
             queue
@@ -793,20 +557,5 @@ export default function FeedClient() {
         />
       )}
     </>
-  );
-}
-
-/** Grey stand-in card while videos load. */
-function SkeletonCard() {
-  return (
-    <div className="flex animate-pulse flex-col overflow-hidden rounded-lg border border-line bg-surface" aria-hidden="true">
-      <div className="aspect-video bg-line" />
-      <div className="flex flex-col gap-2 p-3.5">
-        <div className="h-3.5 w-11/12 rounded-xs bg-line" />
-        <div className="h-3.5 w-2/3 rounded-xs bg-line" />
-        <div className="mt-1 h-3 w-1/2 rounded-xs bg-line" />
-      </div>
-      <div className="h-[43px] border-t border-line" />
-    </div>
   );
 }

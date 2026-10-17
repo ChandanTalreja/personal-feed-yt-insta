@@ -10,6 +10,7 @@ import IconButton from "./ui/IconButton";
 import { SpinnerBadge } from "./ui/Spinner";
 import GlobalSearch from "./GlobalSearch";
 import { NAV_CHANGED } from "@/lib/nav-events";
+import { api, rememberedReply } from "@/lib/api-client";
 
 interface NavSummary {
   inbox: number;
@@ -92,14 +93,18 @@ export default function TopBar({
   flush?: boolean;
 }) {
   const pathname = usePathname();
-  const [nav, setNav] = useState<NavSummary | null>(null);
+  // The counts remembered in this tab show at once on every page; then refresh.
+  const [nav, setNav] = useState<NavSummary | null>(() => rememberedReply<NavSummary>("/api/nav") ?? null);
   const [now, setNow] = useState(() => Date.now());
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const loadNav = useCallback(async () => {
-    const res = await fetch("/api/nav");
-    if (res.ok) setNav(await res.json());
+    try {
+      setNav(await api<NavSummary>("/api/nav"));
+    } catch {
+      // Counts that fail to refresh keep their last value (as before).
+    }
   }, []);
 
   useEffect(() => {
@@ -132,9 +137,7 @@ export default function TopBar({
   async function sync() {
     setSyncing(true);
     try {
-      const res = await fetch("/api/cron");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Sync failed");
+      const data = await api("/api/cron", { fallback: "Sync failed" });
       setToast(syncMessage(data));
       setNow(Date.now());
       await Promise.all([loadNav(), onRefreshed?.()]);
@@ -164,10 +167,14 @@ export default function TopBar({
           <span className="font-display text-xl">TUBEBOX</span>
           <span
             role="tooltip"
-            className="pointer-events-none absolute left-2 top-full z-50 hidden whitespace-nowrap rounded-sm border border-ink bg-surface px-2.5 py-1.5 text-meta font-semibold shadow-sticker group-hover:block group-focus-visible:block"
+            className="pointer-events-none absolute left-[80px] top-[calc(100%-4px)] z-50 hidden whitespace-nowrap rounded-sm border border-ink bg-surface px-2.5 pb-1 pt-0.5 shadow-sticker group-hover:block group-focus-visible:block"
           >
             <span className="absolute -top-[6px] left-3 h-2.5 w-2.5 rotate-45 border-l border-t border-ink bg-surface" />
-            your feed · no algorithm
+            {/* The tagline, in the blue pen (REF-07): personality when you reach
+                for the logo. Smaller than a title's note (.pen-note is 23px and
+                unlayered, so a Tailwind size class wouldn't win), and it starts
+                under the word, clear of the sidebar's "Your feed" heading. */}
+            <span className="pen-note" style={{ fontSize: "1.125rem" }}>your feed, no algorithm</span>
           </span>
         </Link>
 

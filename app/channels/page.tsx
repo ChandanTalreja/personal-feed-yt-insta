@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { isAuthed } from "@/lib/auth";
-import ChannelsClient from "@/components/ChannelsClient";
+import ChannelsClient from "@/components/channels/ChannelsClient";
 
 export const dynamic = "force-dynamic";
 

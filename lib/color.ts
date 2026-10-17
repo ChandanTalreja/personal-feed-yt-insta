@@ -44,7 +44,7 @@ function luminance(hex: string): number {
   return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
 }
 
-const INK_LUMINANCE = luminance("#161616"); // matches --ink in globals.css
+const INK_LUMINANCE = luminance("#161616"); // near --color-ink (#1a1712); kept as-is so chip text colours never flip
 
 /**
  * Text color that stays readable on `background`: the site's ink (black) on
@@ -52,9 +52,9 @@ const INK_LUMINANCE = luminance("#161616"); // matches --ink in globals.css
  * ratio. Non-hex values (e.g. a CSS variable fallback) keep the ink.
  */
 export function textColorFor(background: string): string {
-  if (!isHexColor(background)) return "var(--ink)";
+  if (!isHexColor(background)) return "var(--color-ink)";
   const bg = luminance(background);
   const contrastWithInk = (bg + 0.05) / (INK_LUMINANCE + 0.05);
   const contrastWithWhite = (1 + 0.05) / (bg + 0.05);
-  return contrastWithWhite > contrastWithInk ? "#ffffff" : "var(--ink)";
+  return contrastWithWhite > contrastWithInk ? "#ffffff" : "var(--color-ink)";
 }

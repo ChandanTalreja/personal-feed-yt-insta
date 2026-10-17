@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { isAuthed } from "@/lib/auth";
-import NotebookClient from "@/components/NotebookClient";
+import NotebookClient from "@/components/notebook/NotebookClient";
 
 export const dynamic = "force-dynamic";
 

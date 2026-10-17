@@ -5,6 +5,9 @@
 //      hosted deployment). ~$0.005/video from the recurring free credit.
 //   3. null — callers treat it as "no captions" (Gemini watches the video
 //      where the platform allows it, or surfaces a friendly error).
+// If Apify itself is down (timeout / error status), fetchCaptions throws a
+// "service isn't responding" error instead of returning null — the video
+// does have captions, we just can't reach them right now.
 
 const ANDROID_UA =
   "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip";
@@ -121,9 +124,31 @@ async function fetchViaApify(ytVideoId: string): Promise<string | null> {
   // the Actor then returns the video's default caption track. Costs one
   // extra run (~$0.005), once ever per such video; Gemini reads any
   // language and answers in English.
-  return (
-    (await runTranscriptActor(actor, token, ytVideoId, "en")) ??
-    (await runTranscriptActor(actor, token, ytVideoId))
+  //
+  // The retry is only for an *empty* answer. If the Actor doesn't answer at
+  // all (timeout, 503), a second 15s wait would push the request past
+  // Netlify's ~30s cut-off and the user would get a bare 502 — so we stop
+  // and say the service is down instead.
+  const english = await runTranscriptActor(actor, token, ytVideoId, "en");
+  if (english === SERVICE_DOWN) throw transcriptServiceDown();
+  if (english) return english;
+  const anyLanguage = await runTranscriptActor(actor, token, ytVideoId);
+  if (anyLanguage === SERVICE_DOWN) throw transcriptServiceDown();
+  return anyLanguage;
+}
+
+/** The Actor didn't answer (timeout, network, or an error status). */
+const SERVICE_DOWN = Symbol("transcript service down");
+
+/**
+ * Not "this video has no captions" — the captions exist, we just can't
+ * reach the service that fetches them. Nothing is cached, so a later try
+ * works once the service is back.
+ */
+function transcriptServiceDown(): Error {
+  return new Error(
+    "The transcript service isn't responding right now, so this video's " +
+      "captions couldn't be fetched. Try again in a few minutes."
   );
 }
 
@@ -132,7 +157,7 @@ async function runTranscriptActor(
   token: string,
   ytVideoId: string,
   language?: string
-): Promise<string | null> {
+): Promise<string | null | typeof SERVICE_DOWN> {
   try {
     const url =
       `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items` +
@@ -154,7 +179,7 @@ async function runTranscriptActor(
         `apify transcript: HTTP ${res.status} for ${ytVideoId}` +
           (language ? ` (language=${language})` : " (default language)")
       );
-      return null;
+      return SERVICE_DOWN;
     }
     const items = (await res.json()) as { transcript_text?: string }[];
     const text = items?.[0]?.transcript_text?.replace(/\s+/g, " ").trim();
@@ -164,6 +189,6 @@ async function runTranscriptActor(
     console.error(
       `apify transcript failed for ${ytVideoId}: ${(err as Error).message}`
     );
-    return null;
+    return SERVICE_DOWN;
   }
 }

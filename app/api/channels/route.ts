@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { desc, eq, max, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { channels, genres, videos } from "@/lib/schema";
 import { resolveChannel } from "@/lib/youtube";
 import {
@@ -14,9 +14,8 @@ import {
 export const maxDuration = 60;
 
 export async function GET() {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   const db = await getDb();
   const rows = await db
     .select({
@@ -59,9 +58,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   // The clock starts now: resolving the channel counts toward the budget.
   const started = Date.now();
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   try {
     const body = await req.json();
     const input = String(body.input ?? "").trim();

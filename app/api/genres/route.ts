@@ -1,23 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { genres } from "@/lib/schema";
 import { isHexColor } from "@/lib/color";
 
 export async function GET() {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   const db = await getDb();
   const rows = await db.select().from(genres).orderBy(asc(genres.name));
   return NextResponse.json({ genres: rows });
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   try {
     const body = await req.json();
     const name = String(body.name ?? "").trim();

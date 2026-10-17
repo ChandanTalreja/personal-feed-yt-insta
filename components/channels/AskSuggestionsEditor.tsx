@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Button from "./ui/Button";
-import Icon from "./ui/Icon";
-import Spinner from "./ui/Spinner";
+import Button from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
+import Spinner from "@/components/ui/Spinner";
+import { api, rememberedReply } from "@/lib/api-client";
 
 const MAX = 3;
 
@@ -14,19 +15,20 @@ const MAX = 3;
  * Ask (and the answer is cached like any other).
  */
 export default function AskSuggestionsEditor() {
-  const [items, setItems] = useState<string[] | null>(null);
-  const [saved, setSaved] = useState<string[]>([]);
+  // Starts from the copy remembered in this tab, then refreshes.
+  const [seen] = useState(() => rememberedReply("/api/ask-suggestions")?.suggestions as string[] | undefined);
+  const [items, setItems] = useState<string[] | null>(seen ? [...seen, "", "", ""].slice(0, MAX) : null);
+  const [saved, setSaved] = useState<string[]>(seen ?? []);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
-    fetch("/api/ask-suggestions")
-      .then((r) => r.json())
+    api("/api/ask-suggestions")
       .then((d) => {
         const list: string[] = d.suggestions ?? [];
         setSaved(list);
         setItems([...list, "", "", ""].slice(0, MAX));
       })
-      .catch(() => setItems(["", "", ""]));
+      .catch(() => setItems((current) => current ?? ["", "", ""]));
   }, []);
 
   async function save(e: React.FormEvent) {
@@ -34,13 +36,7 @@ export default function AskSuggestionsEditor() {
     if (!items) return;
     setStatus("saving");
     try {
-      const res = await fetch("/api/ask-suggestions", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ suggestions: items }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error();
+      const data = await api("/api/ask-suggestions", { method: "PUT", body: { suggestions: items } });
       setSaved(data.suggestions);
       setItems([...data.suggestions, "", "", ""].slice(0, MAX));
       setStatus("saved");
@@ -59,7 +55,7 @@ export default function AskSuggestionsEditor() {
       onSubmit={save}
       className="scroll-mt-20 rounded-lg border border-line bg-surface p-4"
     >
-      <h2 className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">Everyday Ask suggestions</h2>
+      <h2 className="label-caps">Everyday Ask suggestions</h2>
       <p className="mt-1.5 text-meta text-muted">
         Questions you ask of almost any video. They show as one-click buttons in
         the Ask tab, after the genre&apos;s own suggestion. Leave blank for none.
@@ -71,7 +67,7 @@ export default function AskSuggestionsEditor() {
           {items.map((value, i) => (
             <input
               key={i}
-              className="nb-input h-9 w-full px-3 text-sm"
+              className="field h-9 w-full px-3 text-sm"
               placeholder={
                 [
                   "e.g. Summarise as revision notes",

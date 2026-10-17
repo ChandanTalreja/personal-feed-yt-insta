@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Mascot from "./Mascot";
+import Button from "./ui/Button";
+import { api } from "@/lib/api-client";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -15,15 +17,7 @@ export default function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? "Login failed");
-      }
+      await api("/api/login", { method: "POST", body: { password }, fallback: "Login failed" });
       router.push("/");
       router.refresh();
     } catch (err) {
@@ -34,7 +28,7 @@ export default function LoginForm() {
 
   return (
     <div className="flex flex-1 items-center justify-center px-4">
-      <form onSubmit={submit} className="nb w-full max-w-sm p-8 text-center">
+      <form onSubmit={submit} className="card w-full max-w-sm p-8 text-center">
         <div className="mb-4 flex justify-center">
           <Mascot size={88} />
         </div>
@@ -45,7 +39,7 @@ export default function LoginForm() {
         <input
           type="password"
           autoFocus
-          className="nb-input mb-4 h-10 w-full px-3"
+          className="field mb-4 h-10 w-full px-3"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -53,13 +47,16 @@ export default function LoginForm() {
         {error && (
           <p className="mb-3 text-sm font-semibold text-danger">{error}</p>
         )}
-        <button
+        <Button
           type="submit"
-          className="nb-btn h-10 w-full px-4"
-          disabled={busy || !password}
+          variant="primary"
+          className="w-full"
+          disabled={!password}
+          busy={busy}
+          busyLabel="Checking…"
         >
-          {busy ? "CHECKING…" : "LET ME IN"}
-        </button>
+          Let me in
+        </Button>
       </form>
     </div>
   );

@@ -35,7 +35,7 @@ const SIZES: [string, string, string][] = [
 
 function Block({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
-    <section className="nb p-5">
+    <section className="card p-5">
       <h2 className="text-xl font-bold">{title}</h2>
       {note && <p className="mt-1 text-sm text-muted">{note}</p>}
       <div className="mt-4">{children}</div>
@@ -87,7 +87,7 @@ export default function StyleguideClient() {
                   <span className={`${cls} ${cls === "text-display" ? "font-display" : ""}`}>{use}</span>
                 </div>
               ))}
-              <p className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">Section label</p>
+              <p className="label-caps">Section label</p>
               <p className="font-mono text-meta">699 to watch · 1:08:29 · Synced 3h ago</p>
             </div>
           </Block>

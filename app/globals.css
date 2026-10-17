@@ -61,15 +61,6 @@
   --animate-spin: spin 0.75s linear infinite;
 }
 
-/* Older names, still read by a few inline styles (and the mascot). */
-:root {
-  --paper: var(--color-cream);
-  --ink: var(--color-ink);
-  --accent: var(--color-danger);
-  --yellow: var(--color-primary);
-  --pink: #ff9be3;
-}
-
 body {
   background-color: var(--color-cream);
   color: var(--color-ink);
@@ -114,49 +105,18 @@ body {
   }
 }
 
-/* Shared building blocks, v2: flat at rest; the hard shadow is earned. */
-.nb {
+/* Shared building blocks, v2: flat at rest; the hard shadow is earned.
+   (Buttons are components/ui/Button.tsx.) */
+
+/* A card or panel. */
+.card {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
 }
 
-.nb-sm {
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-
-/* The main button: the one sticker on a screen. */
-.nb-btn {
-  border: 1.5px solid var(--color-ink);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sticker);
-  background: var(--color-primary);
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-  user-select: none;
-}
-
-.nb-btn:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 var(--color-ink);
-}
-
-.nb-btn:active {
-  transform: translate(3px, 3px);
-  box-shadow: none;
-}
-
-.nb-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: var(--shadow-sticker);
-}
-
-.nb-chip {
+/* A choice you can pick from a list (track names in the track menu). */
+.chip {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   font-weight: 600;
@@ -166,22 +126,18 @@ body {
   background: var(--color-surface);
 }
 
-.nb-chip:hover {
+.chip:hover {
   border-color: var(--color-ink);
 }
 
-.nb-chip[data-active="true"] {
+.chip[data-active="true"] {
   background: var(--color-ink);
   border-color: var(--color-ink);
   color: var(--color-cream);
 }
 
-.nb-danger {
-  background: var(--color-danger);
-  color: #fff;
-}
-
-.nb-input {
+/* A text input, select or textarea. */
+.field {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -189,13 +145,34 @@ body {
   transition: border-color 0.12s, box-shadow 0.12s;
 }
 
-.nb-input::placeholder {
+.field::placeholder {
   color: var(--color-muted);
 }
 
-.nb-input:focus {
+.field:focus {
   border-color: var(--color-ink);
   box-shadow: 0 0 0 3px rgb(255 208 43 / 0.45);
+}
+
+/* The yellow focus ring around a framed box with an input inside
+   (search boxes, the Ask box). */
+@utility focus-within-ring {
+  &:focus-within {
+    border-color: var(--color-ink);
+    box-shadow: 0 0 0 3px rgb(255 208 43 / 0.45);
+  }
+}
+
+/* Small caps labels: "YOUR FEED", "GENRES", "UP NEXT · STEP 3". Written in
+   sentence case in the code; CSS makes them caps. */
+@utility label-caps {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
 }
 
 /* A card or tile you can open: flat at rest, lifts when you reach for it. */

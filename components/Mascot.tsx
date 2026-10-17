@@ -47,24 +47,24 @@ export default function Mascot({ size = 72 }: { size?: number }) {
       aria-hidden="true"
     >
       {/* antennas */}
-      <line x1="38" y1="22" x2="24" y2="6" stroke="var(--ink)" strokeWidth="4" strokeLinecap="round" />
-      <line x1="62" y1="22" x2="76" y2="6" stroke="var(--ink)" strokeWidth="4" strokeLinecap="round" />
-      <circle cx="24" cy="6" r="4" fill="var(--accent)" stroke="var(--ink)" strokeWidth="2.5" />
-      <circle cx="76" cy="6" r="4" fill="var(--accent)" stroke="var(--ink)" strokeWidth="2.5" />
+      <line x1="38" y1="22" x2="24" y2="6" stroke="var(--color-ink)" strokeWidth="4" strokeLinecap="round" />
+      <line x1="62" y1="22" x2="76" y2="6" stroke="var(--color-ink)" strokeWidth="4" strokeLinecap="round" />
+      <circle cx="24" cy="6" r="4" fill="var(--color-danger)" stroke="var(--color-ink)" strokeWidth="2.5" />
+      <circle cx="76" cy="6" r="4" fill="var(--color-danger)" stroke="var(--color-ink)" strokeWidth="2.5" />
       {/* TV body */}
-      <rect x="8" y="22" width="84" height="66" rx="10" fill="var(--yellow)" stroke="var(--ink)" strokeWidth="4" />
+      <rect x="8" y="22" width="84" height="66" rx="10" fill="var(--color-primary)" stroke="var(--color-ink)" strokeWidth="4" />
       {/* screen */}
-      <rect x="18" y="32" width="64" height="44" rx="6" fill="#fff" stroke="var(--ink)" strokeWidth="3.5" />
+      <rect x="18" y="32" width="64" height="44" rx="6" fill="#fff" stroke="var(--color-ink)" strokeWidth="3.5" />
       {/* eyes */}
-      <circle cx="38" cy="46" r="11" fill="#fff" stroke="var(--ink)" strokeWidth="3" />
-      <circle cx="62" cy="46" r="11" fill="#fff" stroke="var(--ink)" strokeWidth="3" />
-      <circle ref={leftPupil} cx="38" cy="46" r="4.5" fill="var(--ink)" />
-      <circle ref={rightPupil} cx="62" cy="46" r="4.5" fill="var(--ink)" />
+      <circle cx="38" cy="46" r="11" fill="#fff" stroke="var(--color-ink)" strokeWidth="3" />
+      <circle cx="62" cy="46" r="11" fill="#fff" stroke="var(--color-ink)" strokeWidth="3" />
+      <circle ref={leftPupil} cx="38" cy="46" r="4.5" fill="var(--color-ink)" />
+      <circle ref={rightPupil} cx="62" cy="46" r="4.5" fill="var(--color-ink)" />
       {/* smile */}
-      <path d="M 42 66 Q 50 72 58 66" fill="none" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" />
+      <path d="M 42 66 Q 50 72 58 66" fill="none" stroke="var(--color-ink)" strokeWidth="3" strokeLinecap="round" />
       {/* feet */}
-      <rect x="24" y="88" width="12" height="7" rx="2" fill="var(--ink)" />
-      <rect x="64" y="88" width="12" height="7" rx="2" fill="var(--ink)" />
+      <rect x="24" y="88" width="12" height="7" rx="2" fill="var(--color-ink)" />
+      <rect x="64" y="88" width="12" height="7" rx="2" fill="var(--color-ink)" />
     </svg>
   );
 }

@@ -1,31 +1,22 @@
 "use client";
 
-import { useState } from "react";
 import Icon from "./ui/Icon";
+import { useCopy } from "./ui/useCopy";
 
 /**
- * Small copy-to-clipboard chip with a transient "COPIED ✓" confirmation.
- * Shared by every AI output panel (summary, ask answers, transcript).
+ * Copy-to-clipboard with a short "Copied" confirmation. Shared by every AI
+ * output (summary, Ask answers, transcript) and notes.
  */
 export default function CopyButton({
   text,
   quiet = false,
 }: {
   text: string;
-  /** Redesign style: a plain "⧉ Copy" link instead of a chip. */
+  /** A plain "Copy" link instead of a chip. */
   quiet?: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard needs a secure context (https/localhost); ignore failures.
-    }
-  }
+  const { copied, copy: copyText } = useCopy();
+  const copy = () => copyText(text);
 
   if (quiet) {
     return (
@@ -43,7 +34,7 @@ export default function CopyButton({
   return (
     <button
       type="button"
-      className="nb-chip icon-hover flex h-7 shrink-0 items-center gap-1 rounded-sm px-2 text-xs"
+      className="chip icon-hover flex h-7 shrink-0 items-center gap-1 rounded-sm px-2 text-xs"
       onClick={copy}
       title="Copy to the clipboard"
     >

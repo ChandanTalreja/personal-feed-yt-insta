@@ -68,7 +68,7 @@ type VideoRow = Pick<
   "id" | "ytVideoId" | "title" | "durationSeconds" | "transcript"
 >;
 
-export interface GeminiAnswer {
+interface GeminiAnswer {
   answer: string;
   model: string;
   source: "captions" | "video";
@@ -237,7 +237,7 @@ async function watchAndTranscribe(db: Db, video: VideoRow): Promise<string> {
  * video (cached transcript → captions → one-time Gemini watch), then answer
  * the instructions from that text.
  */
-export async function askGemini(
+async function askGemini(
   db: Db,
   video: VideoRow,
   instructions: string

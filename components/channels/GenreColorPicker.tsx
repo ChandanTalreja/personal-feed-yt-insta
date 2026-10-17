@@ -42,7 +42,7 @@ export default function GenreColorPicker({
               className="relative h-7 w-7 cursor-pointer rounded-full ring-1 ring-line"
               style={{
                 backgroundColor: color,
-                outline: selected ? "2px solid var(--ink)" : "none",
+                outline: selected ? "2px solid var(--color-ink)" : "none",
                 outlineOffset: "2px",
               }}
               onClick={() => onChange(color)}
@@ -64,9 +64,9 @@ export default function GenreColorPicker({
           title="Custom color"
           className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-dashed border-muted text-sm font-bold text-muted hover:border-ink hover:text-ink"
           style={{
-            backgroundColor: isCustom ? value : "var(--paper)",
-            color: isCustom ? textColorFor(value) : "var(--ink)",
-            outline: isCustom ? "3px solid var(--ink)" : "none",
+            backgroundColor: isCustom ? value : "var(--color-cream)",
+            color: isCustom ? textColorFor(value) : "var(--color-ink)",
+            outline: isCustom ? "3px solid var(--color-ink)" : "none",
             outlineOffset: "2px",
           }}
         >

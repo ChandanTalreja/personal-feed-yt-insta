@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { resolveChannel } from "@/lib/youtube";
 
 /**
@@ -7,9 +7,8 @@ import { resolveChannel } from "@/lib/youtube";
  * show a "did you mean this channel?" confirmation for plain-name input.
  */
 export async function GET(req: NextRequest) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   const input = req.nextUrl.searchParams.get("input")?.trim() ?? "";
   if (!input) {
     return NextResponse.json({ error: "Nothing to look up" }, { status: 400 });

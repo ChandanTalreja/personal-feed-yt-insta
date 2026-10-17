@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { addVideos, createTrack, listTracks } from "@/lib/tracks";
 import { trackErrorResponse } from "@/app/api/tracks/respond";
 
 /** GET /api/tracks[?videoId=N] — all tracks with progress stats; with a
  *  videoId, each also says whether it contains that video (card menu). */
 export async function GET(req: NextRequest) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   try {
     const raw = req.nextUrl.searchParams.get("videoId");
     const videoId = raw ? Number(raw) : undefined;
@@ -23,9 +22,8 @@ export async function GET(req: NextRequest) {
 /** POST /api/tracks { name, videoIds?, order? } — create a track, and
  *  optionally fill it in the same request (card menu / bulk add). */
 export async function POST(req: NextRequest) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   try {
     const body = await req.json().catch(() => ({}));
     const db = await getDb();

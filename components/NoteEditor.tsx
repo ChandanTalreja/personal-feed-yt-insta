@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { notifyNavChanged } from "@/lib/nav-events";
+import { api } from "@/lib/api-client";
 
 interface Props {
   videoId: number;
@@ -61,15 +62,13 @@ export default function NoteEditor({
     const value = textRef.current;
     if (value.trim() === savedRef.current) return;
     if (!final) setStatus("saving");
-    fetch(`/api/videos/${videoId}`, {
+    api(`/api/videos/${videoId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ personalNote: value }),
+      body: { personalNote: value },
       keepalive: final, // let the last save finish as the panel closes
+      fallback: "Save failed",
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Save failed");
+      .then((data) => {
         savedRef.current = value.trim();
         onSavedRef.current?.(data.video.personalNote, data.video.personalNoteAt);
         notifyNavChanged();
@@ -113,7 +112,7 @@ export default function NoteEditor({
   return (
     <div className="flex flex-col gap-1">
       <textarea
-        className={`nb-input w-full resize-y leading-relaxed ${
+        className={`field w-full resize-y leading-relaxed ${
           large ? "p-3 text-lg" : "p-2.5 text-meta"
         }`}
         rows={rows}

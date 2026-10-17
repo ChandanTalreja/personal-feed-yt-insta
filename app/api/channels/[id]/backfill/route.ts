@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { channels } from "@/lib/schema";
 import {
   BACKFILL_BUDGET_MS,
@@ -9,6 +9,7 @@ import {
   backfillSince,
   resolveBackfillMonths,
 } from "@/lib/ingest";
+import { badId, parseId } from "@/lib/http";
 
 export const maxDuration = 300;
 
@@ -28,16 +29,16 @@ type Params = { params: Promise<{ id: string }> };
  */
 export async function POST(req: NextRequest, { params }: Params) {
   const started = Date.now();
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const { id } = await params;
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
+  const id = parseId((await params).id);
+  if (id == null) return badId();
   const body = await req.json().catch(() => ({}));
   const months = resolveBackfillMonths(Number(body.years) * 12);
   const cursor = typeof body.cursor === "string" ? body.cursor : null;
 
   const db = await getDb();
-  const [channel] = await db.select().from(channels).where(eq(channels.id, Number(id)));
+  const [channel] = await db.select().from(channels).where(eq(channels.id, id));
   if (!channel) {
     return NextResponse.json({ error: "Channel not found" }, { status: 404 });
   }

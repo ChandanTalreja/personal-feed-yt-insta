@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { desc, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { channels, videoNotes, videos } from "@/lib/schema";
 import { feedVideoColumns } from "@/lib/videoColumns";
 
@@ -14,9 +14,8 @@ import { feedVideoColumns } from "@/lib/videoColumns";
  * round trips. Read-only: no Gemini calls, no quota.
  */
 export async function GET() {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
   const db = await getDb();
 
   const notedVideoIds = db

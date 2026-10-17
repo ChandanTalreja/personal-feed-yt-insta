@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { isAuthed } from "@/lib/auth";
-import TracksClient from "@/components/TracksClient";
+import TracksClient from "@/components/tracks/TracksClient";
 
 export const dynamic = "force-dynamic";
 

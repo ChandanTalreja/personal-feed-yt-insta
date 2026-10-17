@@ -224,7 +224,7 @@ export default function PlayerModal({
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
             {queue && (
-              <p className="mb-1 font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">{queue.label}</p>
+              <p className="mb-1 label-caps">{queue.label}</p>
             )}
             <h2 className="text-lg font-semibold">{video.title}</h2>
             <p className="mt-0.5 text-meta text-muted">

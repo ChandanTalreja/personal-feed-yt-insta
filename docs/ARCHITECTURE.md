@@ -80,6 +80,56 @@ video_notes, gemini_usage — compute once, cache forever
 Layering rule: UI never calls providers; routes contain no business logic;
 lib engines know nothing about HTTP.
 
+### 3.1 UI layer (how the screens are built)
+
+The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
+
+- **Pages** (`app/*/page.tsx`) check the login on the server, then render one
+  client component per screen. Each screen's own parts live in its folder:
+  `components/feed/` (feed, sidebar, card, study panel, track menu, and
+  `useFeedData` — the loaded pages plus the counts kept in step by ✓,
+  bookmark and progress), `components/notebook/`, `components/tracks/`,
+  `components/channels/`. A folder's `model.ts` holds its types and pure
+  rules (e.g. a channel's "quiet" status, a track's summary line).
+- **Shared** at the top of `components/`: `TopBar` (with `GlobalSearch`),
+  `PlayerModal`, `NoteEditor`, `CopyButton`, `Markdown`, `types.ts` and
+  `useAsk` (the Ask flow used by the study panel and the Notebook).
+- **Building blocks** in `components/ui/`: `Button` (with `busy`),
+  `IconButton`, `Icon` (Phosphor shapes in `iconPaths.ts`), `SearchField`,
+  `SegmentedControl`, `SidebarList`, `SidePanel`, `PageTitle`, `EmptyState`,
+  `Spinner`, `Media` (`Thumb`/`Avatar` — the only place images are drawn,
+  with the `no-referrer` rule YouTube's avatar host needs), and hooks
+  `useDismiss` (menus) and `useCopy` (clipboard).
+- **Design tokens** live only in `app/globals.css` `@theme`, which first
+  clears Tailwind's own colours, sizes and corners — so only the design
+  system's values exist as classes.
+- **Talking to the API:** screens call `api()` (`lib/api-client.ts`): JSON
+  in, JSON out, the server's `{ error }` message on failure. Routes start
+  with `denyUnlessAuthed()` (`lib/auth.ts`) and read ids with `parseId()`
+  (`lib/http.ts`; a bad id gets 400, not a crash).
+- **Routes the screens use** (beyond the core feed/AI ones): `GET /api/nav`
+  (top-bar counts + last sync), `GET /api/search?q=` (channels, videos,
+  answers and notes in one parallel round trip; ILIKE + trigram; `@` =
+  channels only), `GET /api/videos` also returns `facets` (sidebar counts,
+  first page) and each video's `answerCount`, `GET /api/videos/:id`,
+  `GET /api/channels` with `lastUploadAt` and counts,
+  `POST /api/channels/bulk` (move/pause/resume/delete in one statement),
+  `POST /api/channels/:id/backfill` (page by page with a cursor, under
+  Netlify's 10 s), `GET/PUT /api/ask-suggestions`.
+- **Links between screens:** global search opens `/?channel=`, `/?video=`,
+  `/?q=` (the feed applies them, then tidies the address to `/`) and
+  `/notebook?v=`; the Notebook and Tracks keep the open item in `?v=` /
+  `?t=`; `/manage` forwards to `/channels` (`next.config.ts`).
+- **Instant revisits** (PERF-03): `api()` remembers each GET reply in the
+  tab's memory (capped, browser only); screens start from
+  `rememberedReply(path)` and refresh in the background. Any change through
+  `api()` or a sync clears it; the feed's ✓/bookmark/progress update it in
+  place. `next.config.ts` `staleTimes.dynamic: 300` reuses a visited page for
+  5 min instead of re-requesting it.
+- **Counts stay fresh** without polling: screens fire the
+  `tubebox:nav-changed` event (`lib/nav-events.ts`) after a change, and the
+  top bar recounts once (debounced).
+
 ---
 
 ## 4. Data model (`lib/schema.ts`)
@@ -93,13 +143,31 @@ lib engines know nothing about HTTP.
 - **videos** — id, yt_video_id (unique — the idempotency key), channel_id
   (FK, CASCADE), title, thumbnail, duration_seconds, is_short, is_live,
   published_at, watched, summary (cached), `transcript` (cached — captions
-  text or Gemini transcription), fetched_at.
+  text or Gemini transcription), `later_at` (Watch later; null = not saved),
+  `watch_progress` (played 10-second chunks as a "0/1" string) and
+  `resume_seconds` (honest watched, `lib/progress.ts`), `last_played_at`
+  (stamped by every progress save — not by a hand-ticked ✓; feeds a track's
+  "last watched"), `personal_note` + `personal_note_at` (your one note per
+  video), fetched_at.
 - **video_notes** — saved Ask answers: video_id (FK, CASCADE), prompt,
   answer, model, source, created_at. Strictly per-video by design decision
   (questions are video-specific; the only cross-video suggestion mechanism
   is the genre's ask_prompt).
 - **gemini_usage** — one row per Gemini API call: model, tokens, used_at.
   The app's own quota ledger (Google's API does not expose remaining quota).
+- **login_attempts** — ip, attempted_at: the login rate limit (5 per 15 min
+  per IP).
+- **app_meta** — key/value pairs for small app-wide settings: `last_sync_at`
+  (written by every sync, for "Synced 3h ago") and `ask_suggestions` (your
+  everyday Ask questions). Three strings didn't need their own tables.
+- **tracks** — id, name (unique), created_at. **track_videos** — track_id,
+  video_id (both FK, CASCADE), position, added_at; the (track, video) key
+  makes adding idempotent.
+
+Indexes beyond the unique keys: `videos(published_at DESC)`, a trigram index
+on `videos.title` (search), `videos(later_at)` for saved ones,
+`video_notes(video_id)` (answer counts), `track_videos(video_id)`,
+`login_attempts(ip, attempted_at)`.
 
 Schema management: `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ... ADD COLUMN
 IF NOT EXISTS` statements run once per process on first DB use (lib/db.ts).
@@ -170,8 +238,9 @@ permanently recurring $5/month free credit), called via
 local dev. Verified: clean punctuated transcripts, better than raw
 InnerTube fragments.
 
-**Risk posture:** any link can break any day. Each returns `null` on *any*
-failure; the chain is InnerTube → Apify (hosted only) → Gemini watch (local
+**Risk posture:** any link can break any day. Each returns `null` when it
+has nothing to give (one exception: an Apify *outage* throws — see below);
+the chain is InnerTube → Apify (hosted only) → Gemini watch (local
 only, timeout-bound on Netlify) → friendly error. Breakage changes cost,
 not correctness. **Detection signal:** if new transcripts' `source` flips
 from "captions" to "video" across the board, both caption doors have
@@ -334,61 +403,12 @@ window); that's why fps+resolution tuning matters.
 
 ## 12. Roadmap
 
-**In progress — UI/UX redesign (from 2026-10-16):** planned and tracked in
-[REDESIGN.md](REDESIGN.md). This section gets a one-line pointer per phase as
-each lands; the detail lives there.
-- Phase 1 (2026-10-16): design tokens in `globals.css` `@theme`, square
-  corners, lighter shadows, Space Mono, `components/ui/*` building blocks,
-  `/styleguide` — see REDESIGN.md UI-01, UI-02, UI-05, REF-03.
-- Phase 2 (2026-10-16): `components/TopBar.tsx` on every page (nav counts
-  via `/api/nav` + `lib/nav.ts`, live recount via the `tubebox:nav-changed`
-  event in `lib/nav-events.ts`); new **`app_meta`** key/value table, where
-  `refreshAllChannels` records `last_sync_at` for "Synced X ago"; ticker
-  removed — see REDESIGN.md UX-03, REF-01, REF-05, FEAT-02.
-- Phase 3 (2026-10-16): feed rebuilt as sidebar (`FeedSidebar`) + grid +
-  study panel (`StudyPanel`; tabs load on demand, once). `/api/videos`
-  returns `facets` (view + genre counts, first page only, via `count(*)
-  FILTER`); every FeedVideo carries `answerCount` (index
-  `video_notes_video_idx`); everyday Ask suggestions in `app_meta`
-  (`lib/askSuggestions.ts`, `/api/ask-suggestions`) — see REDESIGN.md UX-01,
-  UX-02, UX-04, UX-05, FEAT-02, FEAT-03, FEAT-09, REF-04.
-- Phase 4 (2026-10-17): `/channels` (`ChannelsClient`, `GenresPanel`)
-  replaces Manage; `next.config.ts` forwards `/manage`. `GET /api/channels`
-  adds `lastUploadAt` (one grouped `max(published_at)` + `count FILTER`
-  pass); new `POST /api/channels/bulk` (move/pause/resume/delete in one
-  statement); backfill stays one channel at a time (10 s limit) — see
-  REDESIGN.md UX-09, FEAT-07, FEAT-08.
-- Phase 4.1 (2026-10-17): RE-SYNC → Backfill 1Y–5Y; page-by-page ingestion
-  with a time budget and cursor (see "Backfill 1Y–5Y" above) — REDESIGN.md
-  FEAT-10.
-- Phase 5 (2026-10-17): Notebook rebuilt as list + reader
-  (`NotebookClient`; still one `/api/notebook` request, filtering in the
-  browser); follow-up Ask from the reader reuses `/api/videos/:id/ask`; open
-  video kept in `?v=` — see REDESIGN.md UX-07, FEAT-05.
-- Phase 6 (2026-10-17): Tracks rebuilt as list + path (`TracksClient`);
-  new **`videos.last_played_at`** (stamped by every progress save in
-  `PATCH /api/videos/:id`; a hand-ticked ✓ doesn't set it) feeds a track's
-  "last watched" and the list order; `listTracks` also returns the most
-  common genre of a track's videos. Shared `PlayerModal` header restyled —
-  see REDESIGN.md UX-08, FEAT-06.
-- Phase 7 (2026-10-17): Shorts title row + "Play unseen in a row"
-  (client-side queue in `FeedClient`; marks seen on the player's "ended",
-  Next skips; grows by loading the next page) — see REDESIGN.md UX-06,
-  FEAT-04.
-- Phase 8 (2026-10-17): global search — `lib/search.ts` +
-  `GET /api/search?q=` (channels / videos / answers & notes in one parallel
-  round trip; ILIKE + trigram, `%`/`_` escaped; `@` = channels only);
-  `GlobalSearch` in the top bar (⌘K); results open existing screens via
-  `/?channel=`, `/?video=`, `/?q=` (FeedClient applies then clears them) and
-  `/notebook?v=`; new `GET /api/videos/:id`. All 8 redesign phases done —
-  see REDESIGN.md FEAT-01.
-- Phase 9 (2026-10-17): "calm base, retro accents", look-only, no data
-  changes. `app/globals.css` `@theme` now holds the only colours, six text
-  sizes and corners (Tailwind's defaults reset with `initial`); icons are
-  Phosphor duotone shapes in `components/ui/iconPaths.ts` drawn by
-  `Icon.tsx` and lit yellow by CSS; new `components/ui/Spinner.tsx` and
-  `PageTitle.tsx` — see REDESIGN.md §2 *v2*, UI-07, UI-08, REF-07, REF-08.
-  Phase 10 (next): code cleanup.
+**Done — UI/UX redesign (2026-10-16 → 17), Phases 1–10:** one top bar,
+feed sidebar + study panel, Channels (replaces Manage), Notebook, Tracks,
+Shorts, global search, the "calm base, retro accents" look (Phase 9) and a
+code cleanup (Phase 10). Current design: [REDESIGN.md](REDESIGN.md); every
+change written up: [redesign-history.md](redesign-history.md). How the UI is
+built: §3.1 above.
 
 **Built 2026-10-16:**
 - **Next.js 16.2.10 → 16.3.8 (security)** — `npm audit` listed 19
@@ -416,7 +436,8 @@ each lands; the detail lives there.
 - **Shorts polish** — instant capitalised hover labels on the shorts icons
   (custom, not the ~1s-delayed `title`), icons outlined via
   `components/Emoji.tsx` so pale glyphs (✨ 💬 📄) stay visible, and the legend
-  restyled as bordered capital chips.
+  restyled as bordered capital chips. *(Superseded: the redesign replaced
+  emoji controls with drawn icons, and `Emoji.tsx` was removed.)*
 - **Shorts layout fix** — shorts cards had grown into tall towers (narrow
   ≥150px auto-fill columns × 7 full-text buttons, wrapping channel tags),
   and the last row of every page left empty slots (24 per page in 7
@@ -437,7 +458,7 @@ each lands; the detail lives there.
   in order, append at max(position)+1, move = swap with the neighbour in ONE
   `UPDATE … CASE` (`::int` casts — untyped params in a CASE resolve to
   text). Adding: `🎯 TRACK` panel on every card (inline, since cards clip
-  pop-ups; tick/untick, or create by name — `components/TrackMenu.tsx`), and
+  pop-ups; tick/untick, or create by name — `components/feed/TrackMenu.tsx`), and
   in the feed, with a search active, "🎯 ADD THESE N TO A TRACK" — fetches
   every matching id via `GET /api/videos?…&ids=1` (same filters as the
   feed, oldest upload first, capped at 300) and appends them. Track page:
@@ -511,7 +532,7 @@ each lands; the detail lives there.
   API call). Search matches name or @handle; chips are ALL / each genre /
   NO GENRE with counts; the two combine. The chip row is a self-contained
   block — delete it to go back to search-only.
-- **Genre colors** (`lib/color.ts`, `components/GenreColorPicker.tsx`): a
+- **Genre colors** (`lib/color.ts`, `components/channels/GenreColorPicker.tsx`): a
   14-color curated palette, a dot on swatches other genres already use, a
   custom swatch backed by the browser's color wheel, a live preview chip,
   and color editing for existing genres (the ✎ editor). `textColorFor()`
@@ -559,6 +580,35 @@ unavailable/restricted, watch-length cap).
   function timeout, and surfaced a misleading "Gemini couldn't access this
   video" error. Now it fails fast with an honest "no captions; transcribe
   locally once, cached forever" message before any Gemini call.
+
+**Fixed 2026-10-18 — Apify outage = honest message, not a 502:** on
+2026-10-17 from ~23:10 IST the Actor stopped answering (our 15s
+`run-sync` calls timed out; the Apify console showed 503s). Gemini was
+never reached and the key was fine. But the English → default-language
+retry meant two 15s waits, ~30s total, so Netlify killed every Ask/Summary
+on an uncached video with a bare 502/504. Now `runTranscriptActor`
+separates "answered, but empty" (→ retry in any language, as before) from
+"didn't answer / error status" (→ stop at once and throw *"The transcript
+service isn't responding right now… try again in a few minutes"*). The
+routes already return error messages to the UI. Nothing is cached on
+failure, so the same video works once Apify is back. Videos with a saved
+transcript never touch Apify, so they keep working during an outage. If an
+outage lasts days, `APIFY_TRANSCRIPT_ACTOR` swaps the Actor with no code
+change.
+
+**Fixed 2026-10-18 — refresh fits Netlify's 30s with room to spare:**
+every refresh (button and 6-hourly cron) took 23–30s in the Netlify logs
+because `refreshAllChannels` checked channels one after another, each
+mostly waiting on YouTube. After hours idle, the cold start (function boot
+~2s + Neon waking from autosuspend up to ~3s) pushed it past 30s: 9 of 25
+runs in a day were cut off (502/504 for the button, 499 for the cron's
+fetch). Channels already done were kept, but the rest waited for the next
+run, and "Synced X ago" didn't update. Now 5 channels run at once
+(`REFRESH_CONCURRENCY`, a small worker pool). The YouTube calls are the
+same, so quota is the same. Results are still reported in channel order.
+Neon's HTTP driver makes every query its own request, so parallel queries
+are safe; PGlite queues them. Measured with fake 300ms YouTube replies over
+40 channels: 24.1s → 4.9s, with identical results.
 
 **Known bugs / immediate next (2026-07-06):**
 - Hosted 📄TEXT/💬ASK still unverified on an English-captioned video.

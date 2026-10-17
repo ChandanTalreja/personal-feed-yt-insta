@@ -1,33 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { isAuthed } from "@/lib/auth";
+import { denyUnlessAuthed } from "@/lib/auth";
 import { videoNotes, videos } from "@/lib/schema";
 import { answerAboutVideo } from "@/lib/gemini";
+import { badId, parseId } from "@/lib/http";
 
 export const maxDuration = 300;
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Params) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const { id } = await params;
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
+  const id = parseId((await params).id);
+  if (id == null) return badId();
   const db = await getDb();
   const notes = await db
     .select()
     .from(videoNotes)
-    .where(eq(videoNotes.videoId, Number(id)))
+    .where(eq(videoNotes.videoId, id))
     .orderBy(desc(videoNotes.createdAt));
   return NextResponse.json({ notes });
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const { id } = await params;
+  const denied = await denyUnlessAuthed();
+  if (denied) return denied;
+  const id = parseId((await params).id);
+  if (id == null) return badId();
   const body = await req.json().catch(() => ({}));
   const prompt = String(body.prompt ?? "").trim();
   if (!prompt) {
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const [video] = await db
     .select()
     .from(videos)
-    .where(eq(videos.id, Number(id)));
+    .where(eq(videos.id, id));
   if (!video) {
     return NextResponse.json({ error: "Video not found" }, { status: 404 });
   }

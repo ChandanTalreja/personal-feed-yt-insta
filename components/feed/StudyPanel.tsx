@@ -1,29 +1,24 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { formatDuration, timeAgo } from "@/lib/format";
-import { notifyNavChanged } from "@/lib/nav-events";
-import CopyButton from "./CopyButton";
-import Markdown from "./Markdown";
-import NoteEditor from "./NoteEditor";
+import CopyButton from "@/components/CopyButton";
+import Markdown from "@/components/Markdown";
+import NoteEditor from "@/components/NoteEditor";
 import TrackMenu from "./TrackMenu";
-import Button from "./ui/Button";
-import Icon from "./ui/Icon";
-import Spinner from "./ui/Spinner";
-import SidePanel from "./ui/SidePanel";
-import type { FeedVideo } from "./types";
+import Button from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
+import { Thumb } from "@/components/ui/Media";
+import { highlight } from "@/components/ui/highlight";
+import SearchField from "@/components/ui/SearchField";
+import Spinner from "@/components/ui/Spinner";
+import SidePanel from "@/components/ui/SidePanel";
+import type { Answer, FeedVideo } from "@/components/types";
+import { useAsk } from "@/components/useAsk";
+import { api, rememberedReply } from "@/lib/api-client";
 
 export type StudyTab = "ask" | "summary" | "transcript" | "note";
-
-interface Answer {
-  id: number;
-  prompt: string;
-  answer: string;
-  createdAt: string;
-}
 
 interface Props {
   video: FeedVideo;
@@ -87,10 +82,20 @@ export default function StudyPanel({
   const [find, setFind] = useState("");
 
   // --- Ask ---
-  const [answers, setAnswers] = useState<Answer[] | null>(null); // null = not loaded
-  const [question, setQuestion] = useState("");
-  const [pending, setPending] = useState<string | null>(null);
-  const [askError, setAskError] = useState<string | null>(null);
+  // null = not loaded. A video whose answers were loaded before in this tab
+  // starts with them (instant); the Ask tab still fetches a fresh copy.
+  const [answers, setAnswers] = useState<Answer[] | null>(() => {
+    const seen = rememberedReply(`/api/videos/${video.id}/ask`);
+    return seen ? [...(seen.notes ?? [])].reverse() : null;
+  });
+  // Ask. Asking the same question again returns the saved answer: move it to the
+  // end of the conversation rather than showing it twice.
+  const { question, setQuestion, pending, error: askError, ask } = useAsk(video.id, (note) => {
+    const next = [...(answers ?? []).filter((a) => a.id !== note.id), note];
+    setAnswers(next);
+    onVideoChange(video.id, { answerCount: next.length });
+  });
+
   // The newest exchange, so the panel can open at its question (a long
   // answer is read from the top, not landed on at its last line).
   const latestRef = useRef<HTMLDivElement>(null);
@@ -102,23 +107,20 @@ export default function StudyPanel({
     const id = video.id;
     if (tab === "ask" && !started.current.ask) {
       started.current.ask = true;
-      fetch(`/api/videos/${id}/ask`)
-        .then((r) => r.json())
+      api(`/api/videos/${id}/ask`)
         .then((d) => {
           // The API sends newest first; a conversation reads oldest first.
           const list: Answer[] = [...(d.notes ?? [])].reverse();
           setAnswers(list);
           onVideoChangeRef.current(id, { answerCount: list.length });
         })
-        .catch(() => setAnswers([]));
+        .catch(() => setAnswers((current) => current ?? []));
     }
     if (tab === "summary" && !started.current.summary && !video.summary) {
       started.current.summary = true;
       setSummaryBusy(true);
-      fetch(`/api/videos/${id}/summarize`, { method: "POST" })
-        .then(async (res) => {
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error ?? "Couldn't summarise this video");
+      api(`/api/videos/${id}/summarize`, { method: "POST", fallback: "Couldn't summarise this video" })
+        .then((data) => {
           setSummary(data.summary);
           onVideoChangeRef.current(id, { summary: data.summary });
         })
@@ -128,10 +130,8 @@ export default function StudyPanel({
     if (tab === "transcript" && !started.current.transcript) {
       started.current.transcript = true;
       setTranscriptBusy(true);
-      fetch(`/api/videos/${id}/transcript`, { method: "POST" })
-        .then(async (res) => {
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error ?? "Couldn't get the transcript");
+      api(`/api/videos/${id}/transcript`, { method: "POST", fallback: "Couldn't get the transcript" })
+        .then((data) => {
           setTranscript(data.transcript);
         })
         .catch((err) => setTranscriptError((err as Error).message))
@@ -143,34 +143,6 @@ export default function StudyPanel({
   useEffect(() => {
     if (tab === "ask") latestRef.current?.scrollIntoView({ block: "start" });
   }, [tab, answers, pending]);
-
-  async function ask(prompt: string) {
-    const text = prompt.trim();
-    if (!text || pending) return;
-    setPending(text);
-    setAskError(null);
-    setQuestion(""); // sent: it shows in the conversation now
-    try {
-      const res = await fetch(`/api/videos/${video.id}/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Couldn't answer that");
-      // Asking the same question again returns the saved answer: move it to
-      // the end of the conversation rather than showing it twice.
-      const next = [...(answers ?? []).filter((a) => a.id !== data.note.id), data.note];
-      setAnswers(next);
-      onVideoChange(video.id, { answerCount: next.length });
-      notifyNavChanged();
-    } catch (err) {
-      setAskError((err as Error).message);
-      setQuestion((q) => q || text); // give it back to fix or retry, unless something new was typed
-    } finally {
-      setPending(null);
-    }
-  }
 
   // Genre suggestion first, then yours; no repeats.
   const suggestions = [genrePrompt, ...everyday]
@@ -184,16 +156,7 @@ export default function StudyPanel({
       onClose={onClose}
       header={
         <div className="flex gap-3.5">
-          {video.thumbnail ? (
-            <img
-              src={video.thumbnail}
-              alt=""
-              referrerPolicy="no-referrer"
-              className="aspect-video w-[120px] shrink-0 rounded-sm object-cover"
-            />
-          ) : (
-            <div className="aspect-video w-[120px] shrink-0 rounded-sm bg-muted" />
-          )}
+          <Thumb src={video.thumbnail} fallback="bg-muted" className="w-[120px] shrink-0 rounded-sm" />
           <div className="min-w-0">
             <h2 className="line-clamp-3 text-lg font-semibold">{video.title}</h2>
             <p className="mt-1.5 text-meta text-muted">
@@ -397,7 +360,7 @@ function AskBox({
         </Link>
       )}
       <form
-        className="flex overflow-hidden rounded-md border-[1.5px] border-ink bg-cream focus-within:shadow-[0_0_0_3px_rgb(255_208_43/0.45)]"
+        className="flex overflow-hidden rounded-md border-[1.5px] border-ink bg-cream focus-within-ring"
         onSubmit={(e) => {
           e.preventDefault();
           onAsk(question);
@@ -461,15 +424,15 @@ function TranscriptView({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <label className="nb-input flex h-9 flex-1 items-center gap-2 bg-cream! px-3 focus-within:border-ink">
-          <Icon name="search" size={15} className="text-muted" />
-          <input
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
-            placeholder="Find in transcript"
-            value={find}
-            onChange={(e) => onFind(e.target.value)}
-          />
-        </label>
+        <SearchField
+          value={find}
+          onChange={onFind}
+          placeholder="Find in transcript"
+          label="Find in transcript"
+          clearable={false}
+          escClears={false}
+          className="flex-1 bg-cream!"
+        />
         <CopyButton text={text} quiet />
       </div>
       {term && (
@@ -499,24 +462,6 @@ function TranscriptView({
   );
 }
 
-/** Wrap each case-insensitive match of `term` in a yellow mark. */
-function highlight(text: string, term: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  const lower = text.toLowerCase();
-  let from = 0;
-  for (let at = lower.indexOf(term); at !== -1; at = lower.indexOf(term, from)) {
-    out.push(text.slice(from, at));
-    out.push(
-      <mark key={at} className="rounded-xs bg-primary/45 text-ink">
-        {text.slice(at, at + term.length)}
-      </mark>
-    );
-    from = at + term.length;
-  }
-  out.push(text.slice(from));
-  return out;
-}
-
 function Question({ children }: { children: ReactNode }) {
   return (
     <div className="max-w-[85%] self-end rounded-md rounded-br-xs bg-ink px-3 py-2 text-sm font-medium text-cream">
@@ -527,7 +472,7 @@ function Question({ children }: { children: ReactNode }) {
 
 function Label({ children }: { children: ReactNode }) {
   return (
-    <span className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">
+    <span className="label-caps">
       {children}
     </span>
   );

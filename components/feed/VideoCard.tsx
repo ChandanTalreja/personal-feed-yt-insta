@@ -1,12 +1,12 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import type { ReactNode } from "react";
 import { formatDuration, timeAgo } from "@/lib/format";
 import { coveredRatio } from "@/lib/progress";
-import Icon, { type IconName } from "./ui/Icon";
-import type { FeedVideo } from "./types";
+import { textColorFor } from "@/lib/color";
+import { Thumb } from "@/components/ui/Media";
+import Icon, { type IconName } from "@/components/ui/Icon";
+import type { FeedVideo } from "@/components/types";
 
 /** The study panel's tabs; "track" opens the Add-to-track chooser. */
 export type StudyTool = "ask" | "summary" | "transcript" | "note" | "track";
@@ -66,17 +66,7 @@ export default function VideoCard({
         onClick={() => onPlay(video)}
         aria-label={`Play ${video.title}`}
       >
-        {video.thumbnail ? (
-          <img
-            src={video.thumbnail}
-            alt=""
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            className="aspect-video w-full object-cover"
-          />
-        ) : (
-          <div className="aspect-video w-full bg-muted" />
-        )}
+        <Thumb src={video.thumbnail} lazy fallback="bg-muted" className="w-full" />
         {video.durationSeconds > 0 && (
           <span className="absolute bottom-2 right-2 rounded-xs bg-ink/85 px-1.5 font-mono text-xs font-bold leading-5 text-white">
             {formatDuration(video.durationSeconds)}
@@ -138,11 +128,13 @@ export default function VideoCard({
           {video.title}
         </h3>
         <div className="flex min-w-0 items-center gap-1.5 text-meta text-muted">
+          {/* The channel as a tag in its genre's colour (REF-10); the text
+              turns white on dark colours so it always reads. */}
           <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: genreColor }}
-          />
-          <span className="truncate font-medium text-ink" title={video.channelTitle}>
+            className="min-w-0 truncate rounded-xs px-1.5 py-px font-semibold"
+            style={{ backgroundColor: genreColor, color: textColorFor(genreColor) }}
+            title={video.channelTitle}
+          >
             {video.channelTitle}
           </span>
           <span className="shrink-0 whitespace-nowrap">· {timeAgo(video.publishedAt)}</span>
@@ -267,5 +259,20 @@ function StripButton({
       {children}
       <HoverLabel text={label} align={align} />
     </button>
+  );
+}
+
+/** Grey stand-in card while videos load. */
+export function VideoCardSkeleton() {
+  return (
+    <div className="flex animate-pulse flex-col overflow-hidden rounded-lg border border-line bg-surface" aria-hidden="true">
+      <div className="aspect-video bg-line" />
+      <div className="flex flex-col gap-2 p-3.5">
+        <div className="h-3.5 w-11/12 rounded-xs bg-line" />
+        <div className="h-3.5 w-2/3 rounded-xs bg-line" />
+        <div className="mt-1 h-3 w-1/2 rounded-xs bg-line" />
+      </div>
+      <div className="h-[43px] border-t border-line" />
+    </div>
   );
 }
