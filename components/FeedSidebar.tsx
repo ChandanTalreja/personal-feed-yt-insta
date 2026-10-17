@@ -3,7 +3,8 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useState } from "react";
-import { SidebarItem, SidebarSection } from "./ui/SidebarList";
+import Icon, { type IconName } from "./ui/Icon";
+import { SidebarItem, SidebarSection, SidebarTile } from "./ui/SidebarList";
 import type { GenreItem } from "./types";
 
 export type View = "unwatched" | "later" | "watched" | "all";
@@ -22,11 +23,12 @@ export interface SidebarChannel {
   count: number;
 }
 
-const VIEWS: [View, string][] = [
-  ["unwatched", "Inbox"],
-  ["later", "Later"],
-  ["watched", "History"],
-  ["all", "Everything"],
+/** The four views, each with its soft colour tile (REDESIGN §2 v2). */
+const VIEWS: [View, string, IconName, string][] = [
+  ["unwatched", "Inbox", "inbox", "bg-tile-yellow"],
+  ["later", "Watch later", "later", "bg-tile-pink"],
+  ["watched", "Watched", "watched", "bg-tile-green"],
+  ["all", "Everything", "everything", "bg-tile-blue"],
 ];
 
 /** How many channels show before "Show all". */
@@ -84,11 +86,16 @@ export default function FeedSidebar({
 
   return (
     <nav aria-label="Feed filters" className="text-ink">
-      <SidebarSection title="VIEWS">
-        {VIEWS.map(([value, label]) => (
+      <SidebarSection title="Your feed">
+        {VIEWS.map(([value, label, icon, tile]) => (
           <SidebarItem
             key={value}
             label={label}
+            leading={
+              <SidebarTile className={tile}>
+                <Icon name={icon} size={15} duotone={false} />
+              </SidebarTile>
+            }
             active={view === value}
             count={facets ? short(facets.views[value]) : undefined}
             onClick={() => onView(value)}
@@ -96,13 +103,13 @@ export default function FeedSidebar({
         ))}
       </SidebarSection>
 
-      <SidebarSection title="GENRES">
+      <SidebarSection title="Genres">
         <SidebarItem
           label="All genres"
           active={genreId == null}
           count={allGenresCount != null ? short(allGenresCount) : undefined}
           onClick={() => onGenre(null)}
-          leading={<span className="h-2.5 w-2.5 shrink-0 border-[1.5px] border-ink bg-ink" />}
+          leading={<span className="h-[9px] w-[9px] shrink-0 rounded-[3px] bg-ink" />}
         />
         {genres.map((g) => (
           <SidebarItem
@@ -113,7 +120,7 @@ export default function FeedSidebar({
             onClick={() => onGenre(g.id)}
             leading={
               <span
-                className="h-2.5 w-2.5 shrink-0 border-[1.5px] border-ink"
+                className="h-[9px] w-[9px] shrink-0 rounded-[3px]"
                 style={{ backgroundColor: g.color }}
               />
             }
@@ -122,22 +129,24 @@ export default function FeedSidebar({
       </SidebarSection>
 
       <SidebarSection
-        title="CHANNELS"
+        title="Channels"
         aside={
           channelIds.length > 0 ? (
             <button
               type="button"
               onClick={onClearChannels}
-              className="text-[11px] font-bold text-warn hover:underline"
+              className="text-xs font-semibold text-muted hover:text-ink hover:underline"
             >
               Clear {channelIds.length}
             </button>
           ) : undefined
         }
       >
-        <li className="px-3 pb-2">
+        <li className="px-1 pb-1.5">
+          <label className="relative block">
+            <Icon name="search" size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
           <input
-            className="w-full border-2 border-ink bg-cream px-2 py-1 text-xs outline-none placeholder:text-muted focus:shadow-[2px_2px_0_var(--color-primary)]"
+            className="nb-input h-8 w-full rounded-sm pl-8 pr-2 text-meta"
             placeholder="Filter channels"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -146,14 +155,15 @@ export default function FeedSidebar({
             }}
             aria-label="Filter channels"
           />
+          </label>
           {q && (
-            <p className="mt-1 font-mono text-[11px] text-muted-2">
+            <p className="mt-1 px-1 font-mono text-xs text-muted">
               {matches.length} of {channels.length} · Esc clears
             </p>
           )}
         </li>
         {limited.length === 0 && (
-          <li className="px-4 py-2 text-xs text-muted-2">
+          <li className="px-2.5 py-2 text-meta text-muted">
             {q ? "No channels match." : "No channels in this genre yet."}
           </li>
         )}
@@ -170,10 +180,10 @@ export default function FeedSidebar({
                   src={c.thumbnail}
                   alt=""
                   referrerPolicy="no-referrer"
-                  className="h-[22px] w-[22px] shrink-0 rounded-full border-[1.5px] border-ink"
+                  className="h-[22px] w-[22px] shrink-0 rounded-full bg-line"
                 />
               ) : (
-                <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-ink bg-line-2 text-[9px] font-bold">
+                <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-line text-xs font-bold tracking-tighter">
                   {c.title.slice(0, 2).toUpperCase()}
                 </span>
               )
@@ -181,13 +191,14 @@ export default function FeedSidebar({
           />
         ))}
         {!q && ordered.length > CHANNEL_PREVIEW && (
-          <li className="px-4 pt-1.5">
+          <li className="px-2.5 pt-1.5">
             <button
               type="button"
               onClick={() => setShowAll((s) => !s)}
-              className="text-[13px] font-bold text-warn hover:underline"
+              className="inline-flex items-center gap-1.5 text-meta font-semibold hover:underline"
             >
-              {showAll ? "Show fewer" : `Show all ${ordered.length} →`}
+              {showAll ? "Fewer channels" : `All ${ordered.length} channels`}
+              <Icon name={showAll ? "chevUp" : "arrowRight"} size={13} />
             </button>
           </li>
         )}

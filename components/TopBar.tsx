@@ -7,6 +7,7 @@ import Mascot from "./Mascot";
 import { buttonClass } from "./ui/Button";
 import Icon from "./ui/Icon";
 import IconButton from "./ui/IconButton";
+import { SpinnerBadge } from "./ui/Spinner";
 import GlobalSearch from "./GlobalSearch";
 import { NAV_CHANGED } from "@/lib/nav-events";
 
@@ -24,15 +25,15 @@ const TABS: { href: string; label: string; count?: keyof NavSummary }[] = [
   { href: "/channels", label: "Channels" },
 ];
 
-/** "Synced just now", "Synced 4 min ago", "Synced 3 h ago", "Synced 2 d ago". */
+/** "Synced just now", "Synced 4m ago", "Synced 3h ago", "Synced 2d ago". */
 function syncedLabel(iso: string | null, now: number): string {
   if (!iso) return "Not synced yet";
   const minutes = Math.floor((now - new Date(iso).getTime()) / 60_000);
   if (minutes < 1) return "Synced just now";
-  if (minutes < 60) return `Synced ${minutes} min ago`;
+  if (minutes < 60) return `Synced ${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Synced ${hours} h ago`;
-  return `Synced ${Math.floor(hours / 24)} d ago`;
+  if (hours < 24) return `Synced ${hours}h ago`;
+  return `Synced ${Math.floor(hours / 24)}d ago`;
 }
 
 /** The refresh result in plain words. */
@@ -54,9 +55,33 @@ function syncMessage(data: {
 }
 
 /**
+ * The yellow marker (REF-07): a slightly tilted felt-tip stroke under the
+ * active tab — "you are here". Thicker in the middle, like a real marker.
+ */
+function MarkerStroke() {
+  return (
+    <svg
+      viewBox="0 0 100 12"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+      className="pointer-events-none absolute -bottom-[9px] left-[-6%] h-3 w-[112%] overflow-visible opacity-0 transition-opacity duration-150 group-hover:opacity-45 group-aria-[current=page]:opacity-100"
+    >
+      <path
+        d="M3 8.5 C 28 4.5, 62 3.5, 97 5.5"
+        fill="none"
+        stroke="var(--color-primary)"
+        strokeWidth="5.5"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
+/**
  * The bar at the top of every page: logo, the four sections with counts,
- * sync status, and the one primary action. `onRefreshed` lets a page reload
- * its own data after a sync (the feed uses it).
+ * global search, sync status, and the one sticker button. `onRefreshed` lets
+ * a page reload its own data after a sync (the feed uses it).
  */
 export default function TopBar({
   onRefreshed,
@@ -124,83 +149,90 @@ export default function TopBar({
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
-    <div className={`sticky top-0 z-40 ${flush ? "" : "mb-6"}`}>
+    <div className={`sticky top-0 z-40 ${flush ? "" : "mb-8"}`}>
       <nav
         aria-label="Main"
-        className="flex flex-wrap items-stretch border-b-2 border-ink bg-panel"
+        className="flex min-h-16 flex-wrap items-center gap-x-3 border-b border-line bg-cream px-4 md:gap-x-6 md:px-6"
       >
         {/* Logo — hover shows the tagline as a speech bubble from the TV. */}
         <Link
           href="/"
           aria-label="TUBEBOX — your feed, no algorithm"
-          className="group relative flex items-center gap-2 border-r-2 border-ink px-4 py-2"
+          className="group relative flex items-center gap-2.5 py-3"
         >
-          <Mascot size={40} />
+          <Mascot size={34} />
           <span className="font-display text-xl">TUBEBOX</span>
           <span
             role="tooltip"
-            className="pointer-events-none absolute left-6 top-full z-50 mt-2 hidden whitespace-nowrap border-2 border-ink bg-surface px-2.5 py-1.5 text-xs font-bold shadow-hard group-hover:block group-focus-visible:block"
+            className="pointer-events-none absolute left-2 top-full z-50 hidden whitespace-nowrap rounded-sm border border-ink bg-surface px-2.5 py-1.5 text-meta font-semibold shadow-sticker group-hover:block group-focus-visible:block"
           >
-            <span className="absolute -top-[7px] left-3 h-3 w-3 rotate-45 border-l-2 border-t-2 border-ink bg-surface" />
+            <span className="absolute -top-[6px] left-3 h-2.5 w-2.5 rotate-45 border-l border-t border-ink bg-surface" />
             your feed · no algorithm
           </span>
         </Link>
 
-        {TABS.map((tab) => {
-          const active = isActive(tab.href);
-          const n = tab.count && nav ? (nav[tab.count] as number) : null;
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-2 border-r-2 border-ink px-4 py-2 text-sm font-bold transition-colors ${
-                active ? "bg-ink text-cream" : "hover:bg-primary/40"
-              }`}
-            >
-              {tab.label}
-              {n != null && (
-                <span
-                  className={`border-[1.5px] px-1.5 font-mono text-[11px] font-bold ${
-                    active ? "border-primary bg-primary text-ink" : "border-ink bg-primary text-ink"
-                  }`}
-                >
-                  {n}
+        {/* Phones: the tabs get their own row (and scroll if they must). */}
+        <div className="order-2 -mx-2 flex w-[calc(100%+1rem)] items-center gap-0.5 overflow-x-auto pb-2.5 [scrollbar-width:none] md:order-none md:gap-1 md:mx-0 md:w-auto md:overflow-visible md:pb-0">
+          {TABS.map((tab) => {
+            const active = isActive(tab.href);
+            const n = tab.count && nav ? (nav[tab.count] as number) : null;
+            return (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                aria-current={active ? "page" : undefined}
+                className={`group flex shrink-0 items-center gap-1.5 px-2 py-2 text-sm font-semibold transition-colors md:gap-2 md:px-3 ${
+                  active ? "text-ink" : "text-muted hover:text-ink"
+                }`}
+              >
+                <span className="relative">
+                  {tab.label}
+                  <MarkerStroke />
                 </span>
-              )}
-            </Link>
-          );
-        })}
+                {n != null && <span className={`font-mono text-xs font-normal ${active ? "text-ink" : "text-muted"}`}>{n}</span>}
+              </Link>
+            );
+          })}
+        </div>
 
         {/* Global search: its own full-width row on phones, inline from tablet up. */}
-        <div className="order-last flex w-full items-center border-t-2 border-ink px-4 py-2 md:order-none md:ml-auto md:w-auto md:border-t-0 md:py-0">
-          <div className="w-full md:w-auto">
-            <GlobalSearch />
-          </div>
+        <div className="order-last w-full pb-3 md:order-none md:ml-auto md:w-auto md:pb-0">
+          <GlobalSearch />
         </div>
-        <div className="ml-auto flex items-center gap-3 px-4 py-2 md:ml-0">
-          <span className="font-mono text-xs font-bold text-ink/80">
-            {nav ? syncedLabel(nav.lastSyncAt, now) : ""}
-          </span>
+
+        {/* Sync status and its button sit together as one group. */}
+        <div className="ml-auto flex items-center gap-2 md:ml-0">
+          {syncing ? (
+            <SpinnerBadge label="Syncing" />
+          ) : (
+            <span className="flex items-center gap-2 whitespace-nowrap text-meta text-muted" title={nav ? syncedLabel(nav.lastSyncAt, now) : undefined}>
+              {nav && (
+                <>
+                  <span className="h-[7px] w-[7px] rounded-full bg-ok shadow-[0_0_0_3px_rgb(47_179_107/0.18)]" />
+                  <span className="hidden xl:inline">{syncedLabel(nav.lastSyncAt, now)}</span>
+                </>
+              )}
+            </span>
+          )}
           <IconButton
             label={syncing ? "Syncing…" : "Check YouTube for new videos"}
             align="right"
             tipBelow
             onClick={sync}
             disabled={syncing}
-            className="h-9 min-w-9 shadow-hard-sm"
+            className="h-9 min-w-9 [&_svg]:transition-transform [&_svg]:duration-300 hover:[&_svg]:rotate-90"
           >
-            <Icon name="refresh" size={17} className={syncing ? "animate-spin" : ""} />
+            <Icon name="refresh" size={18} />
           </IconButton>
-          <Link href="/channels#add" className={buttonClass("primary", "sm")}>
-            <Icon name="plus" size={14} strokeWidth={3} />
-            Add channel
-          </Link>
         </div>
+        <Link href="/channels#add" aria-label="Add channel" className={buttonClass("primary", "md", "px-2.5 xl:px-4")}>
+          <Icon name="plus" size={15} />
+          <span className="hidden xl:inline">Add channel</span>
+        </Link>
       </nav>
 
       {toast && (
-        <div className="absolute right-4 top-full mt-2 max-w-md border-2 border-ink bg-primary px-3 py-2 text-sm font-bold shadow-hard">
+        <div role="status" className="absolute right-4 top-full mt-2 max-w-md rounded-md border-[1.5px] border-ink bg-surface px-3 py-2 text-sm font-semibold shadow-sticker">
           {toast}
         </div>
       )}

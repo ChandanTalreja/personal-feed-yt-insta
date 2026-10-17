@@ -31,10 +31,10 @@ export default function CopyButton({
     return (
       <button
         type="button"
-        className="flex shrink-0 items-center gap-1 text-xs font-bold text-ink hover:underline"
+        className="icon-hover flex shrink-0 items-center gap-1 text-meta font-semibold text-muted hover:text-ink"
         onClick={copy}
       >
-        <Icon name={copied ? "check" : "copy"} size={13} />
+        <Icon name={copied ? "check" : "copy"} size={14} />
         {copied ? "Copied" : "Copy"}
       </button>
     );
@@ -43,11 +43,12 @@ export default function CopyButton({
   return (
     <button
       type="button"
-      className="nb-chip shrink-0 rounded px-1.5 py-0.5 text-[10px]"
+      className="nb-chip icon-hover flex h-7 shrink-0 items-center gap-1 rounded-sm px-2 text-xs"
       onClick={copy}
       title="Copy to the clipboard"
     >
-      {copied ? "COPIED ✓" : "COPY"}
+      <Icon name={copied ? "check" : "copy"} size={13} />
+      {copied ? "Copied" : "Copy"}
     </button>
   );
 }

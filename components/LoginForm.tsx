@@ -34,28 +34,28 @@ export default function LoginForm() {
 
   return (
     <div className="flex flex-1 items-center justify-center px-4">
-      <form onSubmit={submit} className="nb w-full max-w-sm rounded-xl p-8 text-center">
+      <form onSubmit={submit} className="nb w-full max-w-sm p-8 text-center">
         <div className="mb-4 flex justify-center">
           <Mascot size={88} />
         </div>
-        <h1 className="font-display text-2xl">TUBEBOX</h1>
-        <p className="mb-6 text-sm font-semibold text-neutral-600">
+        <h1 className="font-display text-xl">TUBEBOX</h1>
+        <p className="mb-6 text-sm text-muted">
           members only (that&apos;s you)
         </p>
         <input
           type="password"
           autoFocus
-          className="nb-input mb-4 w-full rounded-lg px-3 py-2"
+          className="nb-input mb-4 h-10 w-full px-3"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
         {error && (
-          <p className="mb-3 text-sm font-bold text-[var(--accent)]">{error}</p>
+          <p className="mb-3 text-sm font-semibold text-danger">{error}</p>
         )}
         <button
           type="submit"
-          className="nb-btn w-full rounded-lg px-4 py-2"
+          className="nb-btn h-10 w-full px-4"
           disabled={busy || !password}
         >
           {busy ? "CHECKING…" : "LET ME IN"}

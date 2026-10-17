@@ -12,6 +12,7 @@ import NoteEditor from "./NoteEditor";
 import TrackMenu from "./TrackMenu";
 import Button from "./ui/Button";
 import Icon from "./ui/Icon";
+import Spinner from "./ui/Spinner";
 import SidePanel from "./ui/SidePanel";
 import type { FeedVideo } from "./types";
 
@@ -148,6 +149,7 @@ export default function StudyPanel({
     if (!text || pending) return;
     setPending(text);
     setAskError(null);
+    setQuestion(""); // sent: it shows in the conversation now
     try {
       const res = await fetch(`/api/videos/${video.id}/ask`, {
         method: "POST",
@@ -160,11 +162,11 @@ export default function StudyPanel({
       // the end of the conversation rather than showing it twice.
       const next = [...(answers ?? []).filter((a) => a.id !== data.note.id), data.note];
       setAnswers(next);
-      setQuestion("");
       onVideoChange(video.id, { answerCount: next.length });
       notifyNavChanged();
     } catch (err) {
       setAskError((err as Error).message);
+      setQuestion((q) => q || text); // give it back to fix or retry, unless something new was typed
     } finally {
       setPending(null);
     }
@@ -187,14 +189,14 @@ export default function StudyPanel({
               src={video.thumbnail}
               alt=""
               referrerPolicy="no-referrer"
-              className="aspect-video w-[120px] shrink-0 border-2 border-ink object-cover"
+              className="aspect-video w-[120px] shrink-0 rounded-sm object-cover"
             />
           ) : (
-            <div className="aspect-video w-[120px] shrink-0 border-2 border-ink bg-muted-2" />
+            <div className="aspect-video w-[120px] shrink-0 rounded-sm bg-muted" />
           )}
           <div className="min-w-0">
-            <h2 className="line-clamp-3 text-[15px] font-bold leading-[1.3]">{video.title}</h2>
-            <p className="mt-1.5 text-xs text-muted-2">
+            <h2 className="line-clamp-3 text-lg font-semibold">{video.title}</h2>
+            <p className="mt-1.5 text-meta text-muted">
               {video.channelTitle}
               {video.durationSeconds > 0 && (
                 <> · <span className="font-mono">{formatDuration(video.durationSeconds)}</span></>
@@ -214,39 +216,39 @@ export default function StudyPanel({
             size="sm"
             onClick={() => onTrackOpen(!trackOpen)}
             aria-expanded={trackOpen}
-            className={trackOpen ? "bg-ink! text-cream!" : ""}
+            className={trackOpen ? "border-ink! bg-ink! text-cream!" : ""}
           >
             <Icon name="track" size={14} />
             Add to track
           </Button>
           {trackOpen && (
-            <div className="w-full border-2 border-ink bg-cream p-2.5">
+            <div className="w-full rounded-md border border-line bg-cream p-2.5">
               <TrackMenu mode="toggle" videoId={video.id} />
             </div>
           )}
         </>
       }
       tabs={
-        <div role="tablist" aria-label="Study tools" className="flex">
-          {TABS.map(([value, label], i) => (
+        <div role="tablist" aria-label="Study tools" className="flex px-2">
+          {TABS.map(([value, label]) => (
             <button
               key={value}
               type="button"
               role="tab"
               aria-selected={tab === value}
               onClick={() => onTab(value)}
-              className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[13px] font-bold transition-colors ${
-                i > 0 ? "border-l-2 border-ink" : ""
-              } ${tab === value ? "bg-ink text-cream" : "hover:bg-tint"}`}
+              className={`-mb-px flex h-11 flex-1 items-center justify-center gap-1.5 border-b-2 text-meta font-semibold transition-colors ${
+                tab === value ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink"
+              }`}
             >
               {label}
               {value === "ask" && answerCount > 0 && (
-                <span className="bg-primary px-1 font-mono text-[10px] leading-[14px] text-ink">
+                <span className="rounded-xs bg-primary px-1 font-mono text-xs leading-4 text-ink">
                   {answerCount}
                 </span>
               )}
               {value === "note" && video.personalNote && (
-                <span className="h-[7px] w-[7px] rounded-full bg-danger" />
+                <Icon name="note" size={14} lit />
               )}
             </button>
           ))}
@@ -268,9 +270,9 @@ export default function StudyPanel({
     >
       {tab === "ask" && (
         <div className="flex flex-col gap-4">
-          {answers == null && <Muted>Loading answers…</Muted>}
+          {answers == null && <Waiting label="Loading answers…" />}
           {answers?.length === 0 && !pending && (
-            <div className="border-2 border-dashed border-muted p-4 text-sm leading-relaxed text-muted-2">
+            <div className="rounded-md border border-dashed border-line p-4 text-sm text-muted">
               No questions yet. Ask anything below; answers are saved to your
               Notebook automatically.
             </div>
@@ -282,14 +284,14 @@ export default function StudyPanel({
               className="flex scroll-mt-4 flex-col gap-2"
             >
               <Question>{a.prompt}</Question>
-              <div className="border-2 border-ink bg-cream p-3">
+              <div className="rounded-md border border-line bg-cream p-3">
                 <div className="mb-2 flex items-center gap-2">
                   <Label>Gemini · {timeAgo(a.createdAt)}</Label>
                   <span className="ml-auto">
                     <CopyButton text={a.answer} quiet />
                   </span>
                 </div>
-                <div className="text-sm leading-relaxed">
+                <div className="text-sm">
                   <Markdown text={a.answer} />
                 </div>
               </div>
@@ -298,8 +300,8 @@ export default function StudyPanel({
           {pending && (
             <div ref={latestRef} className="flex scroll-mt-4 flex-col gap-2">
               <Question>{pending}</Question>
-              <div className="border-2 border-dashed border-ink bg-cream p-3 text-sm text-muted-2">
-                Thinking… a long video without captions can take a minute.
+              <div className="rounded-md border border-dashed border-line bg-cream p-3">
+                <Waiting label="Thinking…" note="A long video without captions can take a minute." />
               </div>
             </div>
           )}
@@ -316,10 +318,10 @@ export default function StudyPanel({
               </span>
             )}
           </div>
-          {summaryBusy && <Muted>Reading the video…</Muted>}
+          {summaryBusy && <Waiting label="Reading the video…" />}
           {summaryError && <ErrorText>{summaryError}</ErrorText>}
           {summary && (
-            <div className="text-[15px] leading-relaxed">
+            <div className="text-lg leading-relaxed">
               <Markdown text={summary} />
             </div>
           )}
@@ -382,7 +384,7 @@ function AskBox({
               type="button"
               disabled={busy}
               onClick={() => onAsk(s)}
-              className="border-2 border-ink bg-cream px-2.5 py-1.5 text-left text-[13px] font-medium hover:bg-tint disabled:opacity-50"
+              className="rounded-sm border border-line bg-cream px-2.5 py-1.5 text-left text-meta font-medium hover:border-ink disabled:opacity-50"
             >
               {s}
             </button>
@@ -390,12 +392,12 @@ function AskBox({
         </div>
       )}
       {!hasEveryday && (
-        <Link href="/channels#ask-suggestions" className="text-xs font-bold text-warn hover:underline">
+        <Link href="/channels#ask-suggestions" className="text-meta font-semibold text-muted hover:text-ink hover:underline">
           + Add your everyday questions
         </Link>
       )}
       <form
-        className="flex border-2 border-ink bg-cream shadow-hard focus-within:shadow-[3px_3px_0_var(--color-primary)]"
+        className="flex overflow-hidden rounded-md border-[1.5px] border-ink bg-cream focus-within:shadow-[0_0_0_3px_rgb(255_208_43/0.45)]"
         onSubmit={(e) => {
           e.preventDefault();
           onAsk(question);
@@ -412,7 +414,7 @@ function AskBox({
           type="submit"
           disabled={busy || !question.trim()}
           aria-label="Ask"
-          className="flex w-[46px] items-center justify-center border-l-2 border-ink bg-primary disabled:opacity-50"
+          className="icon-hover m-1 flex w-10 items-center justify-center rounded-sm bg-primary disabled:opacity-40"
         >
           <Icon name="send" size={16} />
         </button>
@@ -442,10 +444,10 @@ function TranscriptView({
 }) {
   if (busy) {
     return (
-      <Muted>
-        Fetching the transcript… a video without captions takes a minute, as
-        Gemini listens to the whole thing.
-      </Muted>
+      <Waiting
+        label="Fetching the transcript…"
+        note="A video without captions takes a minute, as Gemini listens to the whole thing."
+      />
     );
   }
   if (error) return <ErrorText>{error}</ErrorText>;
@@ -459,8 +461,8 @@ function TranscriptView({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <label className="flex h-[34px] flex-1 items-center gap-2 border-2 border-ink bg-cream px-2.5">
-          <Icon name="search" size={14} className="text-muted-2" />
+        <label className="nb-input flex h-9 flex-1 items-center gap-2 bg-cream! px-3 focus-within:border-ink">
+          <Icon name="search" size={15} className="text-muted" />
           <input
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
             placeholder="Find in transcript"
@@ -471,11 +473,11 @@ function TranscriptView({
         <CopyButton text={text} quiet />
       </div>
       {term && (
-        <p className="font-mono text-xs text-muted-2">
+        <p className="font-mono text-xs text-muted">
           {shown.length} {shown.length === 1 ? "passage" : "passages"} mention “{find.trim()}”
         </p>
       )}
-      <div className="flex flex-col gap-2 text-sm leading-relaxed">
+      <div className="flex flex-col gap-2 text-sm">
         {shown.map((p, i) => {
           // Caption lines start with their time, "[01:30] …": show it as a
           // column so the text lines up and times are easy to scan.
@@ -484,7 +486,7 @@ function TranscriptView({
           return (
             <p key={i} className="flex gap-3">
               {m && (
-                <span className="w-12 shrink-0 font-mono text-xs font-bold leading-[1.75] text-warn">
+                <span className="w-12 shrink-0 font-mono text-xs leading-[1.375rem] text-muted">
                   {m[1]}
                 </span>
               )}
@@ -505,7 +507,7 @@ function highlight(text: string, term: string): ReactNode[] {
   for (let at = lower.indexOf(term); at !== -1; at = lower.indexOf(term, from)) {
     out.push(text.slice(from, at));
     out.push(
-      <mark key={at} className="bg-primary text-ink">
+      <mark key={at} className="rounded-xs bg-primary/45 text-ink">
         {text.slice(at, at + term.length)}
       </mark>
     );
@@ -517,7 +519,7 @@ function highlight(text: string, term: string): ReactNode[] {
 
 function Question({ children }: { children: ReactNode }) {
   return (
-    <div className="max-w-[85%] self-end bg-ink px-3 py-2 text-sm font-medium leading-snug text-cream">
+    <div className="max-w-[85%] self-end rounded-md rounded-br-xs bg-ink px-3 py-2 text-sm font-medium text-cream">
       {children}
     </div>
   );
@@ -525,16 +527,22 @@ function Question({ children }: { children: ReactNode }) {
 
 function Label({ children }: { children: ReactNode }) {
   return (
-    <span className="font-display text-[10.5px] uppercase tracking-widest text-muted-2">
+    <span className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">
       {children}
     </span>
   );
 }
 
-function Muted({ children }: { children: ReactNode }) {
-  return <p className="text-sm text-muted-2">{children}</p>;
+/** The one waiting indicator, with an optional line of explanation. */
+function Waiting({ label, note }: { label: string; note?: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <Spinner label={label} className="text-sm font-semibold" />
+      {note && <p className="text-meta text-muted">{note}</p>}
+    </div>
+  );
 }
 
 function ErrorText({ children }: { children: ReactNode }) {
-  return <p className="text-sm font-bold text-danger">{children}</p>;
+  return <p className="text-sm font-semibold text-danger">{children}</p>;
 }

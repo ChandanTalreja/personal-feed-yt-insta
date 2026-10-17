@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Icon from "./ui/Icon";
+import Spinner from "./ui/Spinner";
 import { formatDuration, timeAgo } from "@/lib/format";
 
 type Scope = "all" | "channels" | "videos" | "answers";
@@ -55,7 +56,7 @@ function highlight(text: string, term: string): ReactNode {
   for (let at = lower.indexOf(t); at !== -1; at = lower.indexOf(t, from)) {
     out.push(text.slice(from, at));
     out.push(
-      <mark key={at} className="bg-tint text-ink shadow-[inset_0_-2px_0_var(--color-primary)]">
+      <mark key={at} className="rounded-xs bg-primary/45 text-ink">
         {text.slice(at, at + t.length)}
       </mark>
     );
@@ -150,15 +151,15 @@ export default function GlobalSearch() {
           node: (
             <>
               {c.thumbnail ? (
-                <img src={c.thumbnail} alt="" referrerPolicy="no-referrer" className="h-[30px] w-[30px] shrink-0 rounded-full border-2 border-ink" />
+                <img src={c.thumbnail} alt="" referrerPolicy="no-referrer" className="h-[30px] w-[30px] shrink-0 rounded-full bg-line" />
               ) : (
-                <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border-2 border-ink bg-line-2 text-[10px] font-bold">
+                <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-line text-xs font-bold">
                   {c.title.slice(0, 2).toUpperCase()}
                 </span>
               )}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-bold">{highlight(c.title, term)}</span>
-                <span className="block truncate text-xs text-ink/70">
+                <span className="block truncate text-sm font-semibold">{highlight(c.title, term)}</span>
+                <span className="block truncate text-meta text-muted">
                   {c.handle ? highlight(c.handle, term) : null}
                   {c.handle ? " · " : ""}
                   {c.videoCount} videos
@@ -184,20 +185,20 @@ export default function GlobalSearch() {
           node: (
             <>
               {v.thumbnail ? (
-                <img src={v.thumbnail} alt="" referrerPolicy="no-referrer" className="aspect-video w-16 shrink-0 border-2 border-ink object-cover" />
+                <img src={v.thumbnail} alt="" referrerPolicy="no-referrer" className="aspect-video w-16 shrink-0 rounded-xs object-cover" />
               ) : (
-                <span className="aspect-video w-16 shrink-0 border-2 border-ink bg-line" />
+                <span className="aspect-video w-16 shrink-0 rounded-xs bg-line" />
               )}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-bold">{highlight(v.title, term)}</span>
-                <span className="block truncate text-xs text-ink/70">
+                <span className="block truncate text-sm font-semibold">{highlight(v.title, term)}</span>
+                <span className="block truncate text-meta text-muted">
                   {v.channelTitle} · {timeAgo(v.publishedAt)}
                   {v.durationSeconds > 0 && <> · <span className="font-mono">{formatDuration(v.durationSeconds)}</span></>}
                   {v.isShort && " · Short"}
                 </span>
               </span>
               {v.watched && (
-                <span className="shrink-0 border-[1.5px] border-ink px-1.5 py-0.5 text-[11px] font-bold">Seen</span>
+                <span className="shrink-0 rounded-xs bg-tile-green px-1.5 text-xs font-semibold leading-5">Seen</span>
               )}
             </>
           ),
@@ -213,15 +214,15 @@ export default function GlobalSearch() {
           node: (
             <>
               <span
-                className={`h-fit shrink-0 px-1.5 py-1 font-display text-[10px] leading-none tracking-widest ${
+                className={`h-fit shrink-0 rounded-xs px-1.5 font-mono text-xs font-bold uppercase leading-5 ${
                   a.kind === "note" ? "bg-primary text-ink" : "bg-ink text-cream"
                 }`}
               >
                 {a.kind === "note" ? "NOTE" : "GEMINI"}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="line-clamp-2 text-[13.5px] leading-snug">{highlight(a.snippet, term)}</span>
-                <span className="mt-0.5 block truncate text-xs text-ink/70">
+                <span className="line-clamp-2 text-sm">{highlight(a.snippet, term)}</span>
+                <span className="mt-0.5 block truncate text-meta text-muted">
                   {a.prompt ? `Q: ${a.prompt}` : "My note"} · {a.videoTitle}
                 </span>
               </span>
@@ -278,8 +279,8 @@ export default function GlobalSearch() {
   let index = -1; // running position across sections, for the active row
   return (
     <div className="relative">
-      <label className="flex h-9 w-full items-center gap-2 border-2 border-ink bg-surface px-2.5 shadow-hard-sm sm:w-64">
-        <Icon name="search" size={15} className="text-ink/70" />
+      <label className="nb-input flex h-9 w-full items-center gap-2 px-3 focus-within:border-ink focus-within:shadow-[0_0_0_3px_rgb(255_208_43/0.45)] md:w-56 xl:w-72">
+        <Icon name="search" size={16} className="text-muted" />
         <input
           ref={inputRef}
           className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
@@ -297,11 +298,11 @@ export default function GlobalSearch() {
           aria-controls="global-search-results"
         />
         {q ? (
-          <button type="button" aria-label="Clear search" onClick={() => setQ("")}>
+          <button type="button" aria-label="Clear search" className="text-muted hover:text-ink" onClick={() => setQ("")}>
             <Icon name="x" size={14} />
           </button>
         ) : (
-          <kbd className="hidden border-[1.5px] border-ink/40 px-1 font-mono text-[10px] text-ink/60 sm:block">⌘K</kbd>
+          <kbd className="hidden rounded-xs border border-line px-1.5 font-mono text-xs text-muted sm:block">⌘K</kbd>
         )}
       </label>
 
@@ -309,17 +310,17 @@ export default function GlobalSearch() {
         <>
           {/* Dim the page; clicking it closes the search. */}
           <div
-            className="fixed inset-x-0 bottom-0 z-30 bg-ink/35"
+            className="fixed inset-x-0 bottom-0 z-30 bg-ink/25"
             style={{ top: panelTop - 6 }}
             onClick={() => setOpen(false)}
           />
           <div
             id="global-search-results"
             style={{ top: panelTop, maxHeight: `calc(100vh - ${panelTop + 16}px)` }}
-            className="fixed left-1/2 z-50 flex w-[min(660px,calc(100vw-24px))] -translate-x-1/2 flex-col border-2 border-ink bg-surface shadow-[6px_6px_0_var(--color-ink)]"
+            className="fixed left-1/2 z-50 flex w-[min(660px,calc(100vw-24px))] -translate-x-1/2 flex-col overflow-hidden rounded-lg border-[1.5px] border-ink bg-surface shadow-lift"
           >
             {typed && results && !results.channelsOnly && (
-              <div className="flex shrink-0 overflow-x-auto border-b-2 border-ink" role="tablist">
+              <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-line p-2" role="tablist">
                 {scopes.map(([s, label, n]) => (
                   <button
                     key={s}
@@ -331,8 +332,8 @@ export default function GlobalSearch() {
                       setScope(s);
                       setActive(0);
                     }}
-                    className={`flex shrink-0 items-center gap-1.5 border-r-2 border-ink px-3.5 py-2.5 text-[13px] font-bold ${
-                      scope === s ? "bg-ink text-cream" : "hover:bg-tint"
+                    className={`flex h-8 shrink-0 items-center gap-1.5 rounded-sm px-3 text-meta font-semibold ${
+                      scope === s ? "bg-ink text-cream" : "text-muted hover:bg-ink/5 hover:text-ink"
                     }`}
                   >
                     {label}
@@ -344,27 +345,27 @@ export default function GlobalSearch() {
 
             <div className="min-h-0 flex-1 overflow-y-auto pb-1">
               {!typed && (
-                <p className="px-4 py-5 text-sm text-ink/75">
+                <p className="px-4 py-5 text-sm text-muted">
                   Search your channels, every video&apos;s title, and the answers and notes in your
                   Notebook. Start with <b className="text-ink">@</b> for channels only.
                 </p>
               )}
-              {typed && loading && !results && <p className="px-4 py-5 text-sm font-bold text-ink/70">Searching…</p>}
+              {typed && loading && !results && <Spinner label="Searching…" className="px-4 py-5 text-sm font-semibold text-muted" />}
               {typed && results && items.length === 0 && (
-                <p className="px-4 py-5 text-sm text-ink/75">
+                <p className="px-4 py-5 text-sm text-muted">
                   Nothing matches “{results.query}”{effectiveScope !== "all" ? " here. Try All." : "."}
                 </p>
               )}
               {sections.map((section, si) => (
-                <div key={section.title} className={si > 0 ? "border-t-2 border-line-2" : ""}>
+                <div key={section.title} className={si > 0 ? "border-t border-line" : ""}>
                   <div className="flex items-center justify-between px-4 pb-1.5 pt-3">
-                    <span className="font-display text-[10.5px] tracking-widest text-ink/75">{section.title}</span>
+                    <span className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">{section.title}</span>
                     {section.more && (
                       <button
                         type="button"
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => go(section.more!.href)}
-                        className="text-xs font-bold text-warn hover:underline"
+                        className="text-meta font-semibold text-ink hover:underline"
                       >
                         {section.more.label}
                       </button>
@@ -381,8 +382,8 @@ export default function GlobalSearch() {
                         onMouseDown={(e) => e.preventDefault()}
                         onMouseEnter={() => setActive(myIndex)}
                         onClick={() => go(item.href)}
-                        className={`flex w-full items-center gap-3 border-l-4 px-4 py-2 text-left ${
-                          on ? "border-l-primary bg-tint" : "border-l-transparent"
+                        className={`flex w-full items-center gap-3 border-l-[3px] px-4 py-2 text-left ${
+                          on ? "border-l-primary bg-ink/5" : "border-l-transparent"
                         }`}
                       >
                         {item.node}
@@ -393,7 +394,7 @@ export default function GlobalSearch() {
               ))}
             </div>
 
-            <div className="hidden shrink-0 gap-4 border-t-2 border-ink px-4 py-2 text-xs text-ink/70 sm:flex">
+            <div className="hidden shrink-0 gap-4 border-t border-line px-4 py-2 text-xs text-muted sm:flex">
               <span>↑↓ move</span>
               <span>↵ open</span>
               <span>Tab change scope</span>

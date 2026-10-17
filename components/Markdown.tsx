@@ -19,19 +19,19 @@ const components: Components = {
   ol: ({ children }) => <ol className="mb-1.5 list-decimal space-y-0.5 pl-5">{children}</ol>,
   li: ({ children }) => <li className="pl-0.5">{children}</li>,
   code: ({ children }) => (
-    <code className="rounded bg-black/10 px-1 font-mono text-[0.9em]">{children}</code>
+    <code className="rounded-xs bg-ink/[0.07] px-1 font-mono text-[0.9em]">{children}</code>
   ),
   pre: ({ children }) => (
-    <pre className="mb-1.5 overflow-x-auto rounded bg-black/10 p-2">{children}</pre>
+    <pre className="mb-1.5 overflow-x-auto rounded-sm bg-ink/[0.07] p-2.5">{children}</pre>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="mb-1.5 border-l-4 border-[var(--ink)] pl-2 italic">
+    <blockquote className="mb-1.5 border-l-[3px] border-primary pl-3 text-muted">
       {children}
     </blockquote>
   ),
-  hr: () => <hr className="my-2 border-[var(--ink)]/30" />,
+  hr: () => <hr className="my-3 border-line" />,
   a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="underline">
+    <a href={href} target="_blank" rel="noopener noreferrer" className="underline decoration-primary decoration-2 underline-offset-2 hover:decoration-ink">
       {children}
     </a>
   ),

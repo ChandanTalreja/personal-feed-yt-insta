@@ -14,7 +14,7 @@ interface Props<T extends string> {
 
 /**
  * A row of mutually exclusive choices in one frame (Videos | Shorts,
- * Any length | < 10m | …). The current choice is filled black.
+ * Any length | <10m | …). The current choice is filled black.
  */
 export default function SegmentedControl<T extends string>({
   options,
@@ -23,14 +23,14 @@ export default function SegmentedControl<T extends string>({
   label,
   size = "md",
 }: Props<T>) {
-  const pad = size === "sm" ? "px-2.5 py-1 text-xs" : "px-3.5 py-1.5 text-sm";
+  const pad = size === "sm" ? "h-6 px-2 text-xs" : "h-7 px-3 text-meta";
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="inline-flex border-2 border-ink bg-surface shadow-hard-sm"
+      className="inline-flex rounded-md border border-line bg-surface p-[3px]"
     >
-      {options.map((o, i) => {
+      {options.map((o) => {
         const on = o.value === value;
         return (
           <button
@@ -39,9 +39,9 @@ export default function SegmentedControl<T extends string>({
             role="radio"
             aria-checked={on}
             onClick={() => onChange(o.value)}
-            className={`${pad} select-none font-bold transition-colors ${
-              i > 0 ? "border-l-2 border-ink" : ""
-            } ${on ? "bg-ink text-cream" : "text-ink hover:bg-tint"}`}
+            className={`${pad} select-none whitespace-nowrap rounded-[5px] font-semibold transition-colors ${
+              on ? "bg-ink text-cream" : "text-muted hover:text-ink"
+            }`}
           >
             {o.label}
           </button>

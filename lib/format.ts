@@ -19,6 +19,12 @@ export function formatTotalTime(totalSeconds: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+/** Watch time in words: exact when short ("3h 20m"), rounded when long ("about 261 hours"). */
+export function formatWatchTime(totalSeconds: number): string {
+  const hours = totalSeconds / 3600;
+  return hours >= 10 ? `about ${Math.round(hours)} hours` : formatTotalTime(totalSeconds);
+}
+
 export function timeAgo(iso: string | Date): string {
   const date = typeof iso === "string" ? new Date(iso) : iso;
   const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000);

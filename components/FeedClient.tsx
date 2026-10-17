@@ -11,9 +11,11 @@ import PlayerModal, { type ProgressUpdate } from "./PlayerModal";
 import TrackMenu from "./TrackMenu";
 import Button, { buttonClass } from "./ui/Button";
 import Icon from "./ui/Icon";
+import Spinner from "./ui/Spinner";
+import PageTitle from "./ui/PageTitle";
 import SegmentedControl from "./ui/SegmentedControl";
 import type { FeedVideo, GenreItem } from "./types";
-import { formatTotalTime } from "@/lib/format";
+import { formatWatchTime } from "@/lib/format";
 import { notifyNavChanged } from "@/lib/nav-events";
 
 type Kind = "videos" | "shorts";
@@ -23,9 +25,17 @@ const PAGE_SIZE = 24;
 
 const VIEW_TITLES: Record<View, string> = {
   unwatched: "Inbox",
-  later: "Later",
-  watched: "History",
+  later: "Watch later",
+  watched: "Watched",
   all: "Everything",
+};
+
+/** The blue pen note beside the title (REF-07): what makes the page different. */
+const VIEW_NOTES: Record<View, string | undefined> = {
+  unwatched: "newest first, no algorithm",
+  later: "saved for a slower day",
+  watched: "seen it, kept it",
+  all: undefined,
 };
 
 interface FeedChannel {
@@ -462,12 +472,12 @@ export default function FeedClient() {
     view === "later" && totals != null ? Math.max(0, laterCounts[kind] - totals.count) : 0;
   const laterInOtherKind = view === "later" ? laterCounts[otherKind] : 0;
 
-  // "124 unseen in DSA · 38h 12m · newest first"
+  // "124 to watch in DSA · about 38 hours"
   function subtitle(): string {
     if (!totals) return "";
     const noun =
       view === "unwatched"
-        ? "unseen"
+        ? "to watch"
         : view === "later"
           ? "saved"
           : view === "watched"
@@ -485,13 +495,13 @@ export default function FeedClient() {
             ? ` in ${genre.name}`
             : "";
     const matching = debouncedSearch ? ` matching “${debouncedSearch}”` : "";
-    const order = view === "later" ? "newest saved first" : "newest first";
-    return `${totals.count.toLocaleString()} ${noun}${scope}${matching} · ${formatTotalTime(totals.seconds)} · ${order}`;
+    return `${totals.count.toLocaleString()} ${noun}${scope}${matching} · ${formatWatchTime(totals.seconds)}`;
   }
 
   // What to say when the grid is empty — the most specific reason wins.
   function renderEmptyState() {
     let title = "Nothing here";
+    let note: string | null = null;
     let body = "Nothing matches these filters.";
     let action: React.ReactNode = (
       <Button onClick={clearFilters}>Clear filters</Button>
@@ -501,7 +511,8 @@ export default function FeedClient() {
       body = "Add a channel and TUBEBOX fetches its last year of uploads.";
       action = (
         <Link href="/channels#add" className={buttonClass("primary")}>
-          + Add channel
+          <Icon name="plus" size={15} />
+          Add channel
         </Link>
       );
     } else if (debouncedSearch) {
@@ -518,6 +529,7 @@ export default function FeedClient() {
       action = null;
     } else if (view === "unwatched") {
       title = "You're all caught up";
+      note = "nothing new. go outside?";
       body = "Nothing unseen in this view.";
       action = <Button onClick={() => setView("all")}>See everything</Button>;
     } else if (view === "watched") {
@@ -526,9 +538,10 @@ export default function FeedClient() {
       action = null;
     }
     return (
-      <div className="mx-auto mt-6 max-w-lg border-2 border-ink bg-surface p-8 text-center shadow-hard">
+      <div className="mx-auto mt-6 max-w-lg rounded-lg border border-line bg-surface p-8 text-center">
         <p className="font-display text-xl">{title}</p>
-        <p className="mt-2 text-sm text-muted-2">{body}</p>
+        {note && <p className="pen-note mt-2">{note}</p>}
+        <p className="mt-2 text-sm text-muted">{body}</p>
         {action && <div className="mt-4">{action}</div>}
       </div>
     );
@@ -538,10 +551,10 @@ export default function FeedClient() {
     kind === "shorts"
       ? // Shorts: column counts (2/3/4/6) that all divide the 24-per-page
         // batch, so every page fills complete rows.
-        "grid grid-cols-2 gap-4 @min-[560px]:grid-cols-3 @min-[760px]:grid-cols-4 @min-[1100px]:grid-cols-6"
+        "grid grid-cols-2 gap-5 @min-[560px]:grid-cols-3 @min-[760px]:grid-cols-4 @min-[1100px]:grid-cols-6"
       : // Columns follow the space the grid actually has (it shrinks when
         // the study panel opens), not the window size.
-        "grid grid-cols-1 gap-5 @min-[460px]:grid-cols-2 @min-[680px]:grid-cols-3 @min-[920px]:grid-cols-4 @min-[1240px]:grid-cols-5 @min-[1500px]:grid-cols-6";
+        "grid grid-cols-1 gap-6 @min-[460px]:grid-cols-2 @min-[680px]:grid-cols-3 @min-[920px]:grid-cols-4 @min-[1240px]:grid-cols-5 @min-[1500px]:grid-cols-6";
 
   const studyVideo = study ? (videos.find((v) => v.id === study.video.id) ?? study.video) : null;
 
@@ -573,36 +586,34 @@ export default function FeedClient() {
       <TopBar onRefreshed={reloadAfterSync} flush />
       <div className="flex items-start">
         {/* Sidebar — wide screens: a fixed column with its own scroll. */}
-        <aside className="sticky top-[58px] hidden h-[calc(100vh-58px)] w-[220px] shrink-0 overflow-y-auto border-r-2 border-ink bg-panel lg:block">
+        <aside className="sticky top-[65px] hidden h-[calc(100vh-65px)] w-[236px] shrink-0 overflow-y-auto border-r border-line py-5 lg:block">
           {sidebar}
         </aside>
 
-        <main className="@container min-w-0 flex-1 px-4 pb-16 pt-6 sm:px-6">
-          {/* Title row: where you are, and the two shape-of-feed controls. */}
-          <div className="mb-5 flex flex-wrap items-end gap-3">
-            <div className="min-w-[200px] flex-1">
-              <h1 className="font-display text-[34px] leading-none">
-                {kind === "shorts" ? "Shorts" : VIEW_TITLES[view]}
-              </h1>
-              <p className="mt-2 font-mono text-[13px] font-bold text-ink/85">{subtitle()}&nbsp;</p>
-            </div>
+        <main className="@container min-w-0 flex-1 px-4 pb-16 pt-8 sm:px-8 xl:px-10">
+          {/* Title row: where you are, its pen note, and the shape-of-feed controls. */}
+          <PageTitle
+            title={kind === "shorts" ? "Shorts" : VIEW_TITLES[view]}
+            note={kind === "shorts" ? "no endless scroll here" : VIEW_NOTES[view]}
+            summary={subtitle() || "\u00a0"}
+          >
             <Button className="lg:hidden" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}>
               Filters
             </Button>
-            <label className="flex h-[38px] w-full items-center gap-2 border-2 border-ink bg-surface px-2.5 shadow-hard-sm sm:w-56">
-              <Icon name="search" size={14} className="text-muted-2" />
+            <label className="nb-input flex h-9 w-full items-center gap-2 px-3 focus-within:border-ink focus-within:shadow-[0_0_0_3px_rgb(255_208_43/0.45)] sm:w-56">
+              <Icon name="search" size={15} className="text-muted" />
               <input
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
-                placeholder="Search titles"
+                placeholder="Filter this list"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setSearch("");
                 }}
-                aria-label="Search video titles"
+                aria-label="Filter this list by title"
               />
               {search && (
-                <button type="button" aria-label="Clear search" onClick={() => setSearch("")}>
+                <button type="button" aria-label="Clear filter" className="text-muted hover:text-ink" onClick={() => setSearch("")}>
                   <Icon name="x" size={14} />
                 </button>
               )}
@@ -623,28 +634,28 @@ export default function FeedClient() {
                 onChange={setLengthFilter}
                 options={[
                   { value: "any", label: "Any length" },
-                  { value: "short", label: "< 10m" },
+                  { value: "short", label: "<10m" },
                   { value: "medium", label: "10–30m" },
-                  { value: "long", label: "30m +" },
+                  { value: "long", label: "30m+" },
                 ]}
               />
             )}
             {/* Shorts: watch the unseen ones back to back. */}
             {kind === "shorts" && videos.some((v) => !v.watched) && (
-              <Button variant="primary" className="h-[38px]" onClick={playUnseen}>
+              <Button variant="primary" size="sm" className="h-9" onClick={playUnseen}>
                 <Icon name="play" size={13} filled />
                 Play unseen in a row
               </Button>
             )}
-          </div>
+          </PageTitle>
 
           {/* Narrow screens: the sidebar opens here instead. */}
           {filtersOpen && (
-            <div className="mb-5 border-2 border-ink bg-surface shadow-hard lg:hidden">{sidebar}</div>
+            <div className="mb-5 rounded-lg border border-line bg-surface py-4 lg:hidden">{sidebar}</div>
           )}
 
           {toast && (
-            <div className="mb-5 border-2 border-ink bg-primary px-4 py-2 text-sm font-bold shadow-hard">
+            <div role="status" className="mb-5 rounded-md border-[1.5px] border-ink bg-surface px-4 py-2 text-sm font-semibold">
               {toast}
             </div>
           )}
@@ -657,19 +668,19 @@ export default function FeedClient() {
                 Add these {totals.count} to a track
               </Button>
               {bulkOpen && (
-                <div className="mt-3 max-w-md border-2 border-ink bg-surface p-3 shadow-hard">
-                  <p className="mb-2 text-xs font-bold">
+                <div className="mt-3 max-w-md rounded-lg border border-line bg-surface p-3">
+                  <p className="mb-2 text-meta font-semibold">
                     Add all {Math.min(totals.count, 300)} results for “{debouncedSearch}”, oldest
                     first, to:
                   </p>
                   {totals.count > 300 && (
-                    <p className="mb-2 text-[11px] font-bold text-danger">
+                    <p className="mb-2 text-xs font-semibold text-danger">
                       That&apos;s a lot — only the 300 oldest will be added. Narrow the search
                       for a tighter track.
                     </p>
                   )}
                   <TrackMenu mode="pick" onPick={addResultsToTrack} busy={bulkBusy} />
-                  {bulkBusy && <p className="mt-2 text-xs font-bold">Adding…</p>}
+                  {bulkBusy && <Spinner label="Adding…" size={13} className="mt-2 text-meta font-semibold" />}
                 </div>
               )}
             </div>
@@ -678,7 +689,7 @@ export default function FeedClient() {
           {/* Watch Later hint — saved videos the current filters hide, so
               following the sidebar never "loses" anything. */}
           {(laterHiddenByFilters > 0 || laterInOtherKind > 0) && (
-            <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 border-2 border-ink bg-tint px-4 py-2 text-sm font-bold">
+            <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold">
               {laterHiddenByFilters > 0 && (
                 <span className="flex items-center gap-2">
                   {laterHiddenByFilters} more saved outside these filters
@@ -733,7 +744,7 @@ export default function FeedClient() {
             <div className="mt-10 flex justify-center">
               <Button variant="primary" onClick={() => loadPage(page + 1, false)}>
                 Load {PAGE_SIZE} more
-                <Icon name="chev" size={16} strokeWidth={3} />
+                <Icon name="chev" size={16} />
               </Button>
             </div>
           )}
@@ -742,7 +753,7 @@ export default function FeedClient() {
         {/* Study panel — beside the grid on wide screens (the grid narrows
             rather than being covered); full screen on narrow ones. */}
         {study && studyVideo && (
-          <div className="fixed inset-0 z-40 lg:sticky lg:top-[58px] lg:z-auto lg:h-[calc(100vh-58px)] lg:w-[460px] lg:shrink-0">
+          <div className="fixed inset-0 z-40 lg:sticky lg:top-[65px] lg:z-auto lg:h-[calc(100vh-65px)] lg:w-[460px] lg:shrink-0">
             <StudyPanel
               key={studyVideo.id}
               video={studyVideo}
@@ -771,10 +782,10 @@ export default function FeedClient() {
           queue={
             queue
               ? {
-                  label: `SHORT ${queue.index + 1} OF ${Math.max(
+                  label: `Short ${queue.index + 1} of ${Math.max(
                     queue.items.length,
                     facets?.views.unwatched ?? 0
-                  ).toLocaleString()} UNSEEN`,
+                  ).toLocaleString()} unseen`,
                   onNext: advanceQueue,
                 }
               : undefined
@@ -788,14 +799,14 @@ export default function FeedClient() {
 /** Grey stand-in card while videos load. */
 function SkeletonCard() {
   return (
-    <div className="flex animate-pulse flex-col border-2 border-line-2 bg-surface" aria-hidden="true">
+    <div className="flex animate-pulse flex-col overflow-hidden rounded-lg border border-line bg-surface" aria-hidden="true">
       <div className="aspect-video bg-line" />
       <div className="flex flex-col gap-2 p-3.5">
-        <div className="h-3.5 w-11/12 bg-line" />
-        <div className="h-3.5 w-2/3 bg-line" />
-        <div className="mt-1 h-3 w-1/2 bg-line" />
+        <div className="h-3.5 w-11/12 rounded-xs bg-line" />
+        <div className="h-3.5 w-2/3 rounded-xs bg-line" />
+        <div className="mt-1 h-3 w-1/2 rounded-xs bg-line" />
       </div>
-      <div className="h-[38px] border-t-2 border-line-2" />
+      <div className="h-[43px] border-t border-line" />
     </div>
   );
 }

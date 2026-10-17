@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Button from "./ui/Button";
+import Icon from "./ui/Icon";
+import Spinner from "./ui/Spinner";
 
 const MAX = 3;
 
@@ -55,21 +57,21 @@ export default function AskSuggestionsEditor() {
     <form
       id="ask-suggestions"
       onSubmit={save}
-      className="scroll-mt-20 border-2 border-ink bg-surface p-4 shadow-hard"
+      className="scroll-mt-20 rounded-lg border border-line bg-surface p-4"
     >
-      <h2 className="font-display text-[11px] tracking-widest">EVERYDAY ASK SUGGESTIONS</h2>
-      <p className="mt-1.5 text-[13px] leading-snug text-ink/75">
+      <h2 className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">Everyday Ask suggestions</h2>
+      <p className="mt-1.5 text-meta text-muted">
         Questions you ask of almost any video. They show as one-click buttons in
         the Ask tab, after the genre&apos;s own suggestion. Leave blank for none.
       </p>
       {items == null ? (
-        <p className="mt-3 text-sm text-muted-2">Loading…</p>
+        <Spinner label="Loading…" size={13} className="mt-3 text-sm text-muted" />
       ) : (
         <div className="mt-3 flex flex-col gap-2">
           {items.map((value, i) => (
             <input
               key={i}
-              className="nb-input w-full px-3 py-1.5 text-sm"
+              className="nb-input h-9 w-full px-3 text-sm"
               placeholder={
                 [
                   "e.g. Summarise as revision notes",
@@ -87,14 +89,14 @@ export default function AskSuggestionsEditor() {
             />
           ))}
           <div className="flex items-center gap-3">
-            <Button type="submit" size="sm" disabled={!changed || status === "saving"}>
-              {status === "saving" ? "Saving…" : "Save suggestions"}
+            <Button type="submit" size="sm" disabled={!changed} busy={status === "saving"} busyLabel="Saving…">
+              Save suggestions
             </Button>
             {status === "saved" && !changed && (
-              <span className="text-xs font-bold text-muted-2">Saved ✓</span>
+              <span className="flex items-center gap-1 text-meta font-semibold text-muted"><Icon name="check" size={13} />Saved</span>
             )}
             {status === "error" && (
-              <span className="text-xs font-bold text-danger">Couldn&apos;t save — try again</span>
+              <span className="text-meta font-semibold text-danger">Couldn&apos;t save — try again</span>
             )}
           </div>
         </div>

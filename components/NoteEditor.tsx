@@ -113,8 +113,8 @@ export default function NoteEditor({
   return (
     <div className="flex flex-col gap-1">
       <textarea
-        className={`nb-input w-full resize-y rounded leading-relaxed ${
-          large ? "p-3 text-[15px]" : "p-2 text-xs"
+        className={`nb-input w-full resize-y leading-relaxed ${
+          large ? "p-3 text-lg" : "p-2.5 text-meta"
         }`}
         rows={rows}
         maxLength={MAX_CHARS}
@@ -126,8 +126,8 @@ export default function NoteEditor({
         aria-label="Your note on this video"
       />
       <p
-        className={`text-[10px] font-semibold ${
-          status === "error" ? "text-[var(--accent)]" : "text-neutral-500"
+        className={`text-xs font-medium ${
+          status === "error" ? "text-danger" : "text-muted"
         }`}
       >
         {label}

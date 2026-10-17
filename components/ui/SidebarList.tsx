@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** A titled group in the left sidebar (Views, Genres, Channels). */
+/** A titled group in the left sidebar (Your feed, Genres, Channels). */
 export function SidebarSection({
   title,
   aside,
@@ -12,17 +12,17 @@ export function SidebarSection({
   children: ReactNode;
 }) {
   return (
-    <section className="border-b-2 border-ink py-3 last:border-b-0">
-      <div className="mb-1.5 flex items-center justify-between px-4">
-        <h3 className="font-display text-[11px] tracking-widest text-ink">{title}</h3>
+    <section className="px-3 [&+&]:mt-5">
+      <div className="mb-1.5 flex items-center justify-between px-2.5">
+        <h3 className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">{title}</h3>
         {aside}
       </div>
-      <ul>{children}</ul>
+      <ul className="space-y-px">{children}</ul>
     </section>
   );
 }
 
-/** One clickable row: optional colour square/avatar, label, count. */
+/** One clickable row: optional tile/colour square/avatar, label, count. */
 export function SidebarItem({
   label,
   count,
@@ -42,16 +42,16 @@ export function SidebarItem({
         type="button"
         onClick={onClick}
         aria-current={active ? "true" : undefined}
-        className={`flex w-full items-center gap-2.5 border-l-4 px-3 py-1.5 text-left text-sm transition-colors ${
-          active ? "border-ink bg-primary font-bold" : "border-transparent hover:bg-primary/35"
+        className={`flex h-[34px] w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm transition-colors ${
+          active ? "bg-surface font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]" : "hover:bg-ink/5"
         }`}
       >
         {leading}
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {count != null && (
           <span
-            className={`shrink-0 border-[1.5px] border-ink px-1 font-mono text-[11px] font-bold leading-4 ${
-              active ? "bg-surface" : "bg-primary"
+            className={`shrink-0 font-mono text-xs ${
+              active ? "rounded-xs bg-primary px-1.5 text-ink" : "text-muted"
             }`}
           >
             {count}
@@ -59,5 +59,14 @@ export function SidebarItem({
         )}
       </button>
     </li>
+  );
+}
+
+/** A soft colour tile with an icon, for the feed views (Inbox, Watch later…). */
+export function SidebarTile({ children, className }: { children: ReactNode; className: string }) {
+  return (
+    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-[7px] text-ink ${className}`}>
+      {children}
+    </span>
   );
 }

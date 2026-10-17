@@ -21,17 +21,17 @@ interface Props {
  */
 export default function SidePanel({ header, onClose, actions, tabs, footer, children }: Props) {
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l-2 border-ink bg-surface">
-      <div className="flex items-start gap-3 border-b-2 border-ink p-4">
+    <aside className="flex h-full min-h-0 flex-col border-l border-line bg-surface">
+      <div className="flex items-start gap-3 border-b border-line p-4">
         <div className="min-w-0 flex-1">{header}</div>
-        <IconButton label="Close" align="right" onClick={onClose}>
+        <IconButton label="Close" align="right" tipBelow onClick={onClose}>
           <Icon name="x" size={16} />
         </IconButton>
       </div>
-      {actions && <div className="flex flex-wrap gap-2 border-b-2 border-ink p-3">{actions}</div>}
-      {tabs && <div className="border-b-2 border-ink">{tabs}</div>}
+      {actions && <div className="flex flex-wrap gap-2 border-b border-line px-4 py-3">{actions}</div>}
+      {tabs && <div className="border-b border-line">{tabs}</div>}
       <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
-      {footer && <div className="border-t-2 border-ink p-4">{footer}</div>}
+      {footer && <div className="border-t border-line p-4">{footer}</div>}
     </aside>
   );
 }

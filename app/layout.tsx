@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo_Black, Space_Grotesk, Space_Mono } from "next/font/google";
+import { Archivo_Black, Caveat, Space_Grotesk, Space_Mono } from "next/font/google";
 import "./globals.css";
 
 const display = Archivo_Black({
@@ -21,6 +21,13 @@ const mono = Space_Mono({
   subsets: ["latin"],
 });
 
+// The blue pen: handwritten margin notes beside page titles (REF-07).
+const pen = Caveat({
+  variable: "--font-caveat",
+  weight: "700",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
   title: "TUBEBOX — your feed, no algorithm",
   description:
@@ -35,7 +42,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${display.variable} ${body.variable} ${mono.variable} h-full antialiased`}
+      className={`${display.variable} ${body.variable} ${mono.variable} ${pen.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

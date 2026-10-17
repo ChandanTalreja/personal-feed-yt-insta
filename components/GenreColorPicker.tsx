@@ -39,10 +39,10 @@ export default function GenreColorPicker({
                 owners.length ? ` (used by ${owners.join(", ")})` : ""
               }`}
               title={owners.length ? `Used by ${owners.join(", ")}` : color}
-              className="relative h-7 w-7 cursor-pointer rounded-full border-2 border-[var(--ink)]"
+              className="relative h-7 w-7 cursor-pointer rounded-full ring-1 ring-line"
               style={{
                 backgroundColor: color,
-                outline: selected ? "3px solid var(--ink)" : "none",
+                outline: selected ? "2px solid var(--ink)" : "none",
                 outlineOffset: "2px",
               }}
               onClick={() => onChange(color)}
@@ -62,7 +62,7 @@ export default function GenreColorPicker({
             Once a custom color is picked, the swatch shows it. */}
         <label
           title="Custom color"
-          className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-2 border-dashed border-[var(--ink)] text-sm font-bold"
+          className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-dashed border-muted text-sm font-bold text-muted hover:border-ink hover:text-ink"
           style={{
             backgroundColor: isCustom ? value : "var(--paper)",
             color: isCustom ? textColorFor(value) : "var(--ink)",
@@ -83,7 +83,7 @@ export default function GenreColorPicker({
 
       {/* Live preview — exactly how the chip will look, text color included. */}
       <span
-        className="nb-sm rounded-full px-3 py-1 text-xs font-bold"
+        className="rounded-full px-3 py-1 text-xs font-semibold"
         style={{ backgroundColor: value, color: textColorFor(value) }}
       >
         {previewName.trim() || "Preview"}

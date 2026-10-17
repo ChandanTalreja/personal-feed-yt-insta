@@ -10,6 +10,7 @@ import Markdown from "./Markdown";
 import PlayerModal, { type ProgressUpdate } from "./PlayerModal";
 import Button from "./ui/Button";
 import Icon from "./ui/Icon";
+import Spinner from "./ui/Spinner";
 import SegmentedControl from "./ui/SegmentedControl";
 import { formatDuration, timeAgo } from "@/lib/format";
 import { notifyNavChanged } from "@/lib/nav-events";
@@ -230,10 +231,13 @@ export default function NotebookClient() {
       : beforeGenre.filter((e) => String(e.video.genreId ?? "none") === key).length;
 
   const list = (
-    <aside className="flex w-full flex-col border-ink lg:sticky lg:top-[58px] lg:h-[calc(100vh-58px)] lg:w-[420px] lg:shrink-0 lg:border-r-2">
-      <div className="flex flex-col gap-3 border-b-2 border-ink bg-panel p-5">
-        <div className="flex items-end gap-3">
-          <h1 className="flex-1 font-display text-[30px] leading-none">Notebook</h1>
+    <aside className="flex w-full flex-col border-line lg:sticky lg:top-[65px] lg:h-[calc(100vh-65px)] lg:w-[420px] lg:shrink-0 lg:border-r">
+      <div className="flex flex-col gap-3 border-b border-line p-5">
+        <div className="flex items-start gap-3">
+          <div className="mb-1 flex flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="font-display text-display">Notebook</h1>
+            <span className="pen-note">every answer you kept</span>
+          </div>
           {visible.length > 0 && (
             <div className="relative" data-nb-menu>
               <button
@@ -241,22 +245,22 @@ export default function NotebookClient() {
                 aria-label="More"
                 aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((o) => !o)}
-                className={`flex h-8 w-8 items-center justify-center border-2 ${
-                  menuOpen ? "border-ink bg-ink text-cream" : "border-ink bg-surface hover:bg-tint"
+                className={`flex h-8 w-8 items-center justify-center rounded-md border ${
+                  menuOpen ? "border-ink bg-ink text-cream" : "border-line bg-surface text-muted hover:border-ink hover:text-ink"
                 }`}
               >
-                <Icon name="more" size={16} strokeWidth={4} />
+                <Icon name="more" size={16} />
               </button>
               {menuOpen && (
-                <div className="absolute right-0 top-full z-20 mt-1 w-64 border-2 border-ink bg-surface p-1 shadow-hard">
+                <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-md border-[1.5px] border-ink bg-surface p-1 shadow-sticker">
                   <CopyAllItem text={copyAll} count={visible.length} onDone={() => setMenuOpen(false)} />
                 </div>
               )}
             </div>
           )}
         </div>
-        <label className="flex h-[38px] items-center gap-2 border-2 border-ink bg-surface px-2.5">
-          <Icon name="search" size={15} className="text-muted-2" />
+        <label className="nb-input flex h-9 items-center gap-2 px-3 focus-within:border-ink focus-within:shadow-[0_0_0_3px_rgb(255_208_43/0.45)]">
+          <Icon name="search" size={15} className="text-muted" />
           <input
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
             placeholder="Search answers, notes, titles"
@@ -266,7 +270,7 @@ export default function NotebookClient() {
             aria-label="Search the notebook"
           />
           {search && (
-            <button type="button" aria-label="Clear search" onClick={() => setSearch("")}>
+            <button type="button" aria-label="Clear search" className="text-muted hover:text-ink" onClick={() => setSearch("")}>
               <Icon name="x" size={14} />
             </button>
           )}
@@ -309,14 +313,14 @@ export default function NotebookClient() {
               { value: "notes", label: "My notes" },
             ]}
           />
-          <span className="ml-auto text-right font-mono text-[11px] font-bold leading-tight text-ink/80">
+          <span className="ml-auto text-right font-mono text-xs text-muted">
             {visible.length} video{visible.length === 1 ? "" : "s"}
             <br />
             {answerCount} answer{answerCount === 1 ? "" : "s"} · {noteCount} note{noteCount === 1 ? "" : "s"}
           </span>
         </div>
         {filtering && (
-          <button type="button" onClick={clearFilters} className="self-start text-xs font-bold text-warn hover:underline">
+          <button type="button" onClick={clearFilters} className="self-start text-meta font-semibold hover:underline">
             Clear filters
           </button>
         )}
@@ -331,8 +335,8 @@ export default function NotebookClient() {
                 type="button"
                 onClick={() => select(e.video.id)}
                 aria-current={on ? "true" : undefined}
-                className={`flex w-full gap-3 border-b-2 border-l-[5px] border-b-line-2 px-5 py-3 text-left ${
-                  on ? "border-l-primary bg-tint" : "border-l-transparent hover:bg-cream"
+                className={`flex w-full gap-3 border-b border-l-[3px] border-b-line px-5 py-3 text-left transition-colors ${
+                  on ? "border-l-primary bg-surface" : "border-l-transparent hover:bg-ink/[0.03]"
                 }`}
               >
                 {e.video.thumbnail ? (
@@ -341,14 +345,14 @@ export default function NotebookClient() {
                     alt=""
                     loading="lazy"
                     referrerPolicy="no-referrer"
-                    className="aspect-video w-20 shrink-0 self-start border-2 border-ink object-cover"
+                    className="aspect-video w-20 shrink-0 self-start rounded-xs object-cover"
                   />
                 ) : (
-                  <span className="aspect-video w-20 shrink-0 self-start border-2 border-ink bg-line" />
+                  <span className="aspect-video w-20 shrink-0 self-start rounded-xs bg-line" />
                 )}
                 <span className="flex min-w-0 flex-col gap-1">
-                  <span className="line-clamp-2 text-[13.5px] font-bold leading-snug">{e.video.title}</span>
-                  <span className="truncate text-xs text-ink/70">
+                  <span className="line-clamp-2 text-sm font-semibold">{e.video.title}</span>
+                  <span className="truncate text-meta text-muted">
                     {e.video.channelTitle}
                     {e.answers.length > 0 && ` · ${e.answers.length} answer${e.answers.length === 1 ? "" : "s"}`}
                     {e.video.personalNote && " · note"} · {timeAgo(e.lastActivity)}
@@ -365,13 +369,14 @@ export default function NotebookClient() {
   return (
     <>
       <TopBar flush />
-      {loading && <p className="py-16 text-center text-sm font-bold text-muted-2">Loading your notebook…</p>}
-      {error && <p className="py-16 text-center text-sm font-bold text-danger">{error}</p>}
+      {loading && <Spinner label="Loading your notebook…" className="flex justify-center py-16 text-sm font-semibold text-muted" />}
+      {error && <p className="py-16 text-center text-sm font-semibold text-danger">{error}</p>}
 
       {!loading && !error && !hasAnything && (
-        <div className="mx-auto mt-10 max-w-lg border-2 border-ink bg-surface p-8 text-center shadow-hard">
+        <div className="mx-auto mt-10 max-w-lg rounded-lg border border-line bg-surface p-8 text-center">
           <p className="font-display text-xl">Your notebook is empty</p>
-          <p className="mt-2 text-sm text-muted-2">
+          <p className="pen-note mt-2">every answer you keep lands here</p>
+          <p className="mt-2 text-sm text-muted">
             Ask about any video, or write a note on it. Every answer and note is kept here, by video.
           </p>
         </div>
@@ -383,13 +388,13 @@ export default function NotebookClient() {
               list is a direct column of the row and can stay put (sticky). */}
           <div className={`${reading ? "hidden" : "block"} lg:contents`}>{list}</div>
 
-          <main className={`${reading ? "block" : "hidden lg:block"} min-w-0 flex-1 px-4 pb-16 pt-6 sm:px-8 lg:px-11 lg:pt-8`}>
+          <main className={`${reading ? "block" : "hidden lg:block"} min-w-0 flex-1 px-4 pb-16 pt-6 sm:px-8 lg:px-10 lg:pt-8`}>
             <button
               type="button"
               onClick={() => setReading(false)}
-              className="mb-4 flex items-center gap-1 text-sm font-bold lg:hidden"
+              className="mb-4 flex items-center gap-1 text-sm font-semibold lg:hidden"
             >
-              <Icon name="chev" size={14} className="rotate-90" strokeWidth={3} />
+              <Icon name="chev" size={14} className="rotate-90" />
               All videos
             </button>
             {selected ? (
@@ -403,9 +408,9 @@ export default function NotebookClient() {
                 onNoteSaved={(note, at) => patchVideo(selected.video.id, { personalNote: note, personalNoteAt: at })}
               />
             ) : (
-              <div className="mx-auto mt-6 max-w-lg border-2 border-ink bg-surface p-8 text-center shadow-hard">
+              <div className="mx-auto mt-6 max-w-lg rounded-lg border border-line bg-surface p-8 text-center">
                 <p className="font-display text-xl">No matches</p>
-                <p className="mt-2 text-sm text-muted-2">Nothing in your notebook matches these filters.</p>
+                <p className="mt-2 text-sm text-muted">Nothing in your notebook matches these filters.</p>
                 <Button className="mt-4" onClick={clearFilters}>
                   Clear filters
                 </Button>
@@ -450,6 +455,7 @@ function Reader({
     if (!text || pending) return;
     setPending(text);
     setAskError(null);
+    setQuestion(""); // sent: it shows below as "Thinking…"
     try {
       const res = await fetch(`/api/videos/${video.id}/ask`, {
         method: "POST",
@@ -459,12 +465,12 @@ function Reader({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Couldn't answer that");
       onAnswer(data.note);
-      setQuestion("");
       notifyNavChanged();
       // Bring the new answer into view once it's rendered.
       setTimeout(() => latestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     } catch (err) {
       setAskError((err as Error).message);
+      setQuestion((q) => q || text); // give it back to fix or retry, unless something new was typed
     } finally {
       setPending(null);
     }
@@ -475,12 +481,12 @@ function Reader({
       {/* Title and actions */}
       <header className="flex flex-wrap items-start gap-4">
         <div className="min-w-[240px] flex-1">
-          <h2 className="font-display text-[26px] leading-[1.15]">{video.title}</h2>
-          <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink/75">
+          <h2 className="font-display text-xl">{video.title}</h2>
+          <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-meta text-muted">
             {genre && (
-              <span className="h-2.5 w-2.5 border-[1.5px] border-ink" style={{ backgroundColor: genre.color }} />
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: genre.color }} />
             )}
-            <span className="font-bold text-ink">{video.channelTitle}</span>
+            <span className="font-medium text-ink">{video.channelTitle}</span>
             {video.durationSeconds > 0 && <span>· <span className="font-mono">{formatDuration(video.durationSeconds)}</span></span>}
             <span>· updated {timeAgo(entry.lastActivity)}</span>
             {video.watched && <span>· seen</span>}
@@ -500,40 +506,41 @@ function Reader({
         <section
           key={a.id}
           ref={i === answers.length - 1 ? latestRef : undefined}
-          className={`scroll-mt-20 border-2 border-ink bg-surface shadow-[4px_4px_0_var(--color-ink)] ${
-            isMatch(a) ? "border-l-[6px] border-l-primary" : ""
+          className={`scroll-mt-20 overflow-hidden rounded-lg border border-line bg-surface ${
+            isMatch(a) ? "border-l-4 border-l-primary" : ""
           }`}
         >
-          <div className="flex items-start gap-2.5 border-b-2 border-ink px-4 py-3">
-            <span className="mt-0.5 bg-ink px-1.5 py-1 font-display text-[10px] leading-none tracking-widest text-cream">
-              GEMINI
+          <div className="flex items-start gap-2.5 border-b border-line px-4 py-3">
+            <span className="mt-px rounded-xs bg-ink px-1.5 font-mono text-xs font-bold uppercase leading-5 text-cream">
+              Gemini
             </span>
-            <p className="min-w-0 flex-1 text-base font-bold leading-snug">{a.prompt.trim()}</p>
-            <span className="shrink-0 pt-0.5 text-xs text-ink/70">{timeAgo(a.createdAt)}</span>
+            <p className="min-w-0 flex-1 text-lg font-semibold">{a.prompt.trim()}</p>
+            <span className="shrink-0 pt-0.5 text-meta text-muted">{timeAgo(a.createdAt)}</span>
             <span className="shrink-0 pt-0.5">
               <CopyButton text={a.answer} quiet />
             </span>
           </div>
-          <div className="max-w-[760px] px-5 py-4 text-[15.5px] leading-[1.65]">
+          <div className="max-w-[760px] px-5 py-4 text-lg leading-[1.65]">
             <Markdown text={a.answer} />
           </div>
         </section>
       ))}
 
       {pending && (
-        <section className="border-2 border-dashed border-ink bg-surface px-4 py-3 text-sm">
-          <p className="font-bold">{pending}</p>
-          <p className="mt-1 text-ink/70">Thinking… a long video without captions can take a minute.</p>
+        <section className="rounded-lg border border-dashed border-line bg-surface px-4 py-3 text-sm">
+          <p className="font-semibold">{pending}</p>
+          <Spinner label="Thinking…" size={14} className="mt-2 font-semibold" />
+          <p className="mt-1 text-meta text-muted">A long video without captions can take a minute.</p>
         </section>
       )}
 
       {/* Follow-up */}
       <form
         onSubmit={ask}
-        className="flex border-2 border-ink bg-surface focus-within:shadow-[3px_3px_0_var(--color-primary)]"
+        className="flex overflow-hidden rounded-md border-[1.5px] border-ink bg-surface focus-within:shadow-[0_0_0_3px_rgb(255_208_43/0.45)]"
       >
-        <span className="flex items-center px-3">
-          <Icon name="ask" size={16} />
+        <span className="flex items-center px-3 text-muted">
+          <Icon name="ask" size={17} />
         </span>
         <input
           className="min-w-0 flex-1 bg-transparent py-3 text-sm outline-none placeholder:text-muted"
@@ -546,16 +553,16 @@ function Reader({
           type="submit"
           aria-label="Ask"
           disabled={!!pending || !question.trim()}
-          className="flex w-[46px] items-center justify-center border-l-2 border-ink bg-primary disabled:opacity-50"
+          className="icon-hover m-1 flex w-10 items-center justify-center rounded-sm bg-primary disabled:opacity-40"
         >
           <Icon name="send" size={16} />
         </button>
       </form>
-      {askError && <p className="-mt-3 text-sm font-bold text-danger">{askError}</p>}
+      {askError && <p className="-mt-3 text-sm font-semibold text-danger">{askError}</p>}
 
       {/* Your note */}
       {editingNote ? (
-        <section className="border-2 border-ink bg-surface p-4">
+        <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-2 flex items-center">
             <NoteLabel />
             <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setEditingNote(false)}>
@@ -565,7 +572,7 @@ function Reader({
           <NoteEditor videoId={video.id} initial={video.personalNote} autoFocus large rows={8} onSaved={onNoteSaved} />
         </section>
       ) : video.personalNote ? (
-        <section className="border-2 border-ink bg-surface p-4">
+        <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-2 flex items-center gap-3">
             <NoteLabel />
             <span className="ml-auto">
@@ -574,19 +581,19 @@ function Reader({
             <button
               type="button"
               onClick={() => setEditingNote(true)}
-              className="flex items-center gap-1 text-xs font-bold hover:underline"
+              className="icon-hover flex items-center gap-1 text-meta font-semibold text-muted hover:text-ink"
             >
               <Icon name="note" size={13} />
               Edit
             </button>
           </div>
-          <div className="whitespace-pre-wrap text-[15px] leading-relaxed">{video.personalNote}</div>
+          <div className="whitespace-pre-wrap text-lg leading-relaxed">{video.personalNote}</div>
         </section>
       ) : (
         <button
           type="button"
           onClick={() => setEditingNote(true)}
-          className="flex items-center gap-2.5 border-2 border-dashed border-muted-2 px-4 py-3.5 text-left text-sm text-ink/75 hover:border-ink hover:bg-surface"
+          className="icon-hover flex items-center gap-2.5 rounded-lg border border-dashed border-line px-4 py-3.5 text-left text-sm text-muted hover:border-ink hover:bg-surface hover:text-ink"
         >
           <Icon name="note" size={15} />
           Add your own note. It sits beside the answers and shows up in search.
@@ -598,8 +605,8 @@ function Reader({
 
 function NoteLabel() {
   return (
-    <span className="bg-primary px-1.5 py-1 font-display text-[10px] leading-none tracking-widest text-ink">
-      MY NOTE
+    <span className="rounded-xs bg-primary px-1.5 font-mono text-xs font-bold uppercase leading-5 text-ink">
+      My note
     </span>
   );
 }
@@ -627,8 +634,8 @@ function Dropdown({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className={`h-[34px] w-full min-w-0 cursor-pointer appearance-none truncate border-2 border-ink pl-2.5 pr-7 text-[12.5px] font-bold disabled:cursor-default disabled:opacity-60 ${
-          value && value !== "all" ? "bg-primary" : "bg-surface"
+        className={`h-9 w-full min-w-0 cursor-pointer appearance-none truncate rounded-md border pl-3 pr-8 text-meta font-semibold transition-colors disabled:cursor-default disabled:opacity-60 ${
+          value && value !== "all" ? "border-ink bg-primary/35" : "border-line bg-surface hover:border-ink"
         }`}
       >
         {options.map((o) => (
@@ -637,7 +644,7 @@ function Dropdown({
           </option>
         ))}
       </select>
-      <Icon name="chev" size={14} strokeWidth={3} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" />
+      <Icon name="chev" size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted" />
     </label>
   );
 }
@@ -694,7 +701,7 @@ function MenuItem({ onClick, children }: { onClick: () => void; children: ReactN
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold hover:bg-tint"
+      className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm font-semibold hover:bg-ink/5"
     >
       {children}
     </button>

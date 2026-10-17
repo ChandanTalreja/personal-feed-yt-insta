@@ -8,6 +8,8 @@ import GenresPanel, { type GenreFilter } from "./GenresPanel";
 import AskSuggestionsEditor from "./AskSuggestionsEditor";
 import Button from "./ui/Button";
 import Icon from "./ui/Icon";
+import PageTitle from "./ui/PageTitle";
+import Spinner from "./ui/Spinner";
 import SegmentedControl from "./ui/SegmentedControl";
 import type { ChannelItem, GenreItem } from "./types";
 import { timeAgo } from "@/lib/format";
@@ -28,7 +30,7 @@ interface ResolvedPreview {
   thumbnail: string | null;
 }
 
-type SortKey = "name" | "videos" | "last";
+type SortKey = "name" | "genre" | "videos" | "last";
 type StatusFilter = "all" | "quiet" | "paused";
 
 /** No upload in this many days → "quiet": worth a look before it's pruned. */
@@ -345,6 +347,13 @@ export default function ChannelsClient() {
     })
     .sort((a, b) => {
       const d = sort.dir;
+      if (sort.key === "genre") {
+        // Grouped by genre (A→Z or Z→A), "No genre" always last, and A→Z
+        // by channel inside each group — so the groups read like a list.
+        if (!a.genre !== !b.genre) return a.genre ? -1 : 1;
+        const byGenre = (a.genre?.name ?? "").localeCompare(b.genre?.name ?? "");
+        return byGenre !== 0 ? d * byGenre : a.channel.title.localeCompare(b.channel.title);
+      }
       if (sort.key === "videos") return d * (a.videoCount + a.shortCount - (b.videoCount + b.shortCount));
       if (sort.key === "last") {
         const at = a.lastUploadAt ? new Date(a.lastUploadAt).getTime() : 0;
@@ -390,8 +399,9 @@ export default function ChannelsClient() {
   }
 
   function sortBy(key: SortKey) {
-    // Name starts A→Z; numbers and dates start biggest/newest first.
-    setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === "name" ? 1 : -1 }));
+    // Names and genres start A→Z; numbers and dates start biggest/newest first.
+    const alphabetical = key === "name" || key === "genre";
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: alphabetical ? 1 : -1 }));
   }
 
   // Phones get three columns (tick · channel with a summary line · menu);
@@ -404,13 +414,13 @@ export default function ChannelsClient() {
   return (
     <>
       <TopBar />
-      <div className="mx-auto w-full max-w-[1400px] px-4 pb-16 sm:px-6">
+      <div className="mx-auto w-full max-w-[1400px] px-4 pb-16 sm:px-8">
         {/* Title */}
-        <div className="mb-5 flex flex-wrap items-end gap-3">
-          <div className="flex-1">
-            <h1 className="font-display text-[34px] leading-none">Channels</h1>
-            <p className="mt-2 font-mono text-[13px] font-bold text-ink/85">
-              {loaded ? (
+        <PageTitle
+          title="Channels"
+          note="only the ones you chose"
+          summary={
+              loaded ? (
                 <>
                   {plural(rows.length)}
                   {pausedCount > 0 && <> · {pausedCount} paused</>}
@@ -419,7 +429,7 @@ export default function ChannelsClient() {
                       {" · "}
                       <button
                         type="button"
-                        className="text-warn underline decoration-2 underline-offset-2 hover:no-underline"
+                        className="font-semibold text-warn underline decoration-2 underline-offset-2 hover:no-underline"
                         onClick={() => setStatusFilter(statusFilter === "quiet" ? "all" : "quiet")}
                       >
                         {quietCount} quiet for {QUIET_DAYS / 30}+ months
@@ -429,20 +439,19 @@ export default function ChannelsClient() {
                 </>
               ) : (
                 <>&nbsp;</>
-              )}
-            </p>
-          </div>
-        </div>
+              )
+          }
+        />
 
         {/* Add a channel */}
         <form
           onSubmit={submitAdd}
-          className="mb-6 flex flex-wrap items-center gap-2.5 border-2 border-ink bg-surface p-3.5 shadow-[4px_4px_0_var(--color-ink)]"
+          className="mb-6 flex flex-wrap items-center gap-2.5 rounded-lg border border-line bg-surface p-4"
         >
           <input
             ref={inputRef}
             id="add"
-            className="nb-input h-[42px] min-w-64 flex-1 px-3 text-sm"
+            className="nb-input h-10 min-w-64 flex-1 px-3 text-sm"
             placeholder="Paste a channel URL or @handle, e.g. @mkbhd"
             value={input}
             onChange={(e) => {
@@ -452,7 +461,7 @@ export default function ChannelsClient() {
             aria-label="Channel URL, @handle or name"
           />
           <select
-            className="nb-input h-[42px] px-2.5 text-sm font-bold"
+            className="nb-input h-10 cursor-pointer px-2.5 text-sm font-semibold"
             value={addGenre}
             onChange={(e) => setAddGenre(e.target.value)}
             aria-label="Genre for the new channel"
@@ -465,10 +474,10 @@ export default function ChannelsClient() {
             ))}
           </select>
           <span
-            className="ml-1 font-display text-[10.5px] tracking-widest text-ink/80"
+            className="ml-1 font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted"
             title="How far back to fetch uploads when the channel is added. After that, the sync keeps it fresh."
           >
-            BACKFILL
+            Backfill
           </span>
           <SegmentedControl
             label="How many years of uploads to fetch"
@@ -476,34 +485,34 @@ export default function ChannelsClient() {
             onChange={setYears}
             options={["1", "2", "3", "4", "5"].map((y) => ({ value: y, label: `${y}Y` }))}
           />
-          <Button type="submit" variant="primary" disabled={adding || !input.trim()} className="h-[42px]">
-            <Icon name="plus" size={15} strokeWidth={3} />
-            {adding ? "Adding…" : "Add"}
+          <Button type="submit" variant="primary" size="sm" disabled={!input.trim()} busy={adding} busyLabel="Adding…" className="h-10 px-4">
+            <Icon name="plus" size={15} />
+            Add
           </Button>
           {adding && !pending && (
-            <p className="w-full text-xs font-bold text-muted-2">
+            <p className="w-full text-meta text-muted">
               {addProgress ??
                 `Fetching up to ${years} year${years === "1" ? "" : "s"} of uploads… a busy channel takes a few seconds.`}
             </p>
           )}
           {pending && (
-            <div className="flex w-full flex-wrap items-center gap-3 border-2 border-ink bg-tint p-3">
+            <div className="flex w-full flex-wrap items-center gap-3 rounded-md border-[1.5px] border-ink bg-cream p-3">
               {pending.thumbnail && (
                 <img
                   src={pending.thumbnail}
                   alt=""
                   referrerPolicy="no-referrer"
-                  className="h-10 w-10 rounded-full border-2 border-ink"
+                  className="h-10 w-10 rounded-full bg-line"
                 />
               )}
               <p className="text-sm">
                 Found <strong>{pending.title}</strong>
-                {pending.handle && <span className="text-muted-2"> {pending.handle}</span>}. Is
+                {pending.handle && <span className="text-muted"> {pending.handle}</span>}. Is
                 this the one?
               </p>
               <div className="ml-auto flex gap-2">
-                <Button size="sm" variant="primary" disabled={adding} onClick={() => doAdd(pending.ytChannelId)}>
-                  {adding ? "Adding…" : "Yes, add it"}
+                <Button size="sm" variant="primary" busy={adding} busyLabel="Adding…" onClick={() => doAdd(pending.ytChannelId)}>
+                  Yes, add it
                 </Button>
                 <Button size="sm" onClick={() => setPending(null)}>
                   No
@@ -514,21 +523,21 @@ export default function ChannelsClient() {
         </form>
 
         {toast && (
-          <div className="mb-5 border-2 border-ink bg-primary px-4 py-2 text-sm font-bold shadow-hard">{toast}</div>
+          <div role="status" className="mb-5 rounded-md border-[1.5px] border-ink bg-surface px-4 py-2 text-sm font-semibold">{toast}</div>
         )}
 
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           {/* The table */}
-          <section className="min-w-0 flex-1 border-2 border-ink bg-surface shadow-hard">
+          <section className="min-w-0 flex-1 rounded-lg border border-line bg-surface">
             {/* Toolbar, or the bulk bar once anything is ticked. */}
             {working ? (
-              <div className="flex items-center gap-3 bg-ink px-3.5 py-2.5 text-sm font-bold text-cream">
-                <Icon name="refresh" size={15} className="animate-spin" />
+              <div role="status" className="flex items-center gap-3 rounded-t-[9px] bg-ink px-4 py-2.5 text-sm font-semibold text-cream">
+                <Icon name="spinner" size={15} className="animate-spin" />
                 <span className="min-w-0 flex-1 truncate">{working}</span>
                 {working.startsWith("Backfilling") && (
                   <button
                     type="button"
-                    className="border-2 border-cream px-2.5 py-1 text-xs hover:bg-cream hover:text-ink"
+                    className="h-7 rounded-sm border border-cream/40 px-2.5 text-meta hover:bg-cream hover:text-ink"
                     onClick={() => (stopBackfill.current = true)}
                   >
                     Stop
@@ -536,7 +545,7 @@ export default function ChannelsClient() {
                 )}
               </div>
             ) : selected.size > 0 && confirmDelete ? (
-              <div className="flex flex-wrap items-center gap-3 bg-ink px-3.5 py-2.5 text-sm text-cream">
+              <div role="alert" className="flex flex-wrap items-center gap-3 rounded-t-[9px] bg-ink px-4 py-2.5 text-sm text-cream">
                 <span className="min-w-0 flex-1">
                   <strong>
                     Delete {plural(selected.size)} and their {selectedVideos.toLocaleString()} videos?
@@ -549,12 +558,12 @@ export default function ChannelsClient() {
                 <BarButton onClick={() => setConfirmDelete(false)}>Cancel</BarButton>
               </div>
             ) : selected.size > 0 ? (
-              <div className="flex flex-wrap items-center gap-2 bg-ink px-3.5 py-2.5 text-cream">
-                <span className="mr-2 text-[13px] font-bold">{selected.size} selected</span>
+              <div className="flex flex-wrap items-center gap-2 rounded-t-[9px] bg-ink px-4 py-2.5 text-cream">
+                <span className="mr-2 text-meta font-semibold">{selected.size} selected</span>
                 <label className="relative">
                   <span className="sr-only">Move to genre</span>
                   <select
-                    className="cursor-pointer appearance-none border-2 border-cream bg-ink py-1 pl-2.5 pr-7 text-xs font-bold text-cream"
+                    className="h-7 cursor-pointer appearance-none rounded-sm border border-cream/40 bg-ink pl-2.5 pr-7 text-meta font-semibold text-cream hover:border-cream"
                     value=""
                     onChange={(e) => {
                       if (e.target.value === "") return;
@@ -574,7 +583,7 @@ export default function ChannelsClient() {
                 <label className="relative" title="Make sure every upload from the chosen years is here (fills gaps, reaches further back)">
                   <span className="sr-only">Backfill</span>
                   <select
-                    className="cursor-pointer appearance-none border-2 border-cream bg-ink py-1 pl-2.5 pr-7 text-xs font-bold text-cream"
+                    className="h-7 cursor-pointer appearance-none rounded-sm border border-cream/40 bg-ink pl-2.5 pr-7 text-meta font-semibold text-cream hover:border-cream"
                     value=""
                     onChange={(e) => e.target.value && backfill(selectedIds, Number(e.target.value))}
                   >
@@ -600,7 +609,7 @@ export default function ChannelsClient() {
                   <button
                     type="button"
                     aria-label="Clear selection"
-                    className="flex h-7 w-7 items-center justify-center hover:bg-cream hover:text-ink"
+                    className="flex h-7 w-7 items-center justify-center rounded-sm hover:bg-cream hover:text-ink"
                     onClick={() => setSelected(new Set())}
                   >
                     <Icon name="x" size={14} />
@@ -608,9 +617,9 @@ export default function ChannelsClient() {
                 </span>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center gap-2 border-b-2 border-ink px-3.5 py-2.5">
-                <label className="flex h-[34px] w-full max-w-xs items-center gap-2 border-2 border-ink bg-cream px-2.5">
-                  <Icon name="search" size={14} className="text-muted-2" />
+              <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
+                <label className="nb-input flex h-8 w-full max-w-xs items-center gap-2 bg-cream! px-2.5 focus-within:border-ink">
+                  <Icon name="search" size={15} className="text-muted" />
                   <input
                     className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
                     placeholder="Find a channel"
@@ -631,7 +640,7 @@ export default function ChannelsClient() {
                     { value: "paused", label: `Paused ${pausedCount}` },
                   ]}
                 />
-                <span className="ml-auto font-mono text-xs font-bold text-ink/80">
+                <span className="ml-auto font-mono text-xs text-muted">
                   {visible.length === rows.length ? plural(rows.length) : `${visible.length} of ${rows.length}`}
                 </span>
               </div>
@@ -639,26 +648,26 @@ export default function ChannelsClient() {
 
             {/* Header row */}
             <div
-              className={`${GRID} border-b-2 border-ink px-3.5 py-2 font-display text-[10.5px] tracking-widest text-ink/80`}
+              className={`${GRID} border-b border-line px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted`}
             >
               <Checkbox
                 checked={allVisibleSelected}
                 onChange={toggleAllVisible}
                 label={allVisibleSelected ? "Unselect all shown" : "Select all shown"}
               />
-              <SortHeader label="CHANNEL" k="name" sort={sort} onSort={sortBy} />
-              <span className={WIDE}>GENRE</span>
-              <SortHeader label="VIDEOS" k="videos" sort={sort} onSort={sortBy} className={WIDE} />
-              <SortHeader label="LAST UPLOAD" k="last" sort={sort} onSort={sortBy} className={WIDE} />
-              <span className={WIDE}>STATUS</span>
+              <SortHeader label="Channel" k="name" sort={sort} onSort={sortBy} />
+              <SortHeader label="Genre" k="genre" sort={sort} onSort={sortBy} className={WIDE} />
+              <SortHeader label="Videos" k="videos" sort={sort} onSort={sortBy} className={WIDE} />
+              <SortHeader label="Last upload" k="last" sort={sort} onSort={sortBy} className={WIDE} />
+              <span className={WIDE}>Status</span>
               <span />
             </div>
 
-            {!loaded && <p className="px-4 py-8 text-center text-sm text-muted-2">Loading channels…</p>}
+            {!loaded && <Spinner label="Loading channels…" className="flex justify-center px-4 py-8 text-sm text-muted" />}
             {loaded && rows.length === 0 && (
               <div className="px-6 py-10 text-center">
                 <p className="font-display text-lg">Add your first channel</p>
-                <p className="mt-1 text-sm text-muted-2">
+                <p className="mt-1 text-sm text-muted">
                   Paste a channel link or @handle above. TUBEBOX fetches its uploads and keeps them fresh.
                 </p>
               </div>
@@ -693,8 +702,8 @@ export default function ChannelsClient() {
                       if ((e.target as Element).closest("button, select, a, input, label")) return;
                       toggle(r.channel.id);
                     }}
-                    className={`${GRID} cursor-pointer border-t-2 border-line-2 px-3.5 py-2.5 first:border-t-0 ${
-                      on ? "bg-tint" : "hover:bg-cream"
+                    className={`${GRID} cursor-pointer border-t border-line px-4 py-2.5 first:border-t-0 transition-colors ${
+                      on ? "bg-primary/15" : "hover:bg-ink/[0.03]"
                     }`}
                   >
                     <Checkbox checked={on} onChange={() => toggle(r.channel.id)} label={`Select ${r.channel.title}`} />
@@ -704,20 +713,20 @@ export default function ChannelsClient() {
                           src={r.channel.thumbnail}
                           alt=""
                           referrerPolicy="no-referrer"
-                          className="h-8 w-8 shrink-0 rounded-full border-2 border-ink"
+                          className="h-8 w-8 shrink-0 rounded-full bg-line"
                         />
                       ) : (
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-ink bg-line-2 text-[11px] font-bold">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-line text-xs font-bold">
                           {r.channel.title.slice(0, 2).toUpperCase()}
                         </span>
                       )}
                       <div className="min-w-0">
-                        <p className="truncate text-[14.5px] font-bold leading-tight" title={r.channel.title}>
+                        <p className="truncate text-sm font-semibold" title={r.channel.title}>
                           {r.channel.title}
                         </p>
-                        <p className="truncate text-xs text-ink/70">{r.channel.handle ?? r.channel.ytChannelId}</p>
+                        <p className="truncate text-meta text-muted">{r.channel.handle ?? r.channel.ytChannelId}</p>
                         {/* Phones: the hidden columns, as one line. */}
-                        <p className="mt-0.5 truncate text-xs font-bold text-ink/80 md:hidden">
+                        <p className="mt-0.5 truncate text-meta text-muted md:hidden">
                           {g?.name ?? "No genre"} · {r.videoCount + r.shortCount} videos ·{" "}
                           {r.lastUploadAt ? timeAgo(r.lastUploadAt) : "—"} ·{" "}
                           <span className={status.tone === "quiet" ? "text-warn" : ""}>{status.label}</span>
@@ -725,13 +734,13 @@ export default function ChannelsClient() {
                       </div>
                     </div>
                     {/* Genre: a chip that's really a select, so changing one row is one click. */}
-                    <label className="relative hidden min-w-0 max-w-full items-center justify-self-start border-2 border-ink bg-surface hover:bg-tint md:flex">
+                    <label className="relative hidden min-w-0 max-w-full items-center justify-self-start rounded-sm border border-line bg-surface hover:border-ink md:flex">
                       <span
-                        className="pointer-events-none absolute left-2 h-2.5 w-2.5 border-[1.5px] border-ink"
-                        style={{ backgroundColor: g?.color ?? "transparent" }}
+                        className="pointer-events-none absolute left-2.5 h-2 w-2 rounded-full"
+                        style={{ backgroundColor: g?.color ?? "var(--color-line)" }}
                       />
                       <select
-                        className="min-w-0 cursor-pointer appearance-none truncate bg-transparent py-1 pl-6 pr-6 text-xs font-bold outline-none"
+                        className="h-7 min-w-0 cursor-pointer appearance-none truncate bg-transparent pl-6 pr-6 text-meta font-medium outline-none"
                         value={r.channel.genreId ?? ""}
                         onChange={(e) => moveTo([r.channel.id], e.target.value ? Number(e.target.value) : null)}
                         aria-label={`Genre for ${r.channel.title}`}
@@ -743,20 +752,20 @@ export default function ChannelsClient() {
                           </option>
                         ))}
                       </select>
-                      <Icon name="chev" size={12} className="pointer-events-none absolute right-1.5" />
+                      <Icon name="chev" size={12} className="pointer-events-none absolute right-2 text-muted" />
                     </label>
-                    <span className="hidden font-mono text-[13px] font-bold md:block">
+                    <span className="hidden font-mono text-meta md:block">
                       {r.videoCount}
                       {r.shortCount > 0 && (
-                        <span className="ml-1.5 text-[11px] font-normal text-ink/60">+{r.shortCount} shorts</span>
+                        <span className="ml-1.5 text-xs text-muted">+{r.shortCount} shorts</span>
                       )}
                     </span>
-                    <span className="hidden text-[12.5px] text-ink/75 md:block">
+                    <span className="hidden text-meta text-muted md:block">
                       {r.lastUploadAt ? timeAgo(r.lastUploadAt) : "—"}
                     </span>
                     <span
-                      className={`hidden items-center gap-1.5 text-[12.5px] font-bold md:flex ${
-                        status.tone === "quiet" ? "text-warn" : status.tone === "paused" ? "text-ink/60" : ""
+                      className={`hidden items-center gap-1.5 text-meta font-semibold md:flex ${
+                        status.tone === "quiet" ? "text-warn" : status.tone === "paused" ? "text-muted" : ""
                       }`}
                     >
                       {status.tone === "paused" && <Icon name="pause" size={12} duotone={false} />}
@@ -769,7 +778,7 @@ export default function ChannelsClient() {
                             type="button"
                             disabled={!!working}
                             onClick={() => backfill([r.channel.id], 3)}
-                            className="mt-0.5 text-[11px] font-bold text-ink underline decoration-2 underline-offset-2 hover:no-underline disabled:opacity-50"
+                            className="mt-0.5 text-xs font-semibold text-ink underline decoration-primary decoration-2 underline-offset-2 hover:decoration-ink disabled:opacity-50"
                           >
                             Try backfilling 3 years
                           </button>
@@ -804,7 +813,7 @@ export default function ChannelsClient() {
           </section>
 
           {/* Genres and Ask settings */}
-          <aside className="flex w-full flex-col gap-6 lg:sticky lg:top-[82px] lg:w-[300px] lg:shrink-0">
+          <aside className="flex w-full flex-col gap-6 lg:sticky lg:top-[97px] lg:w-[300px] lg:shrink-0">
             <GenresPanel
               genres={genres}
               counts={genreCounts}
@@ -829,11 +838,11 @@ function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: ()
       aria-checked={checked}
       aria-label={label}
       onClick={onChange}
-      className={`flex h-[18px] w-[18px] items-center justify-center border-2 border-ink ${
-        checked ? "bg-ink text-cream" : "bg-surface hover:bg-tint"
+      className={`flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border ${
+        checked ? "border-ink bg-ink text-cream" : "border-muted/60 bg-surface hover:border-ink"
       }`}
     >
-      {checked && <Icon name="check" size={12} strokeWidth={3.5} />}
+      {checked && <Icon name="check" size={12} />}
     </button>
   );
 }
@@ -856,11 +865,11 @@ function SortHeader({
     <button
       type="button"
       onClick={() => onSort(k)}
-      className={`items-center gap-1 text-left tracking-widest hover:text-ink ${on ? "text-ink" : ""} ${className || "flex"}`}
+      className={`items-center gap-1 text-left uppercase hover:text-ink ${on ? "text-ink" : ""} ${className || "flex"}`}
       aria-label={`Sort by ${label.toLowerCase()}`}
     >
       {label}
-      {on && <Icon name={sort.dir === 1 ? "chevUp" : "chev"} size={12} strokeWidth={3} />}
+      {on && <Icon name={sort.dir === 1 ? "chevUp" : "chev"} size={12} />}
     </button>
   );
 }
@@ -881,10 +890,10 @@ function BarButton({
       type="button"
       title={title}
       onClick={onClick}
-      className={`border-2 px-2.5 py-1 text-xs font-bold ${
+      className={`h-7 rounded-sm px-2.5 text-meta font-semibold ${
         danger
-          ? "border-pink text-pink hover:bg-pink hover:text-ink"
-          : "border-cream text-cream hover:bg-cream hover:text-ink"
+          ? "bg-danger text-white hover:brightness-110"
+          : "border border-cream/40 text-cream hover:bg-cream hover:text-ink"
       }`}
     >
       {children}
@@ -913,19 +922,19 @@ function RowMenu({
         aria-label="More actions"
         aria-expanded={open}
         onClick={onToggle}
-        className={`flex h-7 w-7 items-center justify-center border-2 ${
-          open ? "border-ink bg-ink text-cream" : "border-transparent hover:border-ink"
+        className={`flex h-7 w-7 items-center justify-center rounded-sm ${
+          open ? "bg-ink text-cream" : "text-muted hover:bg-ink/5 hover:text-ink"
         }`}
       >
-        <Icon name="more" size={16} strokeWidth={4} />
+        <Icon name="more" size={16} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-52 border-2 border-ink bg-surface shadow-hard">
-          <div className="border-b-2 border-line-2 px-3 py-2">
-            <p className="text-sm font-bold">Backfill</p>
-            <p className="text-[11px] text-ink/70">Fetch every upload from the last…</p>
-            <div className="mt-1.5 flex">
-              {[1, 2, 3, 4, 5].map((y, i) => (
+        <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-md border-[1.5px] border-ink bg-surface p-1 shadow-sticker">
+          <div className="border-b border-line px-2.5 pb-2.5 pt-1.5">
+            <p className="text-sm font-semibold">Backfill</p>
+            <p className="text-xs text-muted">Fetch every upload from the last…</p>
+            <div className="mt-2 flex gap-1">
+              {[1, 2, 3, 4, 5].map((y) => (
                 <button
                   key={y}
                   type="button"
@@ -933,7 +942,7 @@ function RowMenu({
                     onPicked();
                     onBackfill(y);
                   }}
-                  className={`flex-1 border-2 border-ink py-1 text-xs font-bold hover:bg-primary ${i > 0 ? "-ml-0.5" : ""}`}
+                  className="h-7 flex-1 rounded-sm border border-line text-xs font-semibold hover:border-ink hover:bg-primary"
                 >
                   {y}Y
                 </button>
@@ -948,7 +957,7 @@ function RowMenu({
                 onPicked();
                 it.onClick();
               }}
-              className={`block w-full px-3 py-2 text-left text-sm font-bold hover:bg-tint ${
+              className={`block w-full rounded-sm px-2.5 py-2 text-left text-sm font-semibold hover:bg-ink/5 ${
                 it.danger ? "text-danger" : ""
               }`}
             >

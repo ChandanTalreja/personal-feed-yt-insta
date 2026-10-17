@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { buttonClass } from "./ui/Button";
+import Icon from "./ui/Icon";
+import Spinner from "./ui/Spinner";
 import { notifyNavChanged } from "@/lib/nav-events";
 
 interface TrackRow {
@@ -117,10 +120,10 @@ export default function TrackMenu(props: Props) {
   const busy = props.mode === "pick" && props.busy;
 
   return (
-    <div className="flex flex-col gap-2 text-xs">
-      {tracks == null && !error && <p className="font-semibold">Loading tracks…</p>}
+    <div className="flex flex-col gap-2 text-meta">
+      {tracks == null && !error && <Spinner label="Loading tracks…" size={13} className="font-semibold" />}
       {tracks && tracks.length === 0 && (
-        <p className="text-neutral-600">No tracks yet — name your first one below.</p>
+        <p className="text-muted">No tracks yet — name your first one below.</p>
       )}
       {tracks && tracks.length > 0 && (
         <div className="flex max-h-44 flex-col gap-1 overflow-y-auto">
@@ -128,26 +131,27 @@ export default function TrackMenu(props: Props) {
             props.mode === "toggle" ? (
               <label
                 key={t.id}
-                className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-[var(--paper)]"
+                className="flex h-8 cursor-pointer items-center gap-2 rounded-sm px-2 hover:bg-ink/5"
               >
                 <input
                   type="checkbox"
                   checked={!!t.contains}
                   disabled={working === t.id}
                   onChange={() => toggle(t)}
+                  className="h-4 w-4 accent-ink"
                 />
                 <span className="flex-1 font-semibold">{t.name}</span>
-                <span className="text-neutral-500">{t.count}</span>
+                <span className="font-mono text-xs text-muted">{t.count}</span>
               </label>
             ) : (
               <button
                 key={t.id}
-                className="nb-chip flex items-center justify-between rounded px-2 py-1 text-left"
+                className="nb-chip flex h-8 items-center justify-between rounded-sm px-2.5 text-left"
                 disabled={busy}
                 onClick={() => props.onPick({ id: t.id, name: t.name })}
               >
                 <span>{t.name}</span>
-                <span className="opacity-60">{t.count}</span>
+                <span className="font-mono text-xs text-muted">{t.count}</span>
               </button>
             )
           )}
@@ -155,7 +159,7 @@ export default function TrackMenu(props: Props) {
       )}
       <form onSubmit={create} className="flex gap-1.5">
         <input
-          className="nb-input min-w-0 flex-1 rounded px-2 py-1"
+          className="nb-input h-8 min-w-0 flex-1 rounded-sm px-2.5"
           placeholder="New track name, e.g. Kubernetes"
           value={newName}
           maxLength={60}
@@ -164,13 +168,13 @@ export default function TrackMenu(props: Props) {
         />
         <button
           type="submit"
-          className="nb-btn rounded px-2.5 py-1"
+          className={buttonClass("primary", "sm")}
           disabled={!newName.trim() || working === "new" || busy}
         >
-          {working === "new" ? "…" : "+ NEW"}
+          {working === "new" ? <Spinner label="Adding" size={13} /> : <><Icon name="plus" size={13} />New</>}
         </button>
       </form>
-      {error && <p className="font-semibold text-[var(--accent)]">{error}</p>}
+      {error && <p className="font-semibold text-danger">{error}</p>}
     </div>
   );
 }

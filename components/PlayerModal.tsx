@@ -214,20 +214,20 @@ export default function PlayerModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-4xl border-2 border-ink bg-surface p-3 shadow-[5px_5px_0_var(--color-ink)]"
+        className="w-full max-w-4xl rounded-lg border-[1.5px] border-ink bg-surface p-4 shadow-lift"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
             {queue && (
-              <p className="mb-1 font-display text-[10.5px] tracking-widest text-warn">{queue.label}</p>
+              <p className="mb-1 font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">{queue.label}</p>
             )}
-            <h2 className="text-[15px] font-bold leading-snug sm:text-base">{video.title}</h2>
-            <p className="mt-0.5 text-xs text-ink/70">
+            <h2 className="text-lg font-semibold">{video.title}</h2>
+            <p className="mt-0.5 text-meta text-muted">
               {video.channelTitle}
               {video.durationSeconds > 0 && <> · <span className="font-mono">{formatDuration(video.durationSeconds)}</span></>}
             </p>
@@ -242,16 +242,16 @@ export default function PlayerModal({
             {queue && (
               <Button size="sm" onClick={queue.onNext} title="Skip to the next one (this one isn't marked seen)">
                 Next
-                <Icon name="chev" size={13} strokeWidth={3} className="-rotate-90" />
+                <Icon name="chev" size={13} className="-rotate-90" />
               </Button>
             )}
-            <IconButton label="Close (Esc)" align="right" className="h-8 min-w-8" onClick={onClose}>
-              <Icon name="x" size={16} strokeWidth={3} />
+            <IconButton label="Close (Esc)" align="right" tipBelow onClick={onClose}>
+              <Icon name="x" size={16} />
             </IconButton>
           </div>
         </div>
         <div
-          className={`relative w-full overflow-hidden border-2 border-ink bg-ink ${
+          className={`relative w-full overflow-hidden rounded-md bg-ink ${
             video.isShort ? "mx-auto aspect-[9/16] max-w-sm" : "aspect-video"
           }`}
         >

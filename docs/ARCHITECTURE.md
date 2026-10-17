@@ -382,6 +382,13 @@ each lands; the detail lives there.
   `/?channel=`, `/?video=`, `/?q=` (FeedClient applies then clears them) and
   `/notebook?v=`; new `GET /api/videos/:id`. All 8 redesign phases done —
   see REDESIGN.md FEAT-01.
+- Phase 9 (2026-10-17): "calm base, retro accents", look-only, no data
+  changes. `app/globals.css` `@theme` now holds the only colours, six text
+  sizes and corners (Tailwind's defaults reset with `initial`); icons are
+  Phosphor duotone shapes in `components/ui/iconPaths.ts` drawn by
+  `Icon.tsx` and lit yellow by CSS; new `components/ui/Spinner.tsx` and
+  `PageTitle.tsx` — see REDESIGN.md §2 *v2*, UI-07, UI-08, REF-07, REF-08.
+  Phase 10 (next): code cleanup.
 
 **Built 2026-10-16:**
 - **Next.js 16.2.10 → 16.3.8 (security)** — `npm audit` listed 19

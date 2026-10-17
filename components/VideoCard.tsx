@@ -25,9 +25,11 @@ interface Props {
 }
 
 /**
- * One video in the feed. Triage lives on the thumbnail (✓ seen top-left,
- * bookmark top-right); studying lives in the strip under the title, and
- * every tool opens the study panel rather than a popup inside the card.
+ * One video in the feed. Flat at rest; it lifts when you hover it, and gets a
+ * yellow edge while its tool is open in the study panel. Triage lives on the
+ * thumbnail (✓ seen top-left, bookmark top-right — shown on hover, and kept
+ * once set); studying lives in the tool row under the title, and every tool
+ * opens the study panel rather than a popup inside the card.
  */
 export default function VideoCard({
   video,
@@ -50,15 +52,15 @@ export default function VideoCard({
     <article
       // @container: the tool strip hides the "Ask" word when the card is
       // narrow (shorts), measured on the card itself, not the window.
-      className={`@container relative flex flex-col border-2 border-ink bg-surface transition-shadow ${
+      className={`group/card @container relative flex flex-col rounded-lg border bg-surface ${
         selected
-          ? "shadow-[5px_5px_0_var(--color-primary)]"
-          : "shadow-hard hover:shadow-hard-lg"
+          ? "border-ink shadow-[5px_5px_0_var(--color-primary)]"
+          : "lift border-line"
       }`}
     >
       <button
         type="button"
-        className={`relative block w-full cursor-pointer overflow-hidden border-b-2 border-ink bg-ink text-left ${
+        className={`relative block w-full cursor-pointer overflow-hidden rounded-t-[9px] bg-ink text-left ${
           dimmed ? "opacity-45" : ""
         }`}
         onClick={() => onPlay(video)}
@@ -73,22 +75,22 @@ export default function VideoCard({
             className="aspect-video w-full object-cover"
           />
         ) : (
-          <div className="aspect-video w-full bg-muted-2" />
+          <div className="aspect-video w-full bg-muted" />
         )}
         {video.durationSeconds > 0 && (
-          <span className="absolute bottom-2 right-2 bg-ink px-1.5 py-0.5 font-mono text-[11px] font-bold text-cream">
+          <span className="absolute bottom-2 right-2 rounded-xs bg-ink/85 px-1.5 font-mono text-xs font-bold leading-5 text-white">
             {formatDuration(video.durationSeconds)}
           </span>
         )}
         {(video.isShort || video.isLive) && (
-          <span className="absolute bottom-2 left-2 border-2 border-ink bg-pink px-1.5 py-0.5 text-[10px] font-bold">
+          <span className="absolute bottom-2 left-2 rounded-xs bg-ink/85 px-1.5 text-xs font-semibold leading-5 text-white">
             {video.isLive ? "Stream" : "Short"}
           </span>
         )}
         {progressPct > 0 && (
           // How much has actually been played (sittings add up) — the same
           // numbers the 50% auto-watched rule uses.
-          <span className="absolute inset-x-0 bottom-0 h-[5px] bg-faint" title={`${progressPct}% watched`}>
+          <span className="absolute inset-x-0 bottom-0 h-[5px] bg-ink/55" title={`${progressPct}% watched`}>
             <span className="block h-full bg-primary" style={{ width: `${progressPct}%` }} />
           </span>
         )}
@@ -99,33 +101,30 @@ export default function VideoCard({
       <CornerToggle
         className="left-2 top-2"
         on={video.watched}
-        onClass="bg-ink text-cream"
         label={video.watched ? "Mark unseen" : "Mark seen"}
         align="left"
         onClick={() => onToggleWatched(video)}
       >
-        <Icon name="check" size={17} strokeWidth={3} />
+        <Icon name="check" size={16} />
       </CornerToggle>
       <CornerToggle
         className="right-2 top-2"
         on={saved}
-        onClass="bg-primary text-ink"
-        label={saved ? "Remove from Later" : "Watch later"}
+        label={saved ? "Remove from Watch later" : "Watch later"}
         align="right"
         onClick={() => onToggleLater(video)}
       >
-        {/* A switch shows on/off by itself — no yellow fill, or every card
-            would look saved. */}
-        <Icon name="bookmark" size={16} filled={saved} duotone={false} />
+        {/* Saved = yellow inside the bookmark, not a yellow box. */}
+        <Icon name="bookmark" size={16} lit={saved} />
       </CornerToggle>
 
       {/* Seen in place, with a way back — a misclick costs nothing. */}
       {dimmed && (
-        <div className="absolute left-[46px] top-2.5 flex items-center gap-2 bg-ink px-2 py-1 text-xs font-bold text-cream">
+        <div className="absolute left-[46px] top-2.5 flex h-[26px] items-center gap-2 rounded-sm bg-ink px-2 text-xs font-semibold text-cream">
           Seen
           <button
             type="button"
-            className="flex items-center gap-1 text-pink hover:underline"
+            className="flex items-center gap-1 text-primary hover:underline"
             onClick={() => onToggleWatched(video)}
           >
             <Icon name="undo" size={13} />
@@ -134,36 +133,35 @@ export default function VideoCard({
         </div>
       )}
 
-      <div className={`flex flex-col gap-2 px-3.5 py-3 ${dimmed ? "opacity-45" : ""}`}>
-        <h3 className="line-clamp-2 min-h-[2.6em] text-[15px] font-bold leading-[1.3]" title={video.title}>
+      <div className={`flex flex-col gap-2 px-3.5 pb-2.5 pt-3 ${dimmed ? "opacity-45" : ""}`}>
+        <h3 className="line-clamp-2 min-h-[2.7em] text-lg font-semibold" title={video.title}>
           {video.title}
         </h3>
-        <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink/75">
+        <div className="flex min-w-0 items-center gap-1.5 text-meta text-muted">
           <span
-            className="h-2.5 w-2.5 shrink-0 border-[1.5px] border-ink"
+            className="h-2 w-2 shrink-0 rounded-full"
             style={{ backgroundColor: genreColor }}
           />
-          <span className="truncate font-bold text-ink" title={video.channelTitle}>
+          <span className="truncate font-medium text-ink" title={video.channelTitle}>
             {video.channelTitle}
           </span>
           <span className="shrink-0 whitespace-nowrap">· {timeAgo(video.publishedAt)}</span>
         </div>
       </div>
 
-      {/* Tool strip: Ask first (with its saved-answer count), then icons. */}
-      <div className="mt-auto flex h-[38px] border-t-2 border-ink">
+      {/* Tool row: Ask first (with its saved-answer count), then icons. */}
+      <div className="mt-auto flex items-center gap-0.5 border-t border-line px-1.5 py-1.5 @min-[12rem]:px-2">
         <StripButton
           active={activeTool === "ask"}
           label="Ask about this video"
           onClick={() => onOpenTool(video, "ask")}
-          className="min-w-0 flex-1 justify-start gap-1.5 px-2.5"
-          idleClass="bg-panel"
+          className="mr-auto shrink-0 justify-start gap-1.5 px-1.5 @min-[12rem]:pl-2 @min-[12rem]:pr-2.5"
           align="left"
         >
-          <Icon name="ask" size={17} />
-          <span className="hidden text-[13px] font-bold @min-[12rem]:inline">Ask</span>
+          <Icon name="ask" size={18} lit={video.answerCount > 0} />
+          <span className={`hidden text-meta font-semibold @min-[12rem]:inline ${activeTool === "ask" ? "" : "text-ink"}`}>Ask</span>
           {video.answerCount > 0 && (
-            <span className="absolute right-1 top-1 bg-primary px-1 font-mono text-[10px] font-bold leading-[14px] text-ink">
+            <span className="rounded-xs bg-primary px-1 font-mono text-xs font-bold leading-4 text-ink">
               {video.answerCount}
             </span>
           )}
@@ -181,14 +179,11 @@ export default function VideoCard({
             active={activeTool === tool}
             label={label}
             onClick={() => onOpenTool(video, tool)}
-            className="w-9 shrink-0 justify-center border-l-2 border-ink"
+            className="w-7 shrink-0 justify-center @min-[12rem]:w-8"
             align={i === all.length - 1 ? "right" : "center"}
           >
-            <Icon name={icon} size={17} />
-            {/* The dot means a note already exists. */}
-            {tool === "note" && video.personalNote && (
-              <span className="absolute right-1.5 top-1.5 h-[7px] w-[7px] rounded-full bg-danger" />
-            )}
+            {/* A lit note icon means a note already exists. */}
+            <Icon name={icon} size={18} lit={tool === "note" && !!video.personalNote} />
           </StripButton>
         ))}
       </div>
@@ -202,7 +197,7 @@ function HoverLabel({ text, align, below }: { text: string; align: "left" | "cen
     align === "left" ? "left-0" : align === "right" ? "right-0" : "left-1/2 -translate-x-1/2";
   return (
     <span
-      className={`pointer-events-none absolute z-30 hidden whitespace-nowrap bg-ink px-1.5 py-1 text-[10px] font-bold leading-none text-cream group-hover:block group-focus-visible:block ${anchor} ${
+      className={`pointer-events-none absolute z-30 hidden whitespace-nowrap rounded-xs bg-ink px-2 py-1 text-xs font-semibold text-cream group-hover/tip:block group-focus-visible/tip:block ${anchor} ${
         below ? "top-full mt-1.5" : "bottom-full mb-1.5"
       }`}
     >
@@ -214,7 +209,6 @@ function HoverLabel({ text, align, below }: { text: string; align: "left" | "cen
 function CornerToggle({
   className,
   on,
-  onClass,
   label,
   align,
   onClick,
@@ -222,7 +216,6 @@ function CornerToggle({
 }: {
   className: string;
   on: boolean;
-  onClass: string;
   label: string;
   align: "left" | "right";
   onClick: () => void;
@@ -234,8 +227,10 @@ function CornerToggle({
       aria-label={label}
       aria-pressed={on}
       onClick={onClick}
-      className={`group absolute z-10 flex h-[30px] w-[30px] items-center justify-center border-2 border-ink ${className} ${
-        on ? onClass : "bg-surface text-ink hover:bg-tint"
+      className={`icon-hover group/tip absolute z-10 flex h-[30px] w-[30px] items-center justify-center rounded-[7px] bg-surface/90 text-ink transition-opacity focus-visible:opacity-100 ${className} ${
+        on
+          ? "opacity-100 ring-[1.5px] ring-ink"
+          : "opacity-0 ring-1 ring-line group-hover/card:opacity-100 hover:ring-ink"
       }`}
     >
       {children}
@@ -249,12 +244,9 @@ function StripButton({
   label,
   onClick,
   className,
-  idleClass = "",
   align,
   children,
 }: {
-  /** Background when not active (Ask is pale yellow: it's the main action). */
-  idleClass?: string;
   active: boolean;
   label: string;
   onClick: () => void;
@@ -268,8 +260,8 @@ function StripButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
-      className={`group relative flex items-center transition-colors ${className} ${
-        active ? "bg-ink text-cream" : `text-ink hover:bg-primary ${idleClass}`
+      className={`icon-hover group/tip relative flex h-[30px] items-center rounded-sm transition-colors ${className} ${
+        active ? "bg-ink text-cream" : "text-muted hover:bg-ink/5 hover:text-ink"
       }`}
     >
       {children}

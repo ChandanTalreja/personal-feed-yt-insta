@@ -8,17 +8,22 @@
 Design source: Claude Design project "TubeBox Redesign" (rounds 2 and 3),
 shared as https://claude.ai/artifact/MP44nprvvt3auamdQkwRYk
 
+Phase 9 source ("calm base, retro accents"): the approved preview at
+[`docs/previews/style-preview.html`](previews/style-preview.html), built from
+studying Dan Vega's site, Gumroad and neobrutalism.dev. See §2 *v2* for the
+rules and where each idea came from.
+
 ---
 
 ## ▶ Resume here
 
 | | |
 |---|---|
-| **Status** | **All 8 phases built** (plus 4.1), uncommitted. Phase 8 awaiting the owner's review; 1–7 reviewed. The owner will test everything, then commit and push. ("Functionally brilliant; UI/UX a bit questionable": specifics to come for a polish pass.) |
-| **Phases done** | 8 of 8 (plus 4.1) |
-| **Next step** | The owner's full test, then commit and push (deploys to Netlify). Then a polish pass from the owner's UI/UX notes. Still ◐ and finished during polish: UI-03 layouts, UI-04 sentence case, REF-02 wording, REF-06 empty states on the remaining screens. |
-| **Before deploying** | Phase 2 adds an `app_meta` table, Phase 3 an index on `video_notes(video_id)`, Phase 6 a `videos.last_played_at` column. Production creates all of them automatically on the next cold start; nothing to run by hand. |
-| **Open questions** | The owner's specific UI/UX notes (to be sent) for a polish pass. |
+| **Status** | Phases 1–8 committed and live. **Phase 9 — "calm base, retro accents" — built 2026-10-17, uncommitted, awaiting the owner's review.** (Verdict on 1–8: "functionally brilliant; UI/UX a bit questionable": it felt "vibe-coded".) |
+| **Phases done** | 9 of 10 (plus 4.1). Phase 10 = code cleanup |
+| **Next step** | The owner reviews Phase 9 in the running app (every screen, phone width too), then commits and pushes. Then Phase 10 (code cleanup), scoped first. |
+| **Before deploying** | Phase 9 is look-only: no database changes. |
+| **Open questions** | Parked ideas waiting for a yes: FEAT-11 greeting, FEAT-12 "Pick up where you left off". Still unanswered from the deploy scare: turning off Next's Turbopack build cache (`experimental.turbopackFileSystemCacheForBuild: false`). |
 | **Last updated** | 2026-10-17 |
 
 *Update this block at the end of every session.*
@@ -41,6 +46,21 @@ personality — without losing a single feature.
 - Heavy treatment (thick shadow, filled yellow) only for primary or selected
   things; everything else stays light.
 
+**Revised for Phase 9 (agreed 2026-10-17).** Phases 1–8 applied these rules
+almost everywhere, and the result felt loud and "vibe-coded". Phase 9 keeps
+the identity and changes the dose. The new rules:
+- **Calm base, retro accents.** Most of the screen is quiet: soft 1px lines,
+  one muted grey, slight rounding. The retro identity lives in a few
+  deliberate places: the TV mascot, Archivo Black titles, Space Mono numbers,
+  the sticker-shadow main button, the marker and the pen.
+- **Hard shadows are earned.** At rest, only the main button has one. A card
+  gets the black outline and shadow while you hover it: it lifts.
+- **Yellow means something:** selected, "on", or the main action.
+- **Hand-drawn touches have one job each:** the yellow marker means "you are
+  here", the blue pen writes margin notes.
+
+The full v2 rules are in §2 *v2*; the original list above is kept for history.
+
 **Ground rules for the build:**
 - Every existing feature keeps working throughout; we change the look and the
   layout, not the behaviour, unless an item says otherwise.
@@ -52,6 +72,11 @@ personality — without losing a single feature.
 ## 2. Design system
 
 The single source of truth for the look. Code follows these values.
+
+> **Two versions.** *v2 — calm base, retro accents* at the end of this
+> section is **the design system today** (built in Phase 9, 2026-10-17). The
+> subsections before it, up to *Icons*, are the Phases 1–8 values, kept as
+> history so the decisions behind v2 still make sense.
 
 ### Colours
 
@@ -111,6 +136,237 @@ Chosen 2026-10-16 over plain bold lines and 8-bit pixel icons (see UI-06).
 - **Icon-only buttons always have an instant hover label**, placed so it's
   never cut off (below for buttons at the top of the page).
 
+### v2 — calm base, retro accents (Phase 9 · agreed and built 2026-10-17)
+
+**Preview:** [`docs/previews/style-preview.html`](previews/style-preview.html).
+It shows a real screenshot of today's feed (`previews/today-feed.png`) next to
+the same videos rebuilt under these rules, with *Today / New / Side by side*
+buttons. Below the mock it lists the rules, the wording changes, and an icon-set
+comparison. The page is self-contained: open it in a browser, or start
+"previews" from `.claude/launch.json` (a small local server on port 4100).
+
+#### Why a v2
+
+After Phases 1–8 the owner said it worked brilliantly but looked "vibe-coded".
+A measurement of the code backed that up: every choice had been made on the
+spot, so nothing was exactly consistent.
+
+| Measured in the code (2026-10-17) | Count |
+|---|---|
+| Colour tokens | 15, including **7 near-identical creams** (cream, surface, panel, tint, tint-2, line, line-2) |
+| Shades used for secondary text | **8** (`muted`, `muted-2`, `ink/55`, `/60`, `/70`, `/75`, `/80`, `/85`) |
+| Places with a 2px black border (`border-2 border-ink`) | 70 |
+| Places with a hard shadow at rest (`shadow-hard*`) | 25 |
+| Text sizes | 7 named, plus one-offs like `text-[11px]` |
+| Icons | hand-drawn in `Icon.tsx`, not from a designed set |
+
+When everything has a black border and a shadow, nothing stands out, and the
+eye notices 7 creams and 8 greys even when you can't say why.
+
+#### Where the ideas came from
+
+We studied three references (no purchase needed: two are open source under
+MIT, one is a public repo). We took *rules*, not looks.
+
+| Source | Link | What we took | What we left |
+|---|---|---|---|
+| **Dan Vega's site** (Nuxt 4) | [github.com/danvega/danvega-dev-nuxt](https://github.com/danvega/danvega-dev-nuxt) · danvega.dev | Personality **in a few places only** (his `$ whoami`, `./watch --youtube` buttons, code window) on a calm base; quiet grey icons that darken on hover; one accent colour; generous space. From a dashboard screenshot of his: bold section headings with a **handwritten blue note** beside them, and soft colour tiles for each app. | The swoosh under his name in the greeting (too literal a copy: the owner asked for inspiration, not copying). His base looks like Tailwind's "Spotlight" template (his header code still has a `Header.tsx isHomePage` comment left from a React original), so the base polish is from professional designers. |
+| **Gumroad** (Rails + React, MIT) | [github.com/antiwork/gumroad](https://github.com/antiwork/gumroad) | **Discipline:** a few fixed values and nothing in between (5 text sizes, 3 grey strengths derived from the text colour, 2 shadow sizes, 3 corner sizes); 1px borders; the hard shadow **appears only on hover** (buttons lift 4px, pressing flattens them). Read: `app/javascript/stylesheets/tailwind.css` (`@theme`), `_definitions.scss`, `components/Button.tsx`, `components/ui/ProductCard.tsx`. | Their font (ABC Favorit) is paid. Their icon set (Boxicons). |
+| **neobrutalism.dev** (shadcn/ui-based kit, MIT) | [github.com/ekmas/neobrutalism-components](https://github.com/ekmas/neobrutalism-components) · neobrutalism.dev | Proof that a yellow bold-border theme works with **~6 colour tokens** (background, secondary background, main, foreground, border, shadow): see `public/r/styling/yellow.json`. The **spinner in a badge** for waiting ("Syncing"): `src/components/ui/spinner.tsx` (the owner's pick, see *Waiting* below). | Their "press into the shadow" hover (we chose Gumroad's lift); their icon set (Lucide); it has components only, no page templates. |
+| **Phosphor Icons** (MIT) | [phosphoricons.com](https://phosphoricons.com) · `@phosphor-icons/core` | The **duotone** weight: an outline plus a soft fill layer, drawn by professional designers. It's the "sticker duotone" idea from UI-06, done properly. | — |
+| **Caveat** (Google Fonts, OFL) | fonts.google.com/specimen/Caveat | The handwriting face for the pen. | — |
+
+What Dan's site is built with, for reference: Tailwind 3 +
+`@tailwindcss/typography` + `@tailwindcss/forms`, Headless UI (menus,
+dialogs), Heroicons (about five in the whole site), Simple Icons for brand
+logos, zinc greys + one blue accent, the system font + mono.
+
+#### Colours (v2)
+
+| Token | Value | Use |
+|---|---|---|
+| `page` | `#fbf6ec` | Page, top bar, sidebar: **one** cream |
+| `surface` | `#fffdf8` | Cards, inputs, the selected sidebar row |
+| `ink` | `#1a1712` | Text, the hover/selected outline, shadows |
+| `muted` | `#6f675b` | **The only** secondary-text colour |
+| `line` | ink at 13% | Every quiet border and divider |
+| `yellow` | `#ffd02b` | Selected, "on", the main button, the marker, inside lit icons |
+| `danger` | `#e5484d` | Errors and destructive actions |
+| `pen` | `#2c55c7` | **Handwriting only** |
+
+Also allowed, each for one job: genre colours (user-defined, unchanged); four
+soft tints for the sidebar view tiles (Inbox `#ffe9a3`, Watch later
+`#ffd6ec`, Watched `#cdeed8`, Everything `#d6e4ff`); a green "synced" dot;
+the brown warning text for quiet channels.
+Gone: `panel`, `tint`, `tint-2`, `line-2`, `faint`, `muted-2`, `pink`, the
+`ink/NN` text shades, and the page's dot grid.
+
+**In code** (`app/globals.css` `@theme`): `page` keeps its old class name
+`cream` (`bg-cream`) and `yellow` keeps `primary` (`bg-primary`), so screens
+didn't need every class renamed. The one-job colours are `ok`, `warn` and
+`tile-yellow` / `tile-pink` / `tile-green` / `tile-blue`. `--color-*: initial`
+removes Tailwind's own palette, so an off-system colour can't creep back in
+(it simply doesn't exist as a class).
+
+#### Type (v2)
+
+Same three fonts, plus Caveat for the pen. **Six sizes, no one-offs:**
+
+| Size | Class | Used for |
+|---|---|---|
+| 12px | `text-xs` | Small labels (Space Mono caps), badges, counts |
+| 13px | `text-meta` | Metadata, secondary controls, "Synced 3h ago" |
+| 14px | `text-sm` | Body, buttons, sidebar rows (also the page default) |
+| 15px | `text-lg` | Card titles (semibold) and the line under a page title |
+| 22px | `text-xl` | Section headings (Space Grotesk bold) |
+| 40px | `text-display` | Page titles (Archivo Black) |
+
+`--text-*: initial` removes Tailwind's other sizes, so `text-2xl` or
+`text-[11px]` can't sneak back in.
+
+Space Mono only for numbers and small labels. Its spaces are a full character
+wide, so a sentence in it looks gappy: "Synced 3h ago" uses the body font.
+
+#### Shape, borders, shadows (v2)
+
+- **Corners:** 4px `rounded-xs` (badges), 6px `rounded-sm` (rows, small
+  buttons), 8px `rounded-md` (inputs, buttons, segmented controls), 10px
+  `rounded-lg` (cards, panels). Square corners are retired.
+- **Borders:** 1px `line` at rest. 1px `ink` on hover or when selected. The
+  main button: 1.5px `ink`.
+- **Shadows (hard, no blur), only two:**
+  - *Sticker* `3px 3px 0 ink`: the main button (Add channel) at rest. On
+    hover it rises 1px; on press it flattens.
+  - *Lift* `5px 5px 0 ink` + move up-left 3px: a card or a "pick up" tile
+    while you hover it.
+  - In code: `shadow-sticker`, `shadow-lift`, and the `.lift` class (flat
+    with a soft line; on hover it moves, darkens its border and drops the
+    shadow). Menus and pop-overs also use the sticker shadow: they sit "on
+    top" of the page.
+- **No dot grid.** The calm base is plain cream.
+
+#### Icons (v2) — Phosphor duotone
+
+- **One designed set:** Phosphor, duotone weight (bold weight for the plain
+  check, plus and arrow). Our `Icon` component keeps its API; only what it
+  draws changes.
+- **At rest:** `muted` outline, fill layer at Phosphor's default 20%. Quiet.
+- **Hover:** outline turns `ink`, the fill turns solid `yellow`, and a soft
+  rounded tile appears behind the button.
+- **"On"** (has saved answers, has a note, saved for later): stays lit the
+  same way. **One signal per state:** no extra red dot, no yellow box around
+  the icon (the owner: the yellow belongs *inside* the icon).
+- **Pick icons whose fill has a real body.** Some icons' fill is only a
+  sliver (a folded corner, a pencil tip), so they barely light up. This is
+  why Transcript is `article` (not `file-text`), Note is `notepad` (not
+  `note-pencil`) and Add to track is `stack-plus` (not `list-plus`).
+- **Open shapes never get the yellow** (refresh, check, plus, arrows). They
+  use Phosphor's regular or bold weight, with no fill layer, and on hover
+  they only turn ink. A yellow refresh icon looked like a smudge: its "fill"
+  is just thin slivers (the owner: "feels cheap").
+- **The refresh icon turns on hover:** a quarter turn (90°, 0.35 s, with a
+  slight overshoot). Movement, not colour, hints at what it does.
+
+#### Waiting: one spinner everywhere
+
+Source: neobrutalism.dev's Spinner
+([`src/components/ui/spinner.tsx`](https://github.com/ekmas/neobrutalism-components/blob/main/src/components/ui/spinner.tsx)
+and its "With Badge" and "In Button" examples). Theirs is Lucide's `Loader2`
+spinning. Ours is the same idea in our icon set.
+
+- **The spinner is Phosphor's `circle-notch`** (bold), spinning once every
+  0.75 s (slower if the system asks for reduced motion). It's a round arc, so
+  it turns smoothly. Today we spin the refresh icon, whose arrowheads make it
+  wobble.
+- **Always with a word that says what's happening.** The spinner never
+  appears alone.
+- **Only one thing moves.** The button that started the wait goes faded and
+  still.
+
+| Where | While waiting |
+|---|---|
+| Sync (top bar) | "● Synced 3h ago" becomes a badge: ◌ **Syncing** (1.5px ink border, 6px corners, `surface`, 13px semibold). The sync button fades and doesn't spin. Afterwards: "● Synced just now", and the "N new videos" message as now. |
+| Ask (study panel, Notebook) | ◌ Thinking… |
+| Backfill (Channels) | ◌ Backfilling 2 of 5… |
+| Any button busy with a request | ◌ Please wait, with the button disabled |
+
+The preview's sync button demonstrates the first row (a fake 2.6 s sync).
+
+| Use | Phosphor icon |
+|---|---|
+| Ask | `chat-circle-dots` |
+| Summary | `sparkle` |
+| Transcript | `article` |
+| Note | `notepad` |
+| Add to track | `stack-plus` |
+| Mark seen | `check` (bold) |
+| Watch later | `bookmark-simple` |
+| Inbox · Watch later · Watched · Everything | `tray` · `clock-countdown` · `check-circle` · `television-simple` |
+| Search · Sync · Add · "All 13 channels →" · Play | `magnifying-glass` · `arrows-clockwise` · `plus` (bold) · `arrow-right` (bold) · `play` |
+
+#### The marker and the pen (personality)
+
+Two hand-drawn tools, one job each, like a notebook on a desk:
+
+| Tool | Colour | Job | Where |
+|---|---|---|---|
+| **Marker** | yellow | "You are here" | Under the active tab in the top bar: a slightly tilted felt-tip stroke (SVG path `M3 8.5 C 28 4.5, 62 3.5, 97 5.5`, 5.5px, round caps, 112% of the word's width, 9px below it). Other tabs show it faintly (45%) on hover. |
+| **Pen** | blue | Margin notes | **At most one per screen, beside the page title**: Caveat 700, 23px, tilted −2.5°. It says what makes the page different. Never instructions, never on cards. |
+
+The marker is thick because yellow on cream is faint; the active tab's word
+also turns ink and bold, so the tab is clear even without the stroke. The
+sidebar doesn't get the marker: its selected row already shows a white box
+and a yellow count.
+
+| Screen | Pen note |
+|---|---|
+| Inbox | newest first, no algorithm |
+| Watch later | saved for a slower day |
+| Watched | seen it, kept it |
+| Everything | (none: it's just everything) |
+| Shorts | no endless scroll here |
+| Notebook | every answer you kept |
+| Notebook, when empty | every answer you keep lands here |
+| Tracks | one step at a time |
+| Channels | only the ones you chose |
+| Empty inbox ("You're all caught up") | nothing new. go outside? |
+| Style guide | calm base, retro accents |
+
+In code: the `.pen-note` class (`globals.css`), and `PageTitle`'s `note`
+prop.
+
+Other personality, kept small: the TV mascot; soft colour tiles for the four
+sidebar views; mono caps for small labels ("YOUR FEED", "GENRES").
+
+#### Screen pieces (v2), as in the preview
+
+- **Top bar:** `page` background, 1px `line` underneath, 64px tall (65 with
+  the line: the sticky sidebars and panels start at 65px). Tabs are plain
+  text (muted; the active one ink + marker) with plain mono counts. "Search
+  everything" box with ⌘K (it covers channels, videos, answers and notes).
+  "● Synced 3h ago" and the sync icon button sit together as one tight group
+  (8px apart), then **Add channel**, the one sticker button.
+  - *Laptops (below 1280px):* the "Synced 3h ago" words and the "Add
+    channel" words hide (the dot and the ＋ stay, and say it on hover), so the
+    bar stays on one row.
+  - *Phones:* row 1 is logo, sync and ＋; row 2 the four tabs (they scroll
+    sideways if they must, no scrollbar shown); row 3 the search box.
+- **Sidebar:** `page` background, 1px line on the right. Groups "Your feed",
+  "Genres", "Channels". Rows are 34px with 6px corners; the selected row is
+  `surface` with a `line` ring, semibold, and a yellow count chip. Counts
+  elsewhere are plain mono. Genre dots are small rounded squares; channels
+  show their round avatar.
+- **Page head:** title (40px) + pen note on one line; under it "699 to watch
+  · about 261 hours" on the left and the controls on the right ("Filter this
+  list", Videos/Shorts, length).
+- **Card:** flat `surface` with a 1px `line` border and 10px corners; lifts
+  on hover. The ✓ and bookmark corners appear on hover and stay visible once
+  set (set = 1.5px ink ring + yellow inside the icon). Duration in mono on
+  85% ink. Progress bar 5px: yellow on a dark track. Title 15px semibold, 2
+  lines; meta is the genre dot, channel (ink) and age (muted). The tool row
+  is ghost icon buttons; Ask keeps its word and a yellow mono count badge
+  when answers exist.
+
 ---
 
 ## 3. Decisions log
@@ -157,6 +413,38 @@ Chosen 2026-10-16 over plain bold lines and 8-bit pixel icons (see UI-06).
 | Title search | Stays in the feed's title row until Phase 8 | The top bar gets a search box only when global search works |
 | Icon style | B, "sticker duotone": ink outline, yellow fill in closed shapes | Adds depth and the yellow; pixel icons (C) only stay crisp at fixed sizes |
 | Yellow amount | Yellow for selection, counts, the main button and inside icons; bars on soft cream | Pale yellow bars read as "urine yellow" |
+| **Phase 9 direction** (2026-10-17) | "Calm base, retro accents" (§2 *v2*), keeping the retro theme | The owner wanted Dan Vega's "cool, professional" feel without losing retro; open to change only if it was clearly better, and the preview was |
+| References | Dan Vega's site (personality in few places), Gumroad (discipline), neobrutalism.dev (6-token yellow theme) | Take rules, not looks; all free to study (two MIT, one public) |
+| Corners (v2) | 6 / 8 / 10px rounding; **replaces "Square"** | The single biggest step toward "professional"; matches Dan's site and Gumroad |
+| Shadows (v2) | Only the main button at rest; cards lift with a shadow on hover | When everything has a shadow, nothing feels clickable (Gumroad's approach) |
+| Borders (v2) | 1px soft line at rest; ink on hover/selected | 2px black on 70 elements made every screen loud |
+| Colours (v2) | 8 tokens (one cream, one muted grey) | Replaces 15 tokens, 7 creams and 8 text greys |
+| Dot grid (v2) | Dropped | Part of the noise; the approved preview has none |
+| Icons (v2) | **Phosphor duotone**, fill recoloured yellow on hover/"on"; **replaces** the hand-drawn set | A designed set is consistent in ways hand-drawn icons aren't. UI-06 had rejected Phosphor for its faint grey fill; recolouring the fill layer with CSS solves that. Heroicons (Dan's) and Lucide (neobrutalism.dev) are outline-only, so they can't hold yellow inside |
+| Icon hover fill | Keep it, on every tool icon consistently | The owner liked it; it only felt cheap while half the icons barely filled |
+| Open-shape icons (refresh, check, plus, arrows) | No yellow; plain outline that turns ink on hover; refresh turns 90° | Their fill is only slivers, so yellow looks like a smudge |
+| Waiting indicator | One spinner (Phosphor `circle-notch`) + a word, everywhere; sync shows a "Syncing" badge | From neobrutalism.dev's Spinner; a spinning refresh icon wobbles, and the text didn't say what was happening |
+| Saved bookmark | Yellow inside the icon, white box with an ink ring; not a solid yellow box | The yellow belongs inside the icon (the owner) |
+| "Has a note" | The note icon stays lit; the red dot is dropped | One signal per state |
+| Active tab | Hand-drawn yellow marker stroke; faint on hover | The owner's idea: a slanted stroke like Dan's, but in yellow and with a job ("you are here") |
+| Handwriting | Blue pen (Caveat), at most one note per screen, beside the page title | Personality that stays special; blue is reserved for words |
+| Greeting ("Good morning, Chandan.") | **Parked** (FEAT-11) | Needs the owner's name stored somewhere; and the first try copied Dan's swoosh too literally |
+| "Pick up where you left off" | **Parked** (FEAT-12) | A new feature, not a look change; needs no new tracking when it's wanted |
+| Top search text | "Search everything" | It covers channels, videos, answers and notes; listing three of four was wrong |
+| Page search text | "Filter this list" | It no longer looks like a second copy of the top search |
+| Starred / recently used | Not needed | Notebook already gathers everything asked and noted |
+| Code cleanup | Phase 10, right after Phase 9 | Doing it during the redesign would clash with the same files |
+| Bringing in Phosphor (Phase 9 build) | Copy the 27 icons' shapes into `components/ui/iconPaths.ts` (MIT notice kept); no package | Keeps one small `Icon` component and its API; the yellow lighting is our own CSS anyway |
+| Old token names in code | Keep `cream` (= v2 `page`) and `primary` (= v2 `yellow`) | Every screen already used them; renaming would be churn with no visible change |
+| Tailwind's default palette and sizes | Removed (`--color-*`, `--text-*`, `--radius-*: initial`) | Off-system values can't creep back: they no longer exist as classes |
+| `primary` buttons | Full size = the sticker (shadow at rest); small = yellow + ink edge, shadow on hover | Keeps "one sticker per screen" while panels still get a yellow action (Watch, Continue, Save) |
+| Sync status while syncing | "Syncing" badge with the spinner; the refresh icon stays still | Only one thing moves |
+| Top bar on laptops (below 1280px) | Hide the "Synced…" and "Add channel" words (dot and ＋ stay, with hover labels) | The bar wrapped onto two rows at 1024px, and the sticky sidebar would slide under it |
+| Top bar on phones | Logo, sync, ＋ / then the tabs (scroll if needed) / then search | The four tabs ran off a 375px screen |
+| Pen notes not in the plan | Watched "seen it, kept it", Shorts "no endless scroll here", empty Notebook "every answer you keep lands here", Style guide "calm base, retro accents"; none on Everything or Track complete | Same rule: says what makes the page different, one per screen |
+| Note indicator, "Short" badge, Undo link | Lit note icon (no dot); "Short" in the same dark chip as the duration; Undo in yellow on the dark "Seen" chip | `pink` was retired; fewer colours, same meaning |
+| `components/Emoji.tsx` | Deleted | Nothing uses typed emoji for controls any more |
+| Channels: sort by genre (after Phase 9) | Yes: grouped A→Z / Z→A, "No genre" last, channels A→Z inside; Status not sortable | Sorting shows every genre grouped (filtering shows one); status already has its own filter buttons |
 
 ---
 
@@ -805,6 +1093,19 @@ channel with no stored uploads; sorting by last upload put the newest first.
 
 ### UI — visual problems
 
+**Added 2026-10-17 (after Phase 9): sort by genre.** The Genre header now
+sorts like Channel, Videos and Last upload. It groups the channels by genre
+(A→Z, or Z→A on a second click), keeps "No genre" last either way, and keeps
+channels A→Z inside each group, so the table reads like a grouped list.
+*Why:* filtering by a genre (the Genres panel) shows one genre at a time;
+sorting shows all of them grouped, which helps when tidying (a channel filed
+under the wrong genre, a genre with too many channels). *Status* stays
+unsortable on purpose: the All / Quiet / Paused buttons already filter by it,
+and there are only three statuses. Changing a row's genre while sorted by
+genre moves that row into its new group straight away. Code: the `"genre"`
+`SortKey` in `ChannelsClient.tsx`. Verified both directions in the running
+app.
+
 #### UI-01 · Design tokens in one place — ✅ done · 2026-10-16
 **The problem**
 The app's colours lived in a handful of loosely named variables (`--paper`,
@@ -1029,21 +1330,250 @@ length, and "Resumed at 12:30 · Start over" is a normal button). No screen
 uses a typed character or emoji as a control any more; the style guide
 keeps the old emoji only as reference.
 
-#### UI-03 · Consistent page layout — ◐ Feed done 2026-10-16 · other screens Phases 4–8
+#### UI-03 · Consistent page layout — ✅ done · Feed 2026-10-16 · every screen 2026-10-17 (Phase 9)
 **The problem**
-Feed, Manage, Notebook and Tracks each have a different header and layout.
+Feed, Manage, Notebook and Tracks each had a different header and layout:
+titles of 26, 30 and 34px, summaries in different fonts, controls placed
+differently, and sticky columns starting at different heights.
 
 **The change**
-Every screen shares the top bar and the same page-title pattern (title, a
-one-line summary in muted text, controls on the right).
+Every screen shares the top bar and the same page-title pattern: a 40px
+title with its pen note, a one-line summary in muted text, controls on the
+right. Two-pane screens (Notebook, Tracks) put the same title at the top of
+their left column.
 
-#### UI-04 · Sentence case for controls — ◐ Feed done 2026-10-16 · other screens Phases 4–8
+**How it works**
+A shared `components/ui/PageTitle.tsx` takes `title`, `note`, `summary` and
+the controls as children, and lays them out in two rows that wrap on
+narrow screens. Feed, Channels and the style guide use it. Notebook and
+Tracks repeat the same classes in their left column, because there the
+title shares a row with the column's own buttons (⋯, New track). Every
+sticky column starts at 65px, the top bar's height.
+
+**Key code** — `components/ui/PageTitle.tsx`
+```tsx
+<div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+  <h1 className="font-display text-display">{title}</h1>
+  {note && <span className="pen-note">{note}</span>}
+</div>
+```
+
+**Alternatives considered**
+- *Force Notebook and Tracks into the same full-width header:* it would push
+  the two panes down and waste the left column's top.
+- *Leave each screen's header as it was:* the inconsistency was part of the
+  "vibe-coded" feel.
+
+**Files** — `components/ui/PageTitle.tsx` (new), `FeedClient`,
+`ChannelsClient`, `StyleguideClient`, `NotebookClient`, `TracksClient`
+(column titles, `top-[65px]`).
+
+**Verified** — every screen opens on a 40px title with its pen note and the
+same spacing; the sidebars and panels stay put under the bar when scrolling
+(checked on the feed and Notebook at 1440px).
+
+#### UI-04 · Sentence case for controls — ✅ done · Feed 2026-10-16 · every screen 2026-10-17 (Phase 9)
 **The problem**
-Almost every label is in capitals, which is slower to read.
+Almost every label was in capitals ("+ NEW", "COPY", "MY NOTE", "UP NEXT ·
+STEP 3"), which is slower to read and reads as shouting.
 
 **The change**
-Buttons, tabs and messages in sentence case; capitals kept for the logo, page
-titles and small section labels (e.g. "GENRES").
+Buttons, tabs and messages in sentence case; capitals only for the logo and
+small section labels ("YOUR FEED", "GENRES"), which are shown in caps by CSS.
+
+**How it works**
+Labels are written in normal sentence case in the code. The small-label
+style (Space Mono, 12px, bold, letter-spaced, `uppercase`) turns them into
+caps on screen. So a screen reader reads "Your feed", not "Y-O-U-R", and
+changing the style later is one class, not a rewrite of every string.
+
+**Key code** — the small-label style, used for section labels and chips
+```tsx
+<h3 className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">{title}</h3>
+```
+
+**Alternatives considered**
+- *Keep caps in the strings:* screen readers may spell them out, and every
+  label would need retyping to change the style.
+- *No caps at all:* the small labels lose their retro "printed label" feel,
+  one of the accents we keep on purpose.
+
+**Files** — `components/ui/SidebarList.tsx`, `TrackMenu`, `CopyButton`,
+`FeedClient` (player queue label), `NotebookClient` ("My note", "Gemini"),
+`TracksClient` ("Up next · step 3", "Track · Tech"), `ChannelsClient`
+(table headers), `GlobalSearch` (section titles), `AskSuggestionsEditor`.
+
+**Verified** — a search of `components/` finds no all-caps labels in the
+strings except the logo; section labels still show in caps on screen.
+
+#### UI-07 · Calm base, retro accents — ✅ done · 2026-10-17 (Phase 9)
+**The problem**
+After Phases 1–8 the app worked well but looked "vibe-coded". Measured: 15
+colour tokens (7 near-identical creams), 8 shades of secondary text, a 2px
+black border in 70 places, a hard shadow at rest in 25, 7+ text sizes plus
+one-offs. Every element was equally loud, so nothing stood out and nothing
+felt clickable.
+
+**The change**
+Apply §2 *v2* to every screen: one cream, one muted grey, 1px soft lines,
+6–10px corners, six text sizes, no dot grid. Hard shadows only on the main
+button at rest and on a card while it's hovered (it lifts). The retro
+identity stays in a few chosen places: mascot, Archivo Black titles, Space
+Mono numbers and labels, the sticker button, and the marker and pen
+(REF-07). Ideas and sources: §2 *v2 → Where the ideas came from*. Preview:
+`docs/previews/style-preview.html`.
+
+**Alternatives considered**
+- *Keep Phases 1–8's look and only fix details:* doesn't address the cause
+  (no fixed scale, everything heavy).
+- *Switch to a soft, non-retro style like Dan's site:* loses TUBEBOX's
+  identity; the owner wants to keep retro.
+- *Copy neobrutalism.dev as is:* shadows at rest on everything, the same
+  loudness we're leaving.
+
+**How it works**
+Think of it as moving from "everything shouts" to "the page whispers until
+you reach for something". Three mechanisms do most of the work:
+
+1. *One set of values, and nothing else exists.* `app/globals.css` declares
+   the v2 colours, the six text sizes and the four corner sizes in Tailwind's
+   `@theme`, and first wipes Tailwind's own lists with `--color-*: initial`,
+   `--text-*: initial`, `--radius-*: initial`. So a stray `text-[11px]`,
+   `bg-tint` or `rounded-xl` doesn't just look off: it stops existing.
+   That's what keeps the app from drifting back to "vibe-coded".
+2. *The old helper classes were redefined, not hunted down.* `.nb`,
+   `.nb-input`, `.nb-chip` and `.nb-btn` are used all over; giving them v2
+   values (1px soft line, rounded, no shadow; the button stays the sticker)
+   moved every screen at once.
+3. *The hard shadow became a reward.* The `.lift` class keeps a card flat
+   with a soft line; on hover it moves 3px up-left, its border turns ink and
+   the 5px shadow appears. The same retro shadow, now saying "you can open
+   this".
+
+Then each screen was gone through by hand: 2px ink borders → 1px `line`,
+eight greys → `muted`, one-off sizes → the scale, `tint` highlights →
+`surface` or a light yellow, and the busy states → the spinner (UI-08).
+
+**Key code** — `app/globals.css`
+```css
+@theme {
+  --color-*: initial;          /* only our colours exist */
+  --color-cream: #fbf6ec;      /* page, top bar, sidebar: one cream */
+  --color-muted: #6f675b;      /* THE secondary-text colour */
+  --color-line: rgb(26 23 18 / 0.13);
+  --text-*: initial;           /* only our six sizes exist */
+  --text-meta: 0.8125rem;      /* 13 */
+  --shadow-sticker: 3px 3px 0 var(--color-ink);
+  --shadow-lift: 5px 5px 0 var(--color-ink);
+}
+.lift:hover { transform: translate(-3px, -3px); border-color: var(--color-ink); box-shadow: var(--shadow-lift); }
+```
+
+**Files** — `app/globals.css`, `app/layout.tsx` (Caveat), `lib/format.ts`
+(`formatWatchTime`), `components/ui/*` (Button with `busy`, IconButton with
+`ghost`, SegmentedControl, SidebarList with `SidebarTile`, SidePanel, new
+`PageTitle`), and every screen: `TopBar`, `FeedSidebar`, `FeedClient`,
+`VideoCard`, `StudyPanel`, `PlayerModal`, `GlobalSearch`, `NotebookClient`,
+`TracksClient`, `ChannelsClient`, `GenresPanel`, `TrackMenu`, `NoteEditor`,
+`CopyButton`, `Markdown`, `AskSuggestionsEditor`, `GenreColorPicker`,
+`LoginForm`, `StyleguideClient`. Removed: `components/Emoji.tsx` (no screen
+used typed emoji any more).
+
+*Lesson from review:* `overflow-hidden` for rounded corners also clips
+hover labels and menus. Round the first and last rows instead
+(`first:rounded-t-[9px]`), and give hover labels a named group so a
+hover-group around them can't open them all.
+
+**Verified** — a sweep of `components/` and `app/` finds no 2px ink borders,
+no `shadow-hard*`, no retired colours and no one-off text sizes (the only
+2px border left is the study panel's active-tab underline, on purpose).
+Typecheck, lint and production build pass; the built CSS contains the v2
+tokens and none of the retired ones. Checked in the running app at 1440,
+1280, 1024 and 375px wide: feed, shorts, study panel, search, Notebook,
+Tracks, Channels, style guide. Two fixes came out of that: the top bar wrapped
+onto two rows at 1024px (so its words now hide below 1280px), and on phones
+the tabs ran off-screen (they now get their own row).
+
+#### UI-08 · Phosphor duotone icons — ✅ done · 2026-10-17 (Phase 9)
+**The problem**
+The icons are hand-drawn (`components/ui/Icon.tsx`), 2.5px and yellow-filled
+everywhere. Next to a professional set they look home-made, and the yellow
+on every icon makes them all compete.
+
+**The change**
+Swap the drawings inside `Icon.tsx` for Phosphor's duotone set and keep the
+component's API, so screens change little. Icons are quiet at rest (muted
+outline, 20% fill). On hover they turn ink with a solid yellow fill on a soft
+tile, and they stay lit while "on". Open shapes (refresh, check, plus,
+arrows) never fill; the refresh icon turns 90° on hover. Every wait uses one
+spinner with a word ("Syncing", "Thinking…"), from neobrutalism.dev's
+Spinner. Mapping and rules: §2 *v2 → Icons* and *Waiting*.
+
+**Alternatives considered** — compared side by side in the preview's
+"Icon sets compared":
+- *Heroicons* (what Dan's site uses): clean, but outline-only, so no yellow
+  inside.
+- *Lucide* (neobrutalism.dev's set): same limitation, and a heavier 2px line.
+- *Keep our hand-drawn set:* consistent in style only by effort; the gap to
+  a designed set shows.
+- *Install `@phosphor-icons/react`* instead of copying shapes: one more
+  dependency for 27 icons, and its components would have to be wrapped
+  anyway to keep our `Icon` API and the yellow lighting. Copying the shapes
+  (MIT, with the notice kept) was chosen.
+
+**How it works**
+Each Phosphor duotone icon is two layers drawn on a 256×256 grid: a soft
+inner shape (marked `opacity="0.2"` in Phosphor's files) and the outline on
+top. A small script downloaded the 27 icons we use from
+`@phosphor-icons/core` and wrote their shapes into `components/ui/iconPaths.ts`,
+split into `fill` (the inner layer) and `line` (the outline). `Icon.tsx`
+draws both, in the current text colour.
+
+The yellow is pure CSS, which is why one rule covers every screen:
+- `.icon-fill` keeps the inner layer at 20%: a faint tint.
+- `.icon-lit`, or any hovered button marked `icon-hover`, turns it solid
+  yellow. Like a light switch on the button around the icon: buttons opt in
+  with one class.
+- `lit` on the icon means "on" (the card's bookmark when saved, Ask when it
+  has answers, the note icon when a note exists): it stays yellow.
+- Open shapes (check, ✕, arrows, refresh, the spinner) come from Phosphor's
+  bold/regular weights, which have no inner layer, so there's nothing to
+  turn yellow.
+
+Waiting uses `components/ui/Spinner.tsx`: the `spinner` icon
+(`circle-notch`) turning every 0.75s via `animate-spin` (slower with
+reduced motion), always with its word. `SpinnerBadge` is the bordered
+version for the top bar's "Syncing". `Button` has `busy` / `busyLabel`, so a
+busy button shows "◌ Saving…" and disables itself in one prop. The top
+bar's refresh icon turns 90° on hover and no longer spins while syncing.
+
+**Key code** — `components/ui/Icon.tsx`, `app/globals.css`
+```tsx
+// Inner layer first (lit = solid yellow), then the outline on top.
+{(duotone || filled) && shape.fill?.map((d) => <path d={d} className={layer} />)}
+{shape.line.map((d) => <path d={d} />)}
+```
+```css
+.icon-fill { opacity: 0.2; }
+.icon-lit, .icon-hover:hover .icon-fill { fill: var(--color-primary); opacity: 1; }
+```
+
+**Files** — `components/ui/iconPaths.ts` (new, generated; MIT notice at the
+top), `components/ui/Icon.tsx` (rewritten; `strokeWidth` prop removed, `lit`
+added), `components/ui/Spinner.tsx` (new), `components/ui/Button.tsx`
+(`busy`), `app/globals.css` (`.icon-fill`, `.icon-lit`, `.icon-hover`,
+`--animate-spin`), and every caller (the old `strokeWidth` props removed;
+the note dot replaced by a lit icon; "Loading…/Thinking…/Saving…" texts
+replaced by the spinner).
+
+**Verified** — the style guide shows all 27 icons at rest and lighting up on
+hover; strip icons on the feed cards all fill on hover (the three poor
+fillers were swapped for `article`, `notepad`, `stack-plus`); the saved
+bookmark shows yellow inside a white corner; the refresh icon turns on
+hover and never fills; "Syncing" badge, "Thinking…" and a busy button render
+in the style guide. On narrow short cards the Ask button was being squeezed
+to 18px, overlapping its neighbour; the tool row now tightens on narrow
+cards (measured: 30 + 4×28px fits the 166px row).
 
 ### REF — refinements
 
@@ -1084,17 +1614,40 @@ sides, so it reads as a triangle poking up toward the TV.
 **Verified** — hovering the logo shows the bubble immediately (no
 transition), placed under the TV; it hides when the mouse leaves.
 
-#### REF-02 · Human wording — ◐ Feed done 2026-10-16 (TEXT → Transcript, "You're all caught up") · other screens Phases 4–8
+#### REF-02 · Human wording — ✅ done · Feed 2026-10-16 · every screen 2026-10-17 (Phase 9, REF-08)
+**The problem**
+Labels and messages were written the way the code names things ("TEXT",
+"RE-SYNC", "NOTHING HERE YET", an error about serverless functions timing
+out), not the way a person would say them.
+
+**The change**
 Rename internal-sounding labels and rewrite messages as a person would say
-them. Starting list:
+them:
 
 | Today | New |
 |---|---|
-| INBOX / EVERYTHING / HISTORY | Inbox / Everything / History (sentence case, as places) |
+| INBOX / EVERYTHING / HISTORY | Inbox / Everything / Watched (sentence case, as places) |
 | 📄 TEXT | Transcript |
 | RE-SYNC | **Backfill 1Y–5Y** (FEAT-10): says what it does, and can reach further back |
 | "…serverless functions time out before a watch finishes…" | "This video has no captions, so it can't be read here. Open it on your laptop once — after that it works everywhere." |
 | NOTHING HERE YET (empty inbox) | "You're all caught up" |
+
+**How it works**
+Text changes in place, screen by screen as each phase landed; Phase 9's
+wording pass (REF-08) finished the remaining screens and added the "to
+watch" summary.
+
+**Key code** — no logic of its own; see REF-08 for `formatWatchTime()`.
+
+**Alternatives considered**
+- *Keep the technical messages, since they're accurate:* accurate but not
+  useful; a person needs what to do next, not why the server failed.
+
+**Files** — as listed under REF-08, plus `lib/gemini.ts` (the no-captions
+message) and `ChannelsClient` (Backfill).
+
+**Verified** — every screen read through at the end of Phase 9; no labels
+left in the old style (see UI-04).
 
 #### REF-03 · Space Mono for numbers — ✅ done (font installed) · 2026-10-16
 **The problem**
@@ -1199,12 +1752,164 @@ animation, `.ticker-track`, `.nb-ticker`) are deleted, not hidden.
 **Verified** — no ticker element on the feed; no remaining references to
 `ticker` or `marquee` in the code.
 
-#### REF-06 · Empty states that say what to do next — ◐ feed done 2026-10-16 · other screens Phases 4–8
+#### REF-06 · Empty states that say what to do next — ✅ done · feed 2026-10-16 · every screen 2026-10-17 (Phase 9)
+**The problem**
+An empty screen showed a bare "Nothing here" (or nothing at all), without
+saying why or what to do.
+
+**The change**
 Each empty screen names the place and offers the next step. The feed's, most
 specific reason first: no channels yet ("+ Add channel"), search with no
-matches ("Clear search"), nothing at that length ("Any length"), Later empty
-("Use the bookmark on any card"), Inbox empty ("You're all caught up" → "See
-everything"), History empty. In `FeedClient.renderEmptyState()`.
+matches ("Clear search"), nothing at that length ("Any length"), Watch later
+empty ("Use the bookmark on any card"), Inbox empty ("You're all caught up"
+→ "See everything", with the pen note "nothing new. go outside?"), Watched
+empty. Notebook: "Your notebook is empty" (pen note "every answer you keep
+lands here"), and "No matches" → "Clear filters". Tracks: "Start your first
+track", "This track is empty", "Track complete". Channels: "Add your first
+channel", "No channels match" → "Show all channels".
+
+**How it works**
+The feed checks the reasons in order of how specific they are, and the
+first that applies wins: no channels at all beats a search miss, which
+beats a length filter, and so on. So the message is always about the thing
+you can actually change. Every empty state is the same calm card (1px line,
+10px corners, no shadow), with at most the one pen note of that screen.
+
+**Key code** — `components/FeedClient.tsx` `renderEmptyState()`
+```tsx
+if (channels.length === 0) { title = "No channels yet"; /* + Add channel */ }
+else if (debouncedSearch) { title = "No matches"; /* Clear search */ }
+else if (kind === "videos" && lengthFilter !== "any") { /* Any length */ }
+else if (view === "unwatched") { title = "You're all caught up"; note = "nothing new. go outside?"; }
+```
+
+**Alternatives considered**
+- *One generic "Nothing here" with a reset button:* simpler, but it hides
+  why the list is empty.
+
+**Files** — `components/FeedClient.tsx`, `NotebookClient`, `TracksClient`,
+`ChannelsClient`.
+
+**Verified** — the feed's search and length cases show their own message
+and button; Notebook, Tracks and Channels empty cards render in the v2 card
+style (checked by reading each branch; a real empty Notebook would mean
+deleting the owner's answers, so that one wasn't forced).
+
+#### REF-07 · The marker and the pen — ✅ done · 2026-10-17 (Phase 9)
+**The problem**
+With Phase 9's calmer base, the app needs a few memorable touches, the way
+Dan's site has its terminal touches and handwritten notes, without
+copying them.
+
+**The change**
+Two hand-drawn tools with one job each (§2 *v2 → The marker and the pen*):
+- **Yellow marker:** a slightly tilted felt-tip stroke under the active tab
+  in the top bar, and faintly under a tab you hover. It replaces the active
+  tab's solid black box.
+- **Blue pen:** one handwritten note (Caveat) beside each page title, from
+  the table in §2, including the empty inbox.
+
+**Alternatives considered**
+- *A greeting with a pen swoosh under the name* (tried in the preview): too
+  close to Dan's dashboard, and it needs the owner's name stored. Parked as
+  FEAT-11.
+- *A straight yellow highlighter bar under the active tab* (the first
+  preview): fine, but the hand-drawn stroke matches the pen.
+- *Blue for both:* blue would stop being special; yellow already means
+  "selected" across the app.
+
+**How it works**
+*The marker* is a tiny SVG drawn inside each tab's word: one curved path,
+stretched to the word's width (`preserveAspectRatio="none"`) but with
+`vector-effect="non-scaling-stroke"`, so a long word gets a longer stroke,
+not a fatter one. It's invisible by default. The tab that's the current page
+(`aria-current="page"`) shows it fully; hovering any other tab shows it at
+45%. The same attribute screen readers use to announce "current page" is
+what draws the marker, so the look and the meaning can't disagree.
+
+*The pen* is the Caveat font (loaded with `next/font` like the others) in a
+`.pen-note` class: blue, 23px, tilted −2.5°, never wrapping. Pages pass it
+as `PageTitle`'s `note`; Notebook and Tracks place it beside their column
+title. One per screen, so Tracks' "Track complete" card has no second note.
+
+**Key code** — `components/TopBar.tsx`
+```tsx
+<svg viewBox="0 0 100 12" preserveAspectRatio="none"
+  className="… opacity-0 group-hover:opacity-45 group-aria-[current=page]:opacity-100">
+  <path d="M3 8.5 C 28 4.5, 62 3.5, 97 5.5" stroke="var(--color-primary)"
+    strokeWidth="5.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+</svg>
+```
+
+**Files** — `components/TopBar.tsx` (`MarkerStroke`), `app/layout.tsx`
+(Caveat as `--font-caveat`), `app/globals.css` (`.pen-note`, `--font-pen`,
+`--color-pen`), `components/ui/PageTitle.tsx` (`note`), `FeedClient`
+(`VIEW_NOTES`, Shorts note, empty-inbox note), `NotebookClient`,
+`TracksClient`, `ChannelsClient`, `StyleguideClient`.
+
+**Verified** — the stroke sits under Feed, Notebook, Tracks and Channels as
+each is opened, and appears faintly on hover; on phones the tabs' row leaves
+room so the stroke isn't clipped. Pen notes render beside every page title
+in the table in §2, one per screen.
+
+#### REF-08 · Wording pass — ✅ done · 2026-10-17 (Phase 9)
+**The problem**
+Labels were written the way a coder names things ("unseen", "History",
+"Show all 13"), and the two search boxes looked like duplicates.
+
+**The change**
+Written as a copy person would: say what to do, name the thing. Also
+finishes REF-02 on every screen.
+
+| Where | Today | New | Why |
+|---|---|---|---|
+| Under the page title | 699 unseen · 261h 10m · newest first | 699 to watch · about 261 hours | "to watch" says what to do; the sort order moves into the pen note |
+| Sidebar group | Views | Your feed | It's yours |
+| Sidebar views | Inbox, Later, History, Everything | Inbox, Watch later, Watched, Everything | "History" was really "Watched" |
+| Page search | Search titles | Filter this list | No longer looks like a second top search |
+| Channel link | Show all 13 → | All 13 channels → | Names the thing |
+| Length filter | < 10m · 30m + | <10m · 30m+ | No stray gaps |
+| Sync status | Synced 3 h ago | Synced 3h ago (body font) | Sentence case; mono spacing made it gappy |
+| Top search | Search everything | (unchanged) | It does cover channels, videos, answers and notes |
+
+**How it works**
+Mostly text changes in place. Two small pieces of logic:
+- *"about 261 hours"*: a new `formatWatchTime()` in `lib/format.ts` rounds
+  long totals to whole hours ("about 261 hours") and keeps short ones exact
+  ("3h 20m"). Nobody plans by the minute across 200 hours.
+- *Sort order moved into the pen note*: the summary line no longer ends
+  "· newest first"; the Inbox's note says "newest first, no algorithm".
+
+Also changed while going through every screen (REF-02's list, finished):
+"Later" → "Watch later" and "History" → "Watched" (sidebar and page
+titles), "Remove from Later" → "Remove from Watch later", "Search answers,
+notes, titles" kept, "+ NEW" → "New", "Show all N →" → "All N channels",
+"Synced 3 h ago" → "Synced 3h ago", the player's "SHORT 3 OF 40 UNSEEN" →
+"Short 3 of 40 unseen".
+
+**Alternatives considered**
+- *Keep exact totals ("261h 10m")*: precise, but nobody plans by the minute
+  across 200+ hours; the round number reads faster.
+- *Rename "Inbox" itself* (to "To watch"): "Inbox" is a well-known idea and
+  the summary line already says "to watch".
+
+**Key code** — `lib/format.ts`
+```ts
+export function formatWatchTime(totalSeconds: number): string {
+  const hours = totalSeconds / 3600;
+  return hours >= 10 ? `about ${Math.round(hours)} hours` : formatTotalTime(totalSeconds);
+}
+```
+
+**Files** — `lib/format.ts`, `components/FeedClient.tsx` (`VIEW_TITLES`,
+`subtitle()`), `FeedSidebar`, `VideoCard`, `TopBar` (`syncedLabel`),
+`GlobalSearch`, `TrackMenu`, `CopyButton`, `PlayerModal`, `TracksClient`,
+`NotebookClient`, `ChannelsClient`.
+
+**Verified** — the feed reads "Inbox · newest first, no algorithm · 699 to
+watch · about 261 hours"; the sidebar shows Your feed → Inbox, Watch later,
+Watched, Everything; the filter box says "Filter this list"; the length
+control reads <10m · 10–30m · 30m+; the top bar reads "Synced 3h ago".
 
 ### FEAT — new features
 
@@ -1788,6 +2493,39 @@ The page side is `continueBackfill()` in `components/ChannelsClient.tsx`: call
   than one request (it would add a real channel). It shares the carry-on
   code tested above.
 
+#### FEAT-11 · Greeting — ⏸ parked · 2026-10-17
+**The problem**
+The feed opens straight onto a list; there's no sense that it's *your* app.
+
+**The change (if picked up)**
+"Good morning, Chandan." above the inbox, with a line saying what's new
+("4 new videos since yesterday, from …"). Morning/afternoon/evening comes
+from the browser's clock. "New" would mean published in the last 24 hours,
+which the stored `publishedAt` already gives; "new since your last visit"
+would need new tracking. The name needs a home (an env variable, or a
+setting on the Channels page). Not the swoosh under the name: that copied
+Dan's dashboard too literally.
+
+**Why parked** — it needs stored data (the name), and the owner wasn't sure
+it's worth it. The pen notes (REF-07) carry the personality for now.
+
+#### FEAT-12 · Pick up where you left off — ⏸ parked · 2026-10-17
+**The problem**
+Half-watched videos and a track's next step are only visible if you go
+looking (a thin progress bar on a card, or the Tracks page).
+
+**The change (if picked up)**
+A row of up to three tiles above the inbox: half-watched videos with the
+time left ("22 min left of 35") and a "Resume" play button, plus the next
+step of your most recent track ("Up next: step 4 of 9"). It's our version of
+the "Needs you today" list on Dan's dashboard. **No new tracking needed:**
+`watch_progress`, `resume_seconds`, `last_played_at` (FEAT-06) and the tracks
+tables already hold it all; it needs one query and the row. Tried in the
+preview (2026-10-17), then taken out.
+
+**Why parked** — it's a new feature, not a look change; Phase 9 stays about
+the look.
+
 ---
 
 ## 6. Screen by screen
@@ -1803,6 +2541,8 @@ The page side is `continueBackfill()` in `components/ChannelsClient.tsx`: call
 | Channels | UX-09, FEAT-07, FEAT-08 (+ FEAT-09 settings) |
 | Search | FEAT-01 |
 | All screens | UI-01, UI-02, UI-03, UI-04, UI-05, REF-02, REF-03 |
+| All screens (Phase 9) | UI-07, UI-08, REF-07, REF-08 (finishes UI-03, UI-04, REF-02, REF-06) |
+| Feed (parked) | FEAT-11, FEAT-12 |
 
 ---
 
@@ -1824,6 +2564,16 @@ check in the running app, and the owner's review.
 - [x] **Phase 6 — Tracks:** UX-08, FEAT-06 (+ the shared video player restyled)
 - [x] **Phase 7 — Shorts:** rest of UX-06 (title row), FEAT-04
 - [x] **Phase 8 — Search:** FEAT-01
+- [x] **Phase 9 — Calm base, retro accents:** UI-07, UI-08, REF-07, REF-08;
+      finishes UI-03, UI-04, REF-02, REF-06 on every screen. Suggested order:
+      tokens and type scale (`globals.css`) → `Icon.tsx` on Phosphor → shared
+      blocks (`components/ui/*`) → top bar (marker) → feed and card → study
+      panel and player → Notebook, Tracks, Channels, Shorts, search → pen
+      notes and empty states → `/styleguide`. Preview to match:
+      `docs/previews/style-preview.html`.
+- [ ] **Phase 10 — Code cleanup:** organise the code after the redesign
+      settles (to be scoped when Phase 9 is done), so the code is as tidy as
+      the result.
 
 UI-03, UI-04, REF-02 and REF-06 are applied to each screen as its phase lands.
 
@@ -1891,3 +2641,8 @@ flowchart LR
 | 2026-10-17 | Phase 6 (Tracks) built: two panes (tracks with progress, time left and last watched; the chosen track as block bar, Up next with Continue, and the path with hover ▲▼✕), in-page delete confirm, rename with the name selected, `?t=` address, phone flow; new `videos.last_played_at` stamped by progress saves; video player header restyled. No typed icons left anywhere. |
 | 2026-10-17 | Phase 7 (Shorts) built: Shorts title row with "Play unseen in a row" (plays unseen shorts back to back, marks each seen when it finishes, Next skips without marking, loads more pages as it goes); player shows "Short N of M unseen". |
 | 2026-10-17 | Phase 8 (Search) built: global search in the top bar (channels, videos, answers and notes; scope tabs, highlights, `@` for channels, ⌘K and keyboard), results open the feed (channel / study panel / search), or the Notebook; new `/api/search` and `GET /api/videos/:id`. **All 8 phases done.** |
+| 2026-10-17 | Phases 1–8 committed and deployed. The first deploy shipped stale styles from Netlify's restored build cache (Next 16.3's Turbopack build cache); a "Retry without cache" deploy fixed it. |
+| 2026-10-17 | **Phase 9 designed and approved**: studied Dan Vega's site, Gumroad and neobrutalism.dev; measured why the app felt "vibe-coded"; built a side-by-side preview (`docs/previews/style-preview.html`) and refined it with the owner: Phosphor duotone icons (with better-filling choices), the yellow bookmark moved inside the icon, the red note dot dropped, the yellow marker under the active tab, blue pen notes beside page titles, a wording pass; greeting and "Pick up where you left off" tried and parked. Written up as §2 *v2*, UI-07, UI-08, REF-07, REF-08, FEAT-11, FEAT-12 and Phases 9–10. Later the same day: one spinner for every wait (sync becomes a "Syncing" badge, from neobrutalism.dev's Spinner), and open-shape icons never fill yellow (the refresh icon turns on hover instead). |
+| 2026-10-17 | **Phase 9 built** (UI-07, UI-08, REF-07, REF-08; finishes UI-03, UI-04, REF-02, REF-06): v2 tokens with Tailwind's defaults removed; one cream, one muted grey, 1px lines, 4–10px corners, six text sizes; hard shadow only on the sticker button and hovered cards (`.lift`); Phosphor duotone icons copied into `iconPaths.ts` with CSS lighting (`icon-hover`, `lit`); one spinner (`Spinner`, `SpinnerBadge`, `Button busy`) and the "Syncing" badge; yellow marker under the active tab; blue pen notes via `PageTitle`; view tiles; wording pass (`formatWatchTime`); every screen restyled; top bar fixed for laptops and phones; tool row fixed on narrow short cards; `/styleguide` rebuilt for v2; `Emoji.tsx` removed. Typecheck, lint, build clean. |
+| 2026-10-17 | Phase 9 review fixes (owner's testing): hover labels on a track step opened all three at once and stacked (the row's hover group triggered every button's label) — `IconButton` and the card's labels now listen to their own button only (named groups `group/ib`, `group/tip`); the path list and the Channels table no longer clip (`overflow-hidden` removed; it cut off labels on the first row and would cut the ⋯ menu on the last rows); the panel and player ✕ are framed again with labels opening below (they were frameless and their labels hid behind the top bar); Tracks' rename/delete labels open below; the Ask box (study panel and Notebook) empties as soon as you send and gets the text back only if the request fails. |
+| 2026-10-17 | Channels table: the Genre column is sortable (grouped A→Z / Z→A, "No genre" last, channels A→Z within each group). Status stays filter-only. |

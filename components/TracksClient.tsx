@@ -8,6 +8,7 @@ import PlayerModal, { type ProgressUpdate } from "./PlayerModal";
 import Button from "./ui/Button";
 import IconButton from "./ui/IconButton";
 import Icon from "./ui/Icon";
+import Spinner from "./ui/Spinner";
 import { formatDuration, formatTotalTime, timeAgo } from "@/lib/format";
 import { coveredRatio } from "@/lib/progress";
 import { notifyNavChanged } from "@/lib/nav-events";
@@ -229,19 +230,22 @@ export default function TracksClient() {
   // ---------- Layout ----------
 
   const list = (
-    <aside className="flex w-full flex-col border-ink lg:sticky lg:top-[58px] lg:h-[calc(100vh-58px)] lg:w-[380px] lg:shrink-0 lg:border-r-2">
-      <div className="flex flex-col gap-3 border-b-2 border-ink bg-panel p-5">
-        <div className="flex items-end justify-between gap-3">
-          <h1 className="font-display text-[30px] leading-none">Tracks</h1>
+    <aside className="flex w-full flex-col border-line lg:sticky lg:top-[65px] lg:h-[calc(100vh-65px)] lg:w-[380px] lg:shrink-0 lg:border-r">
+      <div className="flex flex-col gap-3 border-b border-line p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="font-display text-display">Tracks</h1>
+            <span className="pen-note">one step at a time</span>
+          </div>
           <Button size="sm" onClick={() => setCreating((c) => !c)} aria-expanded={creating}>
-            <Icon name="plus" size={13} strokeWidth={3} />
+            <Icon name="plus" size={13} />
             New track
           </Button>
         </div>
         {creating && (
           <form onSubmit={createTrack} className="flex gap-2">
             <input
-              className="nb-input min-w-0 flex-1 px-2.5 py-1.5 text-sm"
+              className="nb-input h-8 min-w-0 flex-1 px-2.5 text-sm"
               placeholder="Track name, e.g. Kubernetes"
               value={newName}
               maxLength={60}
@@ -257,9 +261,9 @@ export default function TracksClient() {
         )}
       </div>
 
-      {tracks == null && !error && <p className="p-6 text-sm font-bold text-muted-2">Loading tracks…</p>}
+      {tracks == null && !error && <Spinner label="Loading tracks…" className="p-6 text-sm font-semibold text-muted" />}
       {tracks?.length === 0 && (
-        <div className="p-6 text-sm text-ink/75">
+        <div className="p-6 text-sm text-muted">
           <p className="font-display text-lg text-ink">Start your first track</p>
           <p className="mt-1">
             A track is a list of videos to learn in order. Create one here, then add videos from
@@ -279,24 +283,24 @@ export default function TracksClient() {
                 type="button"
                 onClick={() => select(t.id)}
                 aria-current={on ? "true" : undefined}
-                className={`flex w-full flex-col gap-2.5 border-b-2 border-l-[5px] border-b-line-2 px-5 py-4 text-left ${
-                  on ? "border-l-primary bg-tint" : "border-l-transparent hover:bg-cream"
+                className={`flex w-full flex-col gap-2.5 border-b border-l-[3px] border-b-line px-5 py-4 text-left transition-colors ${
+                  on ? "border-l-primary bg-surface" : "border-l-transparent hover:bg-ink/[0.03]"
                 }`}
               >
                 <span className="flex items-center gap-2">
                   <span
-                    className="h-2.5 w-2.5 shrink-0 border-[1.5px] border-ink"
-                    style={{ backgroundColor: g?.color ?? "transparent" }}
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: g?.color ?? "var(--color-line)" }}
                   />
-                  <span className="min-w-0 flex-1 truncate text-[15px] font-bold">{t.name}</span>
-                  <span className="font-mono text-[12.5px] font-bold">
+                  <span className="min-w-0 flex-1 truncate text-lg font-semibold">{t.name}</span>
+                  <span className="font-mono text-xs text-muted">
                     {t.watchedCount}/{t.count}
                   </span>
                 </span>
-                <span className="block h-2 border-2 border-ink bg-surface">
-                  <span className="block h-full bg-ink" style={{ width: `${pct}%` }} />
+                <span className="block h-1.5 overflow-hidden rounded-full bg-line">
+                  <span className="block h-full rounded-full bg-ink" style={{ width: `${pct}%` }} />
                 </span>
-                <span className="text-xs text-ink/75">{trackLine(t)}</span>
+                <span className="text-meta text-muted">{trackLine(t)}</span>
               </button>
             </li>
           );
@@ -309,7 +313,7 @@ export default function TracksClient() {
     <>
       <TopBar flush />
       {error && (
-        <div className="mx-4 mt-4 border-2 border-ink bg-primary px-4 py-2 text-sm font-bold shadow-hard">{error}</div>
+        <div role="alert" className="mx-4 mt-4 rounded-md border-[1.5px] border-danger bg-surface px-4 py-2 text-sm font-semibold text-danger">{error}</div>
       )}
       <div className="flex flex-col lg:flex-row lg:items-start">
         {/* Wide screens: the wrapper vanishes so the list can stay put (sticky). */}
@@ -319,9 +323,9 @@ export default function TracksClient() {
           <button
             type="button"
             onClick={() => setReading(false)}
-            className="mb-4 flex items-center gap-1 text-sm font-bold lg:hidden"
+            className="mb-4 flex items-center gap-1 text-sm font-semibold lg:hidden"
           >
-            <Icon name="chev" size={14} className="rotate-90" strokeWidth={3} />
+            <Icon name="chev" size={14} className="rotate-90" />
             All tracks
           </button>
 
@@ -343,7 +347,7 @@ export default function TracksClient() {
             />
           ) : (
             tracks &&
-            tracks.length > 0 && <p className="text-sm font-bold text-muted-2">Loading the track…</p>
+            tracks.length > 0 && <Spinner label="Loading the track…" className="text-sm font-semibold text-muted" />
           )}
         </main>
       </div>
@@ -405,12 +409,12 @@ function TrackPath({
       {/* Title row */}
       <header className="flex flex-wrap items-end gap-4">
         <div className="min-w-[240px] flex-1">
-          <p className="flex items-center gap-1.5 font-display text-[11px] tracking-widest text-ink/75">
-            {genre && <span className="h-2.5 w-2.5 border-[1.5px] border-ink" style={{ backgroundColor: genre.color }} />}
-            TRACK{genre ? ` · ${genre.name.toUpperCase()}` : ""}
+          <p className="flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">
+            {genre && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: genre.color }} />}
+            Track{genre ? ` · ${genre.name}` : ""}
           </p>
           {renaming == null ? (
-            <h2 className="mt-2 font-display text-[30px] leading-[1.1]">{detail.track.name}</h2>
+            <h2 className="mt-2 font-display text-display">{detail.track.name}</h2>
           ) : (
             <form onSubmit={onSaveRename} className="mt-2 flex gap-2">
               <RenameInput value={renaming} onChange={onRenaming} onCancel={() => onRenaming(null)} />
@@ -424,28 +428,28 @@ function TrackPath({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="mr-2 text-right font-mono text-[13px] font-bold leading-tight">
+          <span className="mr-2 text-right font-mono text-meta font-bold">
             {done} of {videos.length} done
             {videos.length > 0 && (
               <>
                 <br />
-                <span className="font-normal text-ink/70">
+                <span className="font-normal text-muted">
                   {done === videos.length ? formatTotalTime(summary.totalSeconds) + " in total" : `${formatTotalTime(remaining)} left`}
                 </span>
               </>
             )}
           </span>
-          <IconButton label="Rename" className="h-9 min-w-9" onClick={() => onRenaming(detail.track.name)}>
-            <Icon name="note" size={15} />
+          <IconButton label="Rename" tipBelow className="h-9 min-w-9" onClick={() => onRenaming(detail.track.name)}>
+            <Icon name="pencil" size={16} />
           </IconButton>
-          <IconButton label="Delete track" align="right" className="h-9 min-w-9" onClick={() => onConfirmDelete(true)}>
-            <Icon name="trash" size={15} />
+          <IconButton label="Delete track" align="right" tipBelow className="h-9 min-w-9" onClick={() => onConfirmDelete(true)}>
+            <Icon name="trash" size={16} />
           </IconButton>
         </div>
       </header>
 
       {confirmDelete && (
-        <div className="flex flex-wrap items-center gap-3 border-2 border-ink bg-ink px-4 py-3 text-sm text-cream">
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md bg-ink px-4 py-3 text-sm text-cream">
           <span className="flex-1">
             <strong>Delete “{detail.track.name}”?</strong> Its {videos.length} video
             {videos.length === 1 ? "" : "s"} stay in your feed; only the track goes.
@@ -454,14 +458,14 @@ function TrackPath({
             type="button"
             onClick={onDelete}
             disabled={busy}
-            className="border-2 border-pink px-2.5 py-1 text-xs font-bold text-pink hover:bg-pink hover:text-ink"
+            className="h-8 rounded-sm bg-danger px-3 text-meta font-semibold text-white hover:brightness-110"
           >
             Delete track
           </button>
           <button
             type="button"
             onClick={() => onConfirmDelete(false)}
-            className="border-2 border-cream px-2.5 py-1 text-xs font-bold hover:bg-cream hover:text-ink"
+            className="h-8 rounded-sm border border-cream/40 px-3 text-meta font-semibold hover:bg-cream hover:text-ink"
           >
             Keep it
           </button>
@@ -476,26 +480,26 @@ function TrackPath({
               <span
                 key={v.id}
                 title={`${i + 1}. ${v.title}`}
-                className={`h-3 flex-1 border-2 border-ink ${
-                  v.watched ? "bg-ink" : i === nextIndex ? "bg-primary" : "bg-surface"
+                className={`h-2.5 flex-1 rounded-xs ${
+                  v.watched ? "bg-ink" : i === nextIndex ? "bg-primary ring-1 ring-ink" : "bg-line"
                 }`}
               />
             ))}
           </div>
         ) : (
-          <div className="h-3 border-2 border-ink bg-surface" role="img" aria-label={`${done} of ${videos.length} done`}>
-            <div className="h-full bg-ink" style={{ width: `${(done / videos.length) * 100}%` }} />
+          <div className="h-2.5 overflow-hidden rounded-full bg-line" role="img" aria-label={`${done} of ${videos.length} done`}>
+            <div className="h-full rounded-full bg-ink" style={{ width: `${(done / videos.length) * 100}%` }} />
           </div>
         ))}
 
       {/* Up next */}
       {next ? (
-        <section className="flex flex-wrap items-center gap-5 border-2 border-ink bg-surface p-4 shadow-[4px_4px_0_var(--color-ink)]">
+        <section className="flex flex-wrap items-center gap-5 rounded-lg border border-line bg-surface p-4">
           <button
             type="button"
             onClick={() => onPlay(next)}
             aria-label={`Play ${next.title}`}
-            className="relative w-[220px] max-w-full shrink-0 border-2 border-ink bg-ink"
+            className="relative w-[220px] max-w-full shrink-0 overflow-hidden rounded-md bg-ink"
           >
             {next.thumbnail ? (
               <img src={next.thumbnail} alt="" referrerPolicy="no-referrer" className="aspect-video w-full object-cover" />
@@ -505,28 +509,28 @@ function TrackPath({
             <ProgressStrip video={next} />
           </button>
           <div className="flex min-w-[200px] flex-1 flex-col gap-2">
-            <span className="font-display text-[11px] tracking-widest text-warn">UP NEXT · STEP {nextIndex + 1}</span>
-            <span className="text-xl font-bold leading-snug">{next.title}</span>
-            <span className="text-[13px] text-ink/75">
+            <span className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted">Up next · step {nextIndex + 1}</span>
+            <span className="text-xl font-bold">{next.title}</span>
+            <span className="text-meta text-muted">
               {next.channelTitle}
               {next.durationSeconds > 0 && <> · <span className="font-mono">{formatDuration(next.durationSeconds)}</span></>}
               {next.resumeSeconds ? <> · resumes at <span className="font-mono">{formatDuration(next.resumeSeconds)}</span></> : null}
             </span>
           </div>
-          <Button variant="primary" className="h-[42px]" onClick={() => onPlay(next)}>
+          <Button variant="primary" onClick={() => onPlay(next)}>
             <Icon name="play" size={13} filled />
             {next.resumeSeconds ? "Resume" : "Continue"}
           </Button>
         </section>
       ) : videos.length > 0 ? (
-        <section className="border-2 border-ink bg-tint p-5 shadow-hard">
+        <section className="rounded-lg border border-line bg-surface p-5">
           <p className="font-display text-xl">Track complete</p>
-          <p className="mt-1 text-sm text-ink/75">
+          <p className="mt-1 text-sm text-muted">
             All {videos.length} watched. Rewatch any step below, or add more videos from the feed.
           </p>
         </section>
       ) : (
-        <section className="border-2 border-dashed border-muted-2 p-6 text-sm text-ink/75">
+        <section className="rounded-lg border border-dashed border-line p-6 text-sm text-muted">
           <p className="font-display text-lg text-ink">This track is empty</p>
           <p className="mt-1">
             Add videos from the feed: the track button on any card, or search a topic and add all the
@@ -537,51 +541,52 @@ function TrackPath({
 
       {/* The path, in order */}
       {videos.length > 0 && (
-        <ol className="border-2 border-ink bg-surface">
+        // No overflow-hidden here: it would clip the steps' hover labels.
+        <ol className="rounded-lg border border-line bg-surface">
           {videos.map((v, i) => {
             const isNext = i === nextIndex;
             const pct = Math.round(coveredRatio(v.watchProgress, v.durationSeconds) * 100);
             return (
               <li
                 key={v.id}
-                className={`group flex items-center gap-4 border-t-2 border-line-2 px-4 py-2.5 first:border-t-0 ${
-                  isNext ? "bg-tint" : ""
+                className={`group flex items-center gap-4 border-t border-line px-4 py-2.5 first:rounded-t-[9px] first:border-t-0 last:rounded-b-[9px] ${
+                  isNext ? "bg-primary/15" : "hover:bg-ink/[0.03]"
                 }`}
               >
                 <span
-                  className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center border-2 border-ink font-mono text-xs font-bold ${
-                    v.watched ? "bg-ink text-cream" : isNext ? "bg-primary" : "bg-surface"
+                  className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full font-mono text-xs font-bold ${
+                    v.watched ? "bg-ink text-cream" : isNext ? "bg-primary ring-1 ring-ink" : "bg-line text-muted"
                   }`}
                 >
-                  {v.watched ? <Icon name="check" size={13} strokeWidth={3.5} /> : i + 1}
+                  {v.watched ? <Icon name="check" size={13} /> : i + 1}
                 </span>
                 <button
                   type="button"
                   onClick={() => onPlay(v)}
-                  className={`min-w-0 flex-1 truncate text-left text-[14.5px] font-bold hover:underline ${
-                    v.watched ? "text-ink/55" : ""
+                  className={`min-w-0 flex-1 truncate text-left text-sm font-semibold hover:underline ${
+                    v.watched ? "text-muted" : ""
                   }`}
                   title={`Play ${v.title}`}
                 >
                   {v.title}
                 </button>
-                <span className="hidden w-36 truncate text-[12.5px] text-ink/70 md:block">{v.channelTitle}</span>
-                <span className="hidden w-20 text-xs text-ink/70 sm:block">
+                <span className="hidden w-36 truncate text-meta text-muted md:block">{v.channelTitle}</span>
+                <span className="hidden w-20 text-meta text-muted sm:block">
                   {v.answerCount > 0 ? `${v.answerCount} answer${v.answerCount === 1 ? "" : "s"}` : ""}
                 </span>
-                <span className="w-14 text-right font-mono text-[12.5px] font-bold">
-                  {!v.watched && pct > 0 ? <span className="text-warn">{pct}%</span> : formatDuration(v.durationSeconds)}
+                <span className="w-14 text-right font-mono text-xs">
+                  {!v.watched && pct > 0 ? <span className="font-bold">{pct}%</span> : <span className="text-muted">{formatDuration(v.durationSeconds)}</span>}
                 </span>
                 {/* Reorder and remove: on hover (always visible on touch screens). */}
                 <span className="flex gap-1 opacity-100 transition-opacity focus-within:opacity-100 md:opacity-0 md:group-hover:opacity-100">
                   <StepButton label="Move up" disabled={busy || i === 0} onClick={() => onMove(v, "up")}>
-                    <Icon name="chevUp" size={13} strokeWidth={3} />
+                    <Icon name="chevUp" size={13} />
                   </StepButton>
                   <StepButton label="Move down" disabled={busy || i === videos.length - 1} onClick={() => onMove(v, "down")}>
-                    <Icon name="chev" size={13} strokeWidth={3} />
+                    <Icon name="chev" size={13} />
                   </StepButton>
                   <StepButton label="Remove from track" disabled={busy} onClick={() => onRemove(v)}>
-                    <Icon name="x" size={13} strokeWidth={3} />
+                    <Icon name="x" size={13} />
                   </StepButton>
                 </span>
               </li>
@@ -615,7 +620,7 @@ function RenameInput({
   return (
     <input
       ref={ref}
-      className="nb-input min-w-0 flex-1 px-2.5 py-1.5 font-display text-xl"
+      className="nb-input min-w-0 flex-1 px-3 py-1.5 font-display text-xl"
       value={value}
       maxLength={60}
       onChange={(e) => onChange(e.target.value)}
@@ -630,7 +635,7 @@ function ProgressStrip({ video }: { video: FeedVideo }) {
   const pct = Math.round(coveredRatio(video.watchProgress, video.durationSeconds) * 100);
   if (pct <= 0) return null;
   return (
-    <span className="absolute inset-x-0 bottom-0 h-[5px] bg-faint">
+    <span className="absolute inset-x-0 bottom-0 h-[5px] bg-ink/55">
       <span className="block h-full bg-primary" style={{ width: `${pct}%` }} />
     </span>
   );
@@ -648,7 +653,7 @@ function StepButton({
   children: React.ReactNode;
 }) {
   return (
-    <IconButton label={label} align="right" onClick={onClick} disabled={disabled} className="h-7 min-w-7 disabled:opacity-25">
+    <IconButton label={label} align="right" ghost onClick={onClick} disabled={disabled} className="h-7 min-w-7 disabled:opacity-25">
       {children}
     </IconButton>
   );
