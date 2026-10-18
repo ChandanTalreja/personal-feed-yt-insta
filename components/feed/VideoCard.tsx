@@ -18,6 +18,8 @@ interface Props {
   dimSeen: boolean;
   /** The tool open in the study panel for this card, if any. */
   activeTool: StudyTool | null;
+  /** In the first row: its thumbnail loads at once instead of lazily. */
+  priority?: boolean;
   onPlay: (video: FeedVideo) => void;
   onToggleWatched: (video: FeedVideo) => void;
   onToggleLater: (video: FeedVideo) => void;
@@ -36,6 +38,7 @@ export default function VideoCard({
   genreColor,
   dimSeen,
   activeTool,
+  priority = false,
   onPlay,
   onToggleWatched,
   onToggleLater,
@@ -66,7 +69,7 @@ export default function VideoCard({
         onClick={() => onPlay(video)}
         aria-label={`Play ${video.title}`}
       >
-        <Thumb src={video.thumbnail} lazy fallback="bg-muted" className="w-full" />
+        <Thumb src={video.thumbnail} lazy={!priority} priority={priority} fallback="bg-muted" className="w-full" />
         {video.durationSeconds > 0 && (
           <span className="absolute bottom-2 right-2 rounded-xs bg-ink/85 px-1.5 font-mono text-xs font-bold leading-5 text-white">
             {formatDuration(video.durationSeconds)}

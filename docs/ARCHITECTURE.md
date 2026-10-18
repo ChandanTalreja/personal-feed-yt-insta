@@ -385,6 +385,7 @@ window); that's why fps+resolution tuning matters.
 | `GEMINI_DAILY_LIMIT` | no | App-level cap on total Gemini calls/day across all models (default 100) |
 | `APIFY_TOKEN` | hosted only | Enables the Apify transcript fallback (datacenter IPs can't use InnerTube) |
 | `APIFY_TRANSCRIPT_ACTOR` | no | Override the transcript Actor (default `starvibe~youtube-video-transcript`) |
+| `FIRECRAWL_API_KEY` | hosted only, optional | Backup transcript source, used only while the breaker is open (Apify failed 3× in a row; 30 min at a time) |
 | `BACKFILL_MONTHS` | no | Default backfill depth (months) when no window is passed (default 12 = 1 year). The add picker and Backfill 1Y–5Y always pass one, clamped to 1–60 months (max 5 years) |
 | `PGLITE_DIR` | no | Local embedded DB location (default `.data/pglite`) |
 
@@ -595,6 +596,29 @@ failure, so the same video works once Apify is back. Videos with a saved
 transcript never touch Apify, so they keep working during an outage. If an
 outage lasts days, `APIFY_TRANSCRIPT_ACTOR` swaps the Actor with no code
 change.
+
+**Added 2026-10-18 — Firecrawl backup behind a circuit breaker:** when
+`FIRECRAWL_API_KEY` is set, `fetchCaptions` keeps a breaker in `app_meta`
+(key `transcript_breaker`, `{failures, openUntil}`), stored in the database
+because each Netlify request may be a fresh instance. Rules:
+- Each Apify outage (timeout or error status) adds 1. Any Apify *answer*,
+  including "no captions", resets the count to 0, so blips never add up.
+- The **3rd failure in a row** trips the breaker: for 30 minutes new
+  transcripts go straight to Firecrawl and Apify isn't called.
+- After 30 minutes, Apify gets one try. Success closes the breaker; failure
+  trips it for another 30 minutes.
+- The failing requests themselves are *not* rescued by Firecrawl. The
+  owner chose this (option B) so that brief blips cost no Firecrawl
+  credits; the user just asks again.
+- Gemini errors happen after this step, so they can never trip it.
+
+Firecrawl's `/v2/scrape` (`formats: ["markdown"]`) returns the whole watch
+page as Markdown; the captions are the section under `## Transcript`, and
+a missing heading means no captions. Measured on 4 videos: 4.6–14.1s,
+1 credit each, the default caption track in any language. Once whitespace
+is collapsed, the text is byte-identical to InnerTube's on a 1h44m English
+video and a Hindi one. Timeout 18s. Without the key, Apify runs alone as
+before.
 
 **Fixed 2026-10-18 — refresh fits Netlify's 30s with room to spare:**
 every refresh (button and 6-hourly cron) took 23–30s in the Netlify logs

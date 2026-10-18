@@ -25,6 +25,18 @@ async function yt(path: string, params: Record<string, string>): Promise<any> {
   return res.json();
 }
 
+/**
+ * Some creators write names in Unicode's "mathematical" bold/italic letters
+ * ("𝗦𝘁𝗮𝗿𝗖𝗼𝗱𝗲 𝗞𝗵"). They look like text but are different characters, so
+ * typing "star" never matches them. Only that block (U+1D400–U+1D7FF) is
+ * turned back into plain letters — a blanket NFKC would also rewrite
+ * ordinary titles ("…" → "..."). Applied when a name is first saved; rows
+ * already stored are left as they are.
+ */
+export function plainLetters(text: string): string {
+  return text.replace(/[\u{1D400}-\u{1D7FF}]/gu, (c) => c.normalize("NFKC"));
+}
+
 interface ResolvedChannel {
   ytChannelId: string;
   title: string;
@@ -80,7 +92,7 @@ export async function resolveChannel(input: string): Promise<ResolvedChannel> {
   }
   return {
     ytChannelId: item.id,
-    title: item.snippet.title,
+    title: plainLetters(item.snippet.title),
     handle: item.snippet.customUrl ?? null,
     thumbnail:
       item.snippet.thumbnails?.medium?.url ??
@@ -153,7 +165,7 @@ export async function getVideoDetails(
       }
       out.push({
         ytVideoId: item.id,
-        title: item.snippet.title,
+        title: plainLetters(item.snippet.title),
         thumbnail:
           item.snippet.thumbnails?.maxres?.url ??
           item.snippet.thumbnails?.high?.url ??

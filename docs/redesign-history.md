@@ -2593,6 +2593,108 @@ memory, so the next screen loads fresh. Typecheck, lint, build pass.
 about a second before the refresh; and if the login expired within 5
 minutes, a revisited page shows its remembered content until a reload.
 
+
+#### PERF-04 · Lighter thumbnails, first row first — ✅ done · 2026-10-18
+
+**The problem.** Netlify's Real User Monitoring rated Largest Contentful
+Paint "Poor" (p75 about 6–11 s; good is under 2.5 s). LCP waits for the
+biggest thing on screen, which on the feed is the first row of thumbnails.
+Those were full-size JPEGs of 136–245 KB each, and every one was marked
+`loading="lazy"`, including the ones visible straight away, which the
+browser deprioritises. (The rest of the wait is cold starts, 2–4 s after
+idle, and distance to the server; neither is touched here.)
+
+**The change.** (1) Thumbnails come as WebP: the same 1280×720 picture
+YouTube makes for every video, at about half the bytes. Compared side by
+side on real cards, the owner couldn't tell them apart. (2) The feed's
+first 6 cards (a row is at most 6 wide) load at once with
+`fetchpriority="high"`; the rest stay lazy.
+
+**How it works.** `Thumb` (`components/ui/Media.tsx`) rewrites
+`i.ytimg.com/vi/<id>/<size>.jpg` to `i.ytimg.com/vi_webp/<id>/<size>.webp`
+and falls back to the JPEG if the WebP is missing. A missing WebP doesn't
+always raise an error: YouTube can answer with a 120px grey placeholder
+that loads fine. So `onLoad` also switches to the JPEG when the image is
+120px or narrower. Every stored size is wider: maxres 1280, hq 480.
+`VideoCard` takes `priority`; `FeedClient` passes it for `i < 6`.
+
+**Key code.**
+```tsx
+function webpOf(src: string): string | null {
+  const m = /^https:\/\/i\.ytimg\.com\/vi\/([^/]+)\/([a-z0-9_]+)\.jpg$/.exec(src);
+  return m ? `https://i.ytimg.com/vi_webp/${m[1]}/${m[2]}.webp` : null;
+}
+// …
+onError={switchToJpeg}
+onLoad={(e) => { if (e.currentTarget.naturalWidth <= 120) switchToJpeg(); }}
+```
+
+**Alternatives considered.** *Smaller thumbnails* (hq/mq) save even more,
+but the owner declined them in PERF-03 because they change the look. WebP
+keeps the full size. *Keeping the server and database warm with pings* would
+use more of Neon's free monthly compute than allowed (the database is
+shared with the sister app), and would only warm one Netlify instance while
+a page load fires about 5 requests. *Moving the server and database nearer
+India* is still the biggest lever, and is still parked.
+
+**Files.** `components/ui/Media.tsx` (now a client component, for the
+fallback state), `components/feed/VideoCard.tsx`, `components/feed/FeedClient.tsx`.
+
+**Verified** (local, real thumbnails). The first page's 24 thumbnails went
+from 4,767 KB to 2,163 KB (55% less); the first row from 1,254 KB to
+591 KB. All load as WebP at 1280px with none broken, and cards 1–6 are
+`eager` + `fetchpriority="high"` while 7+ stay `lazy`. Pointing a card at a
+missing WebP made it switch itself to the 1280px JPEG; the first version
+of the fallback (`onError` only) failed this test, which is how the
+placeholder case was found. WebP existed for 40/40 sampled stored
+thumbnails. Typecheck and lint pass. The live LCP graph will show the
+effect about a day after deploying.
+
+
+### FIX — problems found in use
+
+#### FIX-01 · Channels with "bold" names can't be filtered — ✅ done · 2026-10-18
+
+**The problem.** In the feed sidebar, typing "star" didn't find StarCode Kh,
+though the Channels page did. His YouTube name is written in Unicode's
+"mathematical bold" letters (`𝗦𝘁𝗮𝗿𝗖𝗼𝗱𝗲 𝗞𝗵`, U+1D5E6…), not plain ones. They
+look like bold text, which is why the name looked bold everywhere in the
+app, but to a computer they are different characters, so "star" never
+matches. The Channels page found him through his handle (`@starcodekh`);
+the sidebar only checked the name.
+
+**The change.** (1) The sidebar filter also matches the handle, like the
+Channels page. (2) From now on, styled letters in channel names and video
+titles are turned back into plain ones when first saved.
+
+**How it works.** `plainLetters()` in `lib/youtube.ts` rewrites only
+Unicode's Mathematical Alphanumeric block (U+1D400–U+1D7FF) with NFKC, so
+`𝗦𝘁𝗮𝗿𝗖𝗼𝗱𝗲 𝗞𝗵` becomes `StarCode Kh`. `resolveChannel` (channel add) and
+`getVideoDetails` (sync, backfill) use it.
+
+**Key code.**
+```ts
+export function plainLetters(text: string): string {
+  return text.replace(/[\u{1D400}-\u{1D7FF}]/gu, (c) => c.normalize("NFKC"));
+}
+```
+
+**Alternatives considered.** A blanket `normalize("NFKC")` was tried first.
+It would also have rewritten ordinary titles: 8 local titles had "…" turned
+into "...". Converting only at search time, in every search (sidebar,
+Channels page, server search), was rejected as more places to keep in step.
+A one-time fix of the names already stored was offered; the owner chose
+not to touch existing rows. So StarCode Kh stays bold, but the handle finds
+him.
+
+**Files.** `components/feed/FeedSidebar.tsx`, `components/feed/FeedClient.tsx`,
+`components/feed/model.ts` (`handle` on `FeedChannel`), `lib/youtube.ts`.
+
+**Verified.** Typing "genz-c" in the sidebar finds GenZ Career only through
+`@genz-career` ("1 of 15"); no console errors. `plainLetters` turns bold and
+italic names and digits into plain ones. It leaves "…", emoji, Hindi, ①, ™
+and full-width letters unchanged. Typecheck and lint pass.
+
 ---
 
 ## Design system, Phases 1–8 (replaced by v2 in Phase 9)

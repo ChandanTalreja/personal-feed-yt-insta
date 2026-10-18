@@ -334,6 +334,7 @@ export default function FeedClient() {
       channels={visibleChannels.map((c) => ({
         id: c.id,
         title: c.title,
+        handle: c.handle,
         thumbnail: c.thumbnail,
         count: kind === "videos" ? c.videoCount : c.shortCount,
       }))}
@@ -483,10 +484,13 @@ export default function FeedClient() {
             />
           ) : (
             <div className={gridClass}>
-              {videos.map((video) => (
+              {videos.map((video, i) => (
                 <VideoCard
                   key={video.id}
                   video={video}
+                  // A row is at most 6 cards wide: the first row loads at
+                  // once (it's what you see first), the rest as you scroll.
+                  priority={i < 6}
                   // No genre: a plain grey tag (yellow would read as a button).
                   genreColor={genreFor(video)?.color ?? "var(--color-line)"}
                   dimSeen={view !== "watched"}

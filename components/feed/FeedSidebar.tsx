@@ -18,6 +18,7 @@ export interface Facets {
 interface SidebarChannel {
   id: number;
   title: string;
+  handle: string | null;
   thumbnail: string | null;
   /** Everything stored for this channel, of the kind on screen. */
   count: number;
@@ -73,7 +74,15 @@ export default function FeedSidebar({
   const [showAll, setShowAll] = useState(false);
 
   const q = query.trim().toLowerCase();
-  const matches = q ? channels.filter((c) => c.title.toLowerCase().includes(q)) : channels;
+  // The handle too, like the Channels page: some names are written in
+  // look-alike "bold" letters (𝗦𝘁𝗮𝗿𝗖𝗼𝗱𝗲) that typing "star" can't match.
+  const matches = q
+    ? channels.filter(
+        (c) =>
+          c.title.toLowerCase().includes(q) ||
+          (c.handle ?? "").toLowerCase().includes(q)
+      )
+    : channels;
   // Picked channels stay at the top so they're never hidden by "Show all".
   const ordered = [
     ...matches.filter((c) => channelIds.includes(c.id)),

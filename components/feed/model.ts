@@ -25,6 +25,8 @@ export const VIEW_NOTES: Record<View, string | undefined> = {
 export interface FeedChannel {
   id: number;
   title: string;
+  /** "@name" — the sidebar filter matches it too. */
+  handle: string | null;
   thumbnail: string | null;
   genreId: number | null;
   isActive: boolean;

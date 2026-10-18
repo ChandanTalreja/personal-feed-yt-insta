@@ -80,7 +80,7 @@ async function getTranscript(
   video: VideoRow
 ): Promise<string | null> {
   if (video.transcript) return video.transcript;
-  const captions = await fetchCaptions(video.ytVideoId);
+  const captions = await fetchCaptions(db, video.ytVideoId);
   if (captions) {
     await db
       .update(videos)

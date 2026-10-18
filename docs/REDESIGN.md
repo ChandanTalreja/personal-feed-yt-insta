@@ -21,7 +21,7 @@ for the rules and where each idea came from.
 |---|---|
 | **Status** | **Redesign complete: Phases 1–10 built**, plus PERF-03 (instant screens) REF-09 (pen tagline, "See its videos") and REF-10 (genre-coloured channel tag). 1–9 committed; Phase 10, PERF-03, REF-09 and REF-10 built 2026-10-17, uncommitted, awaiting the owner's review. |
 | **Phases done** | 10 of 10 (plus 4.1) |
-| **Next step** | The owner tests the app (behaviour should be identical to Phase 9), then commits and pushes. Also uncommitted (2026-10-18): the Apify-outage message and parallel refresh (changelog). After deploying: refresh should take well under 30s, even after hours idle. And one check: a logged-out request to an API route should answer 401 (CLEAN-03; not testable locally without a password). |
+| **Next step** | The owner tests the app (behaviour should be identical to Phase 9), then commits and pushes. Also uncommitted (2026-10-18): the Apify-outage message, the Firecrawl backup, parallel refresh, FIX-01 and PERF-04 (changelog). Before deploying, add `FIRECRAWL_API_KEY` to Netlify's environment variables (it applies on the next deploy). After deploying: refresh should take well under 30s, even after hours idle. And one check: a logged-out request to an API route should answer 401 (CLEAN-03; not testable locally without a password). |
 | **Where things are** | Current design: §2. Every change, one line each: §4; full write-ups: [redesign-history.md](redesign-history.md). Code layout: [ARCHITECTURE.md](ARCHITECTURE.md) "UI layer". |
 | **Open questions** | Parked ideas waiting for a yes: FEAT-11 greeting, FEAT-12 "Pick up where you left off". Still unanswered: turning off Next's Turbopack build cache (`experimental.turbopackFileSystemCacheForBuild: false`), which caused the stale-styles deploy and slow builds. |
 | **Last updated** | 2026-10-18 |
@@ -448,6 +448,8 @@ in Phase 10. New items are written there in the same seven-part format.
 | CLEAN-04 | Screens in their own folders, big files split | ✅ 2026-10-17 |
 | CLEAN-05 | Docs that match the code | ✅ 2026-10-17 |
 | PERF-03 | Instant screens: remembered data and reused pages | ✅ 2026-10-17 |
+| PERF-04 | Lighter thumbnails (WebP, same size), first row loads first | ✅ 2026-10-18 |
+| FIX-01 | Channels with "bold" names can't be filtered (handle match + plain letters on save) | ✅ 2026-10-18 |
 
 ---
 
@@ -575,4 +577,6 @@ flowchart LR
 | 2026-10-17 | REF-09: the logo's hover tagline is written in the blue pen; the "Added…" message on Channels ends with "See its videos →" (opens `/?channel=<id>`); "Add channel" keeps its name. Then the bubble was made smaller (18px), worded "your feed, no algorithm" and moved right so it clears the sidebar heading. |
 | 2026-10-17 | REF-10: on feed and Shorts cards the channel name is a tag filled with its genre colour (the pre-redesign idea, without the heavy border); white text on dark colours via `textColorFor`; channels with no genre get a grey tag instead of yellow. |
 | 2026-10-17 | Removed the Phase 9 design preview (`docs/previews/`) and the extra `.claude/launch.json` entries ("tubebox-prod", "previews"); the docs now point to `/styleguide`. |
-| 2026-10-18 | Not UI, two production fixes (details in ARCHITECTURE.md, "Fixed 2026-10-18"). **Apify outage:** when the transcript Actor doesn't answer, Ask/Summary/Transcript now stop after one 15s try and say "The transcript service isn't responding right now…" instead of a 502 at 30s (`lib/transcript.ts`). **Refresh:** 5 channels are checked at once instead of one by one (`lib/ingest.ts`), so a refresh no longer runs into Netlify's 30s cut-off after a cold start; 24.1s → 4.9s in a 40-channel test with fake YouTube replies. |
+| 2026-10-18 | Not UI, two production fixes (details in ARCHITECTURE.md, "Fixed 2026-10-18"). **Apify outage:** when the transcript Actor doesn't answer, Ask/Summary/Transcript now stop after one 15s try and say "The transcript service isn't responding right now…" instead of a 502 at 30s (`lib/transcript.ts`). **Refresh:** 5 channels are checked at once instead of one by one (`lib/ingest.ts`), so a refresh no longer runs into Netlify's 30s cut-off after a cold start; 24.1s → 4.9s in a 40-channel test with fake YouTube replies. **Firecrawl backup:** after Apify fails 3 times in a row, new transcripts come from Firecrawl for 30 minutes, then Apify is tried again (a circuit breaker kept in `app_meta`; needs `FIRECRAWL_API_KEY`). |
+| 2026-10-18 | FIX-01: the feed sidebar's channel filter also matches the @handle (StarCode Kh's name is in Unicode "bold" letters that typing can't match); new channel names and video titles are saved with such letters turned plain (`plainLetters`, only U+1D400–U+1D7FF). Stored rows untouched by choice. |
+| 2026-10-18 | PERF-04: thumbnails load as WebP (same full-size picture, 55% fewer bytes: first page 4.8 MB → 2.2 MB) with a JPEG fallback, including YouTube's 120px placeholder case; the feed's first row loads at once at high priority. For LCP, rated "Poor" in Netlify RUM. |
