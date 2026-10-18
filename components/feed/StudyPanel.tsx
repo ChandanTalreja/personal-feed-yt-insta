@@ -90,7 +90,7 @@ export default function StudyPanel({
   });
   // Ask. Asking the same question again returns the saved answer: move it to the
   // end of the conversation rather than showing it twice.
-  const { question, setQuestion, pending, error: askError, ask } = useAsk(video.id, (note) => {
+  const { question, setQuestion, pending, error: askError, ask, inputRef: askInputRef } = useAsk(video.id, (note) => {
     const next = [...(answers ?? []).filter((a) => a.id !== note.id), note];
     setAnswers(next);
     onVideoChange(video.id, { answerCount: next.length });
@@ -223,6 +223,7 @@ export default function StudyPanel({
             question={question}
             onQuestion={setQuestion}
             onAsk={ask}
+            inputRef={askInputRef}
             busy={pending != null}
             error={askError}
             suggestions={suggestions}
@@ -324,6 +325,7 @@ function AskBox({
   question,
   onQuestion,
   onAsk,
+  inputRef,
   busy,
   error,
   suggestions,
@@ -332,6 +334,8 @@ function AskBox({
   question: string;
   onQuestion: (q: string) => void;
   onAsk: (q: string) => void;
+  /** From useAsk: puts the cursor here (so dictation lands in the box). */
+  inputRef: (el: HTMLInputElement | null) => void;
   busy: boolean;
   error: string | null;
   suggestions: string[];
@@ -367,6 +371,7 @@ function AskBox({
         }}
       >
         <input
+          ref={inputRef}
           className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm outline-none placeholder:text-muted"
           placeholder="Ask Gemini about this video…"
           value={question}

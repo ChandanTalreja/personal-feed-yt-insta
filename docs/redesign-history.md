@@ -2695,6 +2695,51 @@ him.
 italic names and digits into plain ones. It leaves "…", emoji, Hindi, ①, ™
 and full-width letters unchanged. Typecheck and lint pass.
 
+#### FIX-02 · Dictated questions vanished from the Ask box — ✅ done · 2026-10-19
+
+**The problem.** Typing a question into Ask worked, but dictating one
+(Willow Voice) often put nothing in the box. Dictation apps insert text into
+whatever has keyboard focus when you stop talking, and the Ask box usually
+didn't have it. Opening Ask from a card left focus on the card's Ask button.
+Sending by clicking the arrow or a suggestion moved focus to that button,
+which goes disabled while Gemini thinks, so the browser dropped focus
+entirely. Typing by hand worked only because you click into the box first.
+
+**The change.** The Ask box takes the cursor when it appears (panel opened,
+Ask tab chosen, Notebook entry opened), and again after each answer or
+error, however the question was sent.
+
+**How it works.** `useAsk` (shared by the study panel and the Notebook)
+returns `inputRef`, a *stable* callback ref. It focuses the box when the box
+is attached, never on later renders, so it can't pull focus back. An effect
+refocuses when `pending` clears. `focusAskBox` skips touch screens (it would
+pop the keyboard up), and skips when you're typing in another field (a
+note, a search). It uses `preventScroll`, so the page doesn't jump.
+
+**Key code.**
+```ts
+const inputRef = useCallback((el: HTMLInputElement | null) => {
+  box.current = el;
+  focusAskBox(el);
+}, []);
+useEffect(() => { if (!pending) focusAskBox(box.current); }, [pending]);
+```
+
+**Alternatives considered.** *`autoFocus` on the input* covers opening but
+not "after an answer", and fires on phones. *A new callback ref each render*
+would refocus on every re-render and steal focus from buttons you click.
+
+**Files.** `components/useAsk.ts`, `components/feed/StudyPanel.tsx`,
+`components/notebook/NotebookReader.tsx`.
+
+**Verified** (local). Opening Ask from a card focuses the box (before the
+fix, focus stayed on the card's Ask button). Re-asking a saved question by
+*clicking* the send arrow (13 ms, the saved answer, no Gemini call) left
+the cursor back in an empty box. Switching Note → Ask focuses the box, and
+the Note tab still focuses the note. At 1400px the Notebook's follow-up box
+is focused on open with no scroll jump. Typecheck and lint pass. Not
+testable here: Willow Voice itself.
+
 ---
 
 ## Design system, Phases 1–8 (replaced by v2 in Phase 9)

@@ -560,8 +560,10 @@ built: §3.1 above.
   months (`resolveBackfillMonths`); the success message reports the actual
   window and count. Also fixed the stale "6 months" copy that survived the
   earlier 6→12-month default change (message, helper text, code comment,
-  README; the excalidraw diagram still says `BACKFILL_MONTHS=6` — re-export
-  pending).
+  README). The old excalidraw diagram that still said `BACKFILL_MONTHS=6`
+  was replaced on 2026-10-19 by `docs/diagrams/tubebox-architecture.excalidraw`
+  (open it at excalidraw.com → Open); light and dark PNG exports sit beside
+  it and are shown in the README.
 
 **Hardening batch — BUILT 2026-07-03:** `GEMINI_DAILY_LIMIT` app-level
 daily cap; RE-SYNC button per channel; login rate limiting +

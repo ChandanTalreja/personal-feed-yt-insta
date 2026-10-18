@@ -31,7 +31,7 @@ export default function NotebookReader({
   const { video, answers } = entry;
   const [editingNote, setEditingNote] = useState(false);
   const latestRef = useRef<HTMLDivElement>(null);
-  const { question, setQuestion, pending, error: askError, ask } = useAsk(video.id, (note) => {
+  const { question, setQuestion, pending, error: askError, ask, inputRef: askInputRef } = useAsk(video.id, (note) => {
     onAnswer(note);
     // Bring the new answer into view once it's rendered.
     setTimeout(() => latestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
@@ -107,6 +107,7 @@ export default function NotebookReader({
           <Icon name="ask" size={17} />
         </span>
         <input
+          ref={askInputRef}
           className="min-w-0 flex-1 bg-transparent py-3 text-sm outline-none placeholder:text-muted"
           placeholder={answers.length ? "Ask a follow-up about this video" : "Ask anything about this video"}
           value={question}

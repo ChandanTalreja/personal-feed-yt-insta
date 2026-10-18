@@ -14,34 +14,41 @@ source, and runs entirely on free tiers.
 - **Your channels only** — add channels by URL, @handle, or plain name
   (with a "did you mean?" confirmation), organized into color-coded,
   user-defined genres
-- **1-year backfill (your call, up to 5)** — adding a channel immediately
-  pulls its recent history via the official YouTube Data API (no scraping,
-  no proxies); a "how far back" picker goes 1–5 years for
-  great-but-inconsistent channels. A scheduled function tops the feed up
-  every 6 hours after that
-- **Inbox workflow** — the default view shows only unwatched videos;
-  playing one (embedded player) auto-marks it watched
-- **Shorts, separated** — detected automatically and given their own tab
-- **Channel filter** — a searchable left rail on wide screens (collapses to
-  a wrapped chip row on narrow ones), multi-select per genre, with badges
-  showing how many videos/Shorts of each channel are in your archive
-- **Search** — fuzzy title search across the feed, scoped to whatever
-  filters are active
+- **Backfill 1–5 years** — adding a channel pulls its history (1 year by
+  default) from the official YouTube Data API — no scraping, no proxies.
+  A scheduled function checks every channel for new uploads every 6 hours;
+  the refresh button does it on demand
+- **Inbox, newest first** — only unseen videos; tick ✓ Seen (with Undo) or
+  save to Watch later. A video counts as watched once you've played half
+  of it in the built-in player
+- **Shorts, separated** — detected automatically, with their own tab and
+  "Play unseen in a row"
+- **Filters** — views, genres and channels (with counts) in a sidebar on
+  wide screens, behind a Filters button on narrow ones; plus a length
+  filter (under 10 min, 10–30 min, 30 min+)
+- **Search everything (⌘K)** — fuzzy search across channels, video titles,
+  saved answers and notes
+- **💬 Ask** — ask anything about a video's content ("list all the
+  interview questions asked"); answers are saved on the video for good.
+  Your everyday questions, and one per genre, appear as one-click chips
 - **✨ Summary** — 3–5 bullets + "worth watching if:", generated once and
   cached forever
-- **💬 Ask** — ask anything about a video's content ("list all the
-  interview questions asked", "what stocks does he recommend?"); answers
-  are saved on that video permanently. Genres can define one suggested
-  question that appears as a preset chip
-- **📄 Transcript** — full spoken text: fetched free from YouTube captions
-  when available, or transcribed by Gemini (which watches the video **once**
-  at low cost and caches the text — every later question is a cheap text
-  call)
-- **Quota-aware AI** — a model fallback chain ranked by remaining daily
-  budget, tracked in your own database; works within Gemini's free tier
-- **Password protected** — one env var, single-user
+- **📄 Transcript** — the full spoken text, searchable. It comes from
+  YouTube's captions; on the hosted version (YouTube blocks cloud servers)
+  through Apify, with Firecrawl as a backup. Running locally, Gemini can
+  transcribe a video that has no captions — once, then cached
+- **📓 Notebook** — every answer and note in one place: read them, ask
+  follow-ups, copy as Markdown
+- **🧭 Tracks** — learning paths: an ordered list of videos per topic, with
+  progress and "Up next"
+- **Channels page** — sortable table with each channel's last upload and a
+  "quiet" status, bulk move / pause / delete, and your genres
+- **Quota-aware AI** — a Gemini model fallback chain ranked by remaining
+  daily budget, plus an app-wide daily cap, tracked in your own database
+- **Password protected** — one env var, single user
 - **Free everything** — Netlify + Neon Postgres + YouTube Data API +
-  Gemini free tiers; well under every quota at personal scale
+  Gemini free tiers (and Apify's monthly free credit for hosted
+  transcripts); well under every quota at personal scale
 
 ## Local development (zero setup)
 
@@ -53,8 +60,8 @@ npm run dev
 ```
 
 That's it — with `DATABASE_URL` unset, an embedded Postgres (PGlite) is
-created in `.data/` automatically. Open http://localhost:3000, go to
-**+ ADD / MANAGE**, and add your first channel.
+created in `.data/` automatically. Open http://localhost:3000, click
+**+ Add channel**, and add your first one.
 
 ### Getting the keys (all free)
 
@@ -63,6 +70,8 @@ created in `.data/` automatically. Open http://localhost:3000, go to
 | `YOUTUBE_API_KEY` | [console.cloud.google.com](https://console.cloud.google.com) → new project → enable **YouTube Data API v3** → Credentials → Create API key | Required. Free 10,000 units/day (this app uses ~1%) |
 | `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) → Get API key | Optional — enables summaries, ask, and AI transcripts |
 | `DATABASE_URL` | [neon.tech](https://neon.tech) → new project → copy connection string | Only needed for deployment |
+| `APIFY_TOKEN` | [console.apify.com](https://console.apify.com) → Settings → API & Integrations | Deployment only — fetches transcripts, since YouTube blocks cloud servers |
+| `FIRECRAWL_API_KEY` | [firecrawl.dev](https://firecrawl.dev) → API keys | Optional, deployment only — backup when Apify fails 3 times in a row |
 
 All configuration is environment variables — see
 [.env.example](.env.example) for the complete annotated list (model chain,
@@ -73,34 +82,28 @@ backfill window, watch-length cap, etc.).
 1. Push this repo to GitHub and import it in
    [app.netlify.com](https://app.netlify.com). The Next.js runtime is
    detected automatically.
-2. In **Site configuration → Environment variables**, set:
-   `YOUTUBE_API_KEY`, `DATABASE_URL` (Neon), `APP_PASSWORD`,
-   `CRON_SECRET` (any long random string), `GEMINI_API_KEY`, and
-   optionally `GEMINI_MODEL` / `GEMINI_MODELS`.
+2. In **Project configuration → Environment variables**, add (ticking
+   "Contains secret values" on each): `YOUTUBE_API_KEY`, `DATABASE_URL`
+   (Neon), `APP_PASSWORD`, `CRON_SECRET` (any long random string),
+   `GEMINI_API_KEY`, `APIFY_TOKEN`, and optionally `FIRECRAWL_API_KEY` and
+   `GEMINI_MODEL` / `GEMINI_MODELS`.
 3. Deploy. Tables create themselves on first use, and the scheduled
    function ([netlify/functions/feed-cron.mts](netlify/functions/feed-cron.mts))
    refreshes the feed every 6 hours.
 
 ## How it works
 
-```
-Netlify scheduler (every 6h)
-        │
-        ▼
-GET /api/cron ──► YouTube Data API (official, ~1% of free quota)
-        │              uploads playlists + video details
-        ▼
-   Postgres  ◄── upsert new videos (dedup by video id — never deleted)
-        ▲
-        │            ┌─ captions (free) ──────────────┐
-Next.js UI ── AI ────┤                                 ├─► cached forever
-                     └─ Gemini watches ONCE (low fps) ─┘
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/tubebox-architecture-dark.png">
+  <img alt="How TUBEBOX works: your browser talks to a Next.js API on Netlify, which syncs new videos from the YouTube Data API every 6 hours, fetches transcripts (YouTube captions, then Apify, with Firecrawl as backup), caches them in Neon Postgres via Drizzle, and asks Gemini for summaries and answers." src="docs/diagrams/tubebox-architecture-light.png">
+</picture>
+
+<sub>Editable source: [docs/diagrams/tubebox-architecture.excalidraw](docs/diagrams/tubebox-architecture.excalidraw) (open it at excalidraw.com → Open).</sub>
 
 - **No scraping for the feed.** Video data comes from the official YouTube
-  Data API within its free quota. (Transcripts opportunistically use
-  YouTube's caption endpoint; if that ever stops working, Gemini
-  transcription takes over automatically.)
+  Data API within its free quota. (Transcripts come from YouTube's
+  captions; on the hosted version, where YouTube blocks cloud servers,
+  they come through Apify, with Firecrawl as a backup.)
 - **Old videos never disappear** — the database accumulates; YouTube is
   just the sync source.
 - **Every AI result is computed once and cached** — summaries, answers,
