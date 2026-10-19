@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
   const input = req.nextUrl.searchParams.get("input")?.trim() ?? "";
   if (!input) {
-    return NextResponse.json({ error: "Nothing to look up" }, { status: 400 });
+    return NextResponse.json({ error: "Paste a channel URL or @handle first." }, { status: 400 });
   }
   try {
     const channel = await resolveChannel(input);

@@ -60,7 +60,7 @@ export async function continueBackfill(
     const data = await api(`/api/channels/${id}/backfill`, {
       method: "POST",
       body: { years, cursor },
-      fallback: "Backfill failed",
+      fallback: "Couldn't fetch older videos. Please try again.",
     });
     added += data.videosAdded ?? 0;
     cursor = data.cursor;

@@ -429,8 +429,8 @@ export default function FeedClient() {
                   </p>
                   {totals.count > 300 && (
                     <p className="mb-2 text-xs font-semibold text-danger">
-                      That&apos;s a lot — only the 300 oldest will be added. Narrow the search
-                      for a tighter track.
+                      That&apos;s a lot, so only the 300 oldest will be added. Narrow the
+                      search for a tighter track.
                     </p>
                   )}
                   <TrackMenu mode="pick" onPick={addResultsToTrack} busy={bulkBusy} />

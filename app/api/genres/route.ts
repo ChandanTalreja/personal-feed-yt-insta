@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const color = body.color ?? "#FFC900";
     const askPrompt = String(body.askPrompt ?? "").trim() || null;
     if (!name) {
-      return NextResponse.json({ error: "Name is required" }, { status: 400 });
+      return NextResponse.json({ error: "Give the genre a name." }, { status: 400 });
     }
     if (!isHexColor(color)) {
       return NextResponse.json(

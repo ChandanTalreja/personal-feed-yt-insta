@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     .from(videos)
     .innerJoin(channels, eq(videos.channelId, channels.id))
     .where(eq(videos.id, id));
-  if (!video) return NextResponse.json({ error: "Video not found" }, { status: 404 });
+  if (!video) return NextResponse.json({ error: "That video isn't in your library anymore." }, { status: 404 });
   return NextResponse.json({ video });
 }
 
@@ -52,7 +52,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if ("personalNote" in body) {
     if (typeof body.personalNote !== "string") {
       return NextResponse.json(
-        { error: "personalNote must be text" },
+        { error: "Your note must be text." },
         { status: 400 }
       );
     }
@@ -74,12 +74,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const hasProgress = "progress" in body;
   if (hasProgress && !isValidProgress(body.progress)) {
     return NextResponse.json(
-      { error: "progress must be a string of 0s and 1s" },
+      { error: "Invalid watch progress." },
       { status: 400 }
     );
   }
   if (!hasProgress && Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    return NextResponse.json({ error: "There's nothing to change." }, { status: 400 });
   }
 
   const db = await getDb();
@@ -94,7 +94,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       .from(videos)
       .where(eq(videos.id, videoId));
     if (!current) {
-      return NextResponse.json({ error: "Video not found" }, { status: 404 });
+      return NextResponse.json({ error: "That video isn't in your library anymore." }, { status: 404 });
     }
     // OR-merge with what's saved: sittings add up, nothing is ever lost.
     const merged = mergeProgress(current.watchProgress, body.progress);
@@ -133,7 +133,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       personalNoteAt: videos.personalNoteAt,
     });
   if (!updated) {
-    return NextResponse.json({ error: "Video not found" }, { status: 404 });
+    return NextResponse.json({ error: "That video isn't in your library anymore." }, { status: 404 });
   }
   return NextResponse.json({ video: updated });
 }

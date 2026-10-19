@@ -52,7 +52,7 @@ export function loadYouTubeApi(timeoutMs = 8000): Promise<YTNamespace> {
   loading ??= new Promise<YTNamespace>((resolve, reject) => {
     const timer = setTimeout(() => {
       loading = null;
-      reject(new Error("YouTube player API timed out"));
+      reject(new Error("The YouTube player took too long to load. Please try again."));
     }, timeoutMs);
     const previous = window.onYouTubeIframeAPIReady;
     window.onYouTubeIframeAPIReady = () => {
@@ -66,7 +66,7 @@ export function loadYouTubeApi(timeoutMs = 8000): Promise<YTNamespace> {
     script.onerror = () => {
       clearTimeout(timer);
       loading = null;
-      reject(new Error("YouTube player API failed to load"));
+      reject(new Error("The YouTube player couldn't load. Check your connection and try again."));
     };
     document.head.appendChild(script);
   });

@@ -11,8 +11,9 @@ export const maxDuration = 60;
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  const provided =
-    req.headers.get("x-cron-secret") ?? req.nextUrl.searchParams.get("secret");
+  // Header only: a secret in the URL (?secret=) ends up in logs and
+  // browser history. The scheduled function already sends the header.
+  const provided = req.headers.get("x-cron-secret");
   const authorized = (secret && provided === secret) || (await isAuthed());
   if (!authorized) return unauthorized();
   try {

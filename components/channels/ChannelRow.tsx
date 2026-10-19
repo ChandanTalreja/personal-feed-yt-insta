@@ -62,7 +62,7 @@ export default function ChannelRow({
           {/* Phones: the hidden columns, as one line. */}
           <p className="mt-0.5 truncate text-meta text-muted md:hidden">
             {g?.name ?? "No genre"} · {r.videoCount + r.shortCount} videos ·{" "}
-            {r.lastUploadAt ? timeAgo(r.lastUploadAt) : "—"} ·{" "}
+            {r.lastUploadAt ? timeAgo(r.lastUploadAt) : "None yet"} ·{" "}
             <span className={status.tone === "quiet" ? "text-warn" : ""}>{status.label}</span>
           </p>
         </div>
@@ -95,7 +95,7 @@ export default function ChannelRow({
         )}
       </span>
       <span className="hidden text-meta text-muted md:block">
-        {r.lastUploadAt ? timeAgo(r.lastUploadAt) : "—"}
+        {r.lastUploadAt ? timeAgo(r.lastUploadAt) : "None yet"}
       </span>
       <span
         className={`hidden items-center gap-1.5 text-meta font-semibold md:flex ${

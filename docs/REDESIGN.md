@@ -442,6 +442,7 @@ in Phase 10. New items are written there in the same seven-part format.
 | FEAT-10 | Backfill 1Y–5Y replaces Re-sync (Phase 4.1) | ✅ 2026-10-17 |
 | FEAT-11 | Greeting | ⏸ parked |
 | FEAT-12 | Pick up where you left off | ⏸ parked |
+| FEAT-13 | Offline: changes wait and save when you're back online | ✅ 2026-10-19 |
 | CLEAN-01 | Names that say what they are | ✅ 2026-10-17 |
 | CLEAN-02 | Shared building blocks instead of copies | ✅ 2026-10-17 |
 | CLEAN-03 | API routes: one login check, safe ids | ✅ 2026-10-17 |
@@ -451,6 +452,9 @@ in Phase 10. New items are written there in the same seven-part format.
 | PERF-04 | Lighter thumbnails (WebP, same size), first row loads first | ✅ 2026-10-18 |
 | FIX-01 | Channels with "bold" names can't be filtered (handle match + plain letters on save) | ✅ 2026-10-18 |
 | FIX-02 | Dictated questions vanished from the Ask box (cursor now kept in it) | ✅ 2026-10-19 |
+| FIX-03 | Search: titles containing the words before look-alikes | ✅ 2026-10-19 |
+| FIX-04 | Audit quick wins A1–A6: honest saves, ordered note saves, failed-sync visibility, channel index, parallel channel reads, header-only cron secret | ✅ 2026-10-19 |
+| FIX-05 | Friendlier messages, no em dashes in on-screen text | ✅ 2026-10-19 |
 
 ---
 
@@ -582,3 +586,7 @@ flowchart LR
 | 2026-10-18 | FIX-01: the feed sidebar's channel filter also matches the @handle (StarCode Kh's name is in Unicode "bold" letters that typing can't match); new channel names and video titles are saved with such letters turned plain (`plainLetters`, only U+1D400–U+1D7FF). Stored rows untouched by choice. |
 | 2026-10-18 | PERF-04: thumbnails load as WebP (same full-size picture, 55% fewer bytes: first page 4.8 MB → 2.2 MB) with a JPEG fallback, including YouTube's 120px placeholder case; the feed's first row loads at once at high priority. For LCP, rated "Poor" in Netlify RUM. |
 | 2026-10-19 | FIX-02: the Ask box (study panel and Notebook) takes the cursor when it opens and after each answer, so dictation (Willow Voice) lands in it; not on touch screens, never away from another text field (`useAsk` → `inputRef`). |
+| 2026-10-19 | FIX-03: feed search ranks titles that contain the words above fuzzy look-alikes ("redis" no longer shows "Redux" first), newest first within each group; same rule as ⌘K search. |
+| 2026-10-19 | FIX-04 (audit A1–A6): ✓ Seen/bookmark undo on a failed save with a toast; note autosaves queued in order; refresh names channels it couldn't check and the synced dot turns amber; index on videos(channel_id, published_at); channels list reads in parallel; `/api/cron` takes the secret from the header only. |
+| 2026-10-19 | FEAT-13: offline bar on every page; ✓ Seen/bookmark changes made offline wait (survive reload, last value wins) and save when back online; refused saves still undo; Ask etc. say "You're offline. This needs a connection." No em dashes in the new copy. |
+| 2026-10-19 | FIX-05: 43 on-screen messages reworded: no em dashes, plain sentences with proper capitalisation (e.g. "Your login has expired. Please log in again."); tab title "TUBEBOX: your feed, no algorithm". |

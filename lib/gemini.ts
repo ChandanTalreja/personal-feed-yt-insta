@@ -129,15 +129,15 @@ async function runChain(
     .where(gte(geminiUsage.usedAt, dayStart));
   if (Number(usedToday) >= dailyLimit) {
     throw new Error(
-      `Daily AI budget reached (${dailyLimit} Gemini calls today). It resets ` +
-        `at midnight UTC — or raise GEMINI_DAILY_LIMIT if this is too tight.`
+      `You've reached today's AI limit (${dailyLimit} Gemini calls). It resets ` +
+        `at midnight UTC, or you can raise GEMINI_DAILY_LIMIT.`
     );
   }
 
   const candidates = await rankModels(db);
   if (candidates.length === 0) {
     throw new Error(
-      "All Gemini models have used up today's free budget — try again tomorrow."
+      "All Gemini models have used up today's free budget. Please try again tomorrow."
     );
   }
 
@@ -153,7 +153,7 @@ async function runChain(
           : {},
       });
       const text = res.text;
-      if (!text) throw new Error("Gemini returned an empty response.");
+      if (!text) throw new Error("Gemini sent back an empty answer. Please try again.");
       await db.insert(geminiUsage).values({
         model,
         tokens: res.usageMetadata?.totalTokenCount ?? null,
@@ -173,9 +173,9 @@ async function runChain(
         )
       ) {
         throw new Error(
-          "Gemini couldn't access this video — it may be age-restricted, " +
-            "private, members-only, or region-locked. The official player " +
-            "may still work."
+          "Gemini couldn't access this video. It may be age-restricted, " +
+            "private, members-only or region-locked. The YouTube player " +
+            "may still play it."
         );
       }
       throw err;
@@ -183,7 +183,7 @@ async function runChain(
   }
   throw lastError instanceof Error
     ? lastError
-    : new Error("Request failed on every available model.");
+    : new Error("Every Gemini model failed. Please try again later.");
 }
 
 /**
@@ -196,11 +196,10 @@ async function watchAndTranscribe(db: Db, video: VideoRow): Promise<string> {
   const maxMinutes = watchLimitMinutes();
   if (maxMinutes <= 0) {
     throw new Error(
-      "This video has no captions on YouTube, so there is no transcript to " +
-        "read. Watching the video with Gemini is disabled on this " +
-        "deployment (serverless functions time out before a watch " +
-        "finishes). Open the app locally to transcribe it once — the " +
-        "result is cached and works everywhere after that."
+      "This video has no captions on YouTube, so there's no transcript to " +
+        "read. Gemini can't watch videos on the hosted site (it would time " +
+        "out), but running TUBEBOX on your laptop can transcribe it once. " +
+        "After that it works everywhere."
     );
   }
   if (video.durationSeconds > maxMinutes * 60) {

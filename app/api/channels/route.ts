@@ -17,29 +17,32 @@ export async function GET() {
   const denied = await denyUnlessAuthed();
   if (denied) return denied;
   const db = await getDb();
-  const rows = await db
-    .select({
-      channel: channels,
-      genre: genres,
-    })
-    .from(channels)
-    .leftJoin(genres, eq(channels.genreId, genres.id))
-    .orderBy(desc(channels.addedAt));
-
-  // Per channel, in one grouped pass over its videos: how many of each kind
-  // are stored (the feed sidebar's archive-size counts, deliberately
-  // independent of watched state), and when it last uploaded — the Channels
-  // page's "last upload" and "quiet for months" status. Nothing new is
-  // stored; it's all derived from the videos already ingested.
-  const stats = await db
-    .select({
-      channelId: videos.channelId,
-      videoCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = false)::int`,
-      shortCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = true)::int`,
-      lastUploadAt: max(videos.publishedAt),
-    })
-    .from(videos)
-    .groupBy(videos.channelId);
+  // The channel list and the per-channel stats don't depend on each other,
+  // so both queries go out at once — on Neon each is its own HTTP round trip.
+  const [rows, stats] = await Promise.all([
+    db
+      .select({
+        channel: channels,
+        genre: genres,
+      })
+      .from(channels)
+      .leftJoin(genres, eq(channels.genreId, genres.id))
+      .orderBy(desc(channels.addedAt)),
+    // Per channel, in one grouped pass over its videos: how many of each
+    // kind are stored (the feed sidebar's archive-size counts, deliberately
+    // independent of watched state), and when it last uploaded — the
+    // Channels page's "last upload" and "quiet for months" status. Nothing
+    // new is stored; it's all derived from the videos already ingested.
+    db
+      .select({
+        channelId: videos.channelId,
+        videoCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = false)::int`,
+        shortCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = true)::int`,
+        lastUploadAt: max(videos.publishedAt),
+      })
+      .from(videos)
+      .groupBy(videos.channelId),
+  ]);
   const byChannel = new Map(stats.map((s) => [s.channelId, s]));
 
   return NextResponse.json({

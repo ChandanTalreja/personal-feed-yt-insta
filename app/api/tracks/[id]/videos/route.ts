@@ -37,7 +37,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     if (id == null) return badId();
     const videoId = Number(req.nextUrl.searchParams.get("videoId"));
     if (!Number.isInteger(videoId) || videoId <= 0) {
-      return NextResponse.json({ error: "videoId is required" }, { status: 400 });
+      return NextResponse.json({ error: "Pick a video to add." }, { status: 400 });
     }
     const db = await getDb();
     await removeVideo(db, id, videoId);

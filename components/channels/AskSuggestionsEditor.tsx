@@ -92,7 +92,7 @@ export default function AskSuggestionsEditor() {
               <span className="flex items-center gap-1 text-meta font-semibold text-muted"><Icon name="check" size={13} />Saved</span>
             )}
             {status === "error" && (
-              <span className="text-meta font-semibold text-danger">Couldn&apos;t save — try again</span>
+              <span className="text-meta font-semibold text-danger">Couldn&apos;t save. Please try again.</span>
             )}
           </div>
         </div>

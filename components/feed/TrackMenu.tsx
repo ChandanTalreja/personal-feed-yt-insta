@@ -113,7 +113,7 @@ export default function TrackMenu(props: Props) {
     <div className="flex flex-col gap-2 text-meta">
       {tracks == null && !error && <Spinner label="Loading tracks…" size={13} className="font-semibold" />}
       {tracks && tracks.length === 0 && (
-        <p className="text-muted">No tracks yet — name your first one below.</p>
+        <p className="text-muted">No tracks yet. Name your first one below.</p>
       )}
       {tracks && tracks.length > 0 && (
         <div className="flex max-h-44 flex-col gap-1 overflow-y-auto">

@@ -2228,6 +2228,55 @@ the look.
 
 ---
 
+#### FEAT-13 · Offline: changes wait and save when you're back — ✅ done · 2026-10-19
+
+**The problem.** After FIX-04 (A1), a ✓ Seen or bookmark made while the
+connection was down was undone with an error, so you had to redo it later.
+Popular apps keep the change and save it when the connection returns.
+
+**The change.** When the connection drops, a bar at the bottom of every page
+says "You're offline. Your changes will save when you're back online." ✓
+Seen and bookmark changes stay on screen and wait ("2 waiting"). When the
+connection is back they save by themselves, and the bar says "Back online.
+All changes saved." The waiting list survives a reload ("Your earlier
+changes were saved."). A save the *server refuses* (logged out, server
+error) still undoes, with "Couldn't save. Please try again.": waiting won't
+fix that. Ask, Summary and other live requests say "You're offline. This
+needs a connection.", and Ask keeps your question in the box. Notes already
+retried; offline, their label now says the note will save when you're back.
+UI copy avoids em dashes, at the owner's request.
+
+**How it works.** `lib/offline.ts` keeps the waiting list in localStorage
+(`tubebox:pending-saves`). It keeps one entry per video and field (last
+value wins, so three toggles make one save) and sends them oldest first,
+stopping at the first network failure. `components/OfflineBar.tsx`, mounted
+in the root layout, listens to the browser's `online`/`offline` events,
+sends the list when back online (and on page open, then tells the feed to
+reload), and retries every 15 s if a save failed while the browser still
+said "online". `useFeedData`'s `saveVideo` returns saved / queued (offline,
+or the request never reached the server) / refused. `api()` turns a request
+that never left into a plain-words error.
+
+**Alternatives considered.** *A service worker / full offline app* (open
+TUBEBOX with no connection): far bigger, and the app needs the server for
+everything it shows. *Queueing tracks, genres and channel edits:* ordering
+and positions make them harder; left for later. *Retrying refused saves:*
+pointless, since the answer won't change by waiting.
+
+**Files.** `lib/offline.ts`, `components/OfflineBar.tsx`, `app/layout.tsx`,
+`components/feed/useFeedData.ts`, `lib/api-client.ts`,
+`components/NoteEditor.tsx`, and `components/TopBar.tsx` (em dashes removed
+from the sync messages).
+
+**Verified** (local; offline simulated via `navigator.onLine`, events and
+failing requests). Offline bar shown. ✓ Seen and a bookmark stayed on screen
+with "2 waiting", and back online both saved ("Back online. All changes
+saved."; server confirmed; list emptied). Three toggles made one waiting save
+with the final value. A reload with items waiting saved them on page open.
+A server-refused save was undone with the toast and not queued. Ask offline
+showed the message, kept the question, and made no Gemini call. Test changes
+were undone; typecheck and lint pass.
+
 ### CLEAN — code cleanup (Phase 10)
 
 The rule for all of Phase 10: reorganise, don't change behaviour. Two
@@ -2739,6 +2788,122 @@ the cursor back in an empty box. Switching Note → Ask focuses the box, and
 the Note tab still focuses the note. At 1400px the Notebook's follow-up box
 is focused on open with no scroll jump. Typecheck and lint pass. Not
 testable here: Willow Voice itself.
+
+#### FIX-03 · Search: exact matches before look-alikes — ✅ done · 2026-10-19
+
+**The problem.** Searching the feed for "redis" showed "…Parakeet Redux"
+above real Redis videos. The search matches a title two ways: it
+*contains* the word (`ILIKE`), or it *looks similar* (pg_trgm
+`word_similarity` > 0.4, so typos like "kubernets" still work). "redis"
+and "redux" share 3 of 6 trigrams, a score of 0.50, so Redux matched.
+Matches were then only sorted newest first, and that Redux video was newer
+than most Redis ones.
+
+**The change.** While searching, titles that contain the words come first
+and look-alikes after, each group in the view's usual order (newest
+uploaded, or newest saved on Watch later). Not searching: unchanged. This
+is the rule global search (⌘K) already used.
+
+**Key code** (`app/api/videos/route.ts`).
+```ts
+searchOrder.push(sql`(${videos.title} ILIKE ${like}) DESC`);
+// …
+.orderBy(...searchOrder, later ? desc(videos.laterAt) : desc(videos.publishedAt))
+```
+
+**Alternatives considered.** *Raising the similarity bar* would drop Redux
+(0.50) but also weaken typo search, and it doesn't fix the order. *A third
+"whole word" group* ("Redis" above "redistribute") was skipped as rarely
+needed.
+
+**Verified** (local). redis: 2 exact, then 7 near. docker: 15, then 2
+("Tracker"). kafka: 14. kubernets (typo): 22 near, all Kubernetes. In every
+case all exact matches came before near ones, newest first within each.
+Typecheck and lint pass.
+
+#### FIX-04 · Audit quick wins (A1–A6) — ✅ done · 2026-10-19
+
+Six small fixes chosen from the external performance and quality audit
+(`docs/audit/AuditReport.md`). The audit labels are in brackets.
+
+**A1 · ✓ Seen and bookmark saves could fail silently** (§5 Reliability ·
+High). The toggles updated the screen at once, then sent the save with
+`.catch(() => {})` and never checked the reply. Offline, a server error or
+an expired login looked saved but wasn't. *Change:* `saveVideo()` returns
+whether the server said OK. On failure, `show(false)` undoes exactly what
+`show(true)` did (card, view totals, facets, Later counts), and on Watch
+later a removed card goes back to its original spot (`restoreCard`). Then
+the toast says "Couldn't save — check your connection and try again."
+*Verified* with forced failures: Seen (1,010 → 1,009 → 1,010), bookmark
+(Later 1 → 2 → 1), Watch-later removal (card back in place), each with the
+toast. A real save round trip changed the server state and then restored it.
+
+**A2 · Overlapping note autosaves** (§5 · High). A typing pause, blur and
+close could each start a PATCH while another was in flight, so an older one
+could land last and overwrite newer text. Typing then deleting during a save
+was also skipped (compared against a stale "saved" value), so the deleted
+text stayed. *Change:* saves are a promise queue. Each sends the text *when
+its turn comes* and skips if it's already saved; the closing save queues
+behind any in-flight one. No retry timer after the editor closes.
+*Verified* with a 2 s first save: #2 went out only when #1 finished (2,822
+ms), and the server kept the newer text. Delete-during-save: #2 sent `""`,
+and the note ended `null`.
+
+**A3 · "Up to date" hid failed channels** (§5 · Medium). The refresh message
+looked only at `added`, so with failures it still said "You're up to date".
+*Change:* each sync stores the failed channel titles in `app_meta`
+(`last_sync_failed`, upserted with `last_sync_at` in one statement). `/api/nav`
+returns `lastSyncFailed`. The message names the failed channels ("…they'll
+be retried on the next sync"), and the synced dot turns `warn` amber with
+the names on hover. This covers the 6-hourly sync too. Nothing was being
+lost: every sync looks back 14 days, so a channel that fails once catches up
+next time. *Verified* with fake YouTube replies: 2 broken channels were
+recorded, and the next clean sync added their 2 missed videos and cleared
+the list. In the UI the toast and amber dot appeared, and the normal state
+stayed green "Synced 1d ago". The live logs showed 0 errors across 27 syncs.
+
+**A4 · No index on `videos.channel_id`** (§4 · P2 index). *Change:*
+`videos_channel_published_idx (channel_id, published_at DESC)` added to the
+schema setup. *Verified* (local, 2,183 videos): a channel filter went from a
+Seq Scan at 0.64 ms to an Index Scan at 0.035 ms (about 5 ms at production
+size). It's created on the next cold start; setup is now 25 statements.
+
+**A5 · Channels list read its two queries one after the other** (§4 · P1
+fan-out, one piece). *Change:* `Promise.all`, one round trip fewer on Neon.
+*Verified:* the reply was byte-identical to the old code's (8,348 bytes).
+
+**A6 · Cron secret accepted in the URL** (§5 · Medium). *Change:*
+`x-cron-secret` header only. *Verified:* no caller used `?secret=` (repo
+grep; all 27 live `/api/cron` calls had no query string).
+
+**Files.** `components/feed/useFeedData.ts`, `components/NoteEditor.tsx`,
+`lib/ingest.ts`, `lib/nav.ts`, `components/TopBar.tsx`, `lib/db.ts`,
+`app/api/channels/route.ts`, `app/api/cron/route.ts`. Typecheck and lint
+pass. *Not done* (by choice, see the audit triage): B1–B5 and section C.
+
+#### FIX-05 · Friendlier messages, no em dashes — ✅ done · 2026-10-19
+
+**The problem.** The owner dislikes em dashes in on-screen text, and many
+messages read like developer notes: "Unauthorized" (an expired login),
+"videoId is required", "progress must be a string of 0s and 1s", "Sync
+failed", "YouTube player API timed out".
+
+**The change.** Every user-visible string was checked (UI text,
+placeholders, the tab title, toasts, API error messages, Gemini/YouTube
+errors that reach the screen). That's 43 replacements: em dashes became
+commas, full stops or a colon, and terse or technical messages became plain
+sentences with proper capitalisation. Examples: "Your login has expired.
+Please log in again."; "That video isn't in your library anymore."; "Couldn't
+check for new videos. Please try again."; "Too many attempts. Try again in 15
+minutes."; tab title "TUBEBOX: your feed, no algorithm"; a channel with no
+uploads shows "None yet" instead of "—"; the Notebook's Copy-as-Markdown
+heading is "## Title (Channel)". Kept as they were: the instructions sent *to*
+Gemini (never shown) and setup errors aimed at whoever deploys
+(`GEMINI_API_KEY is not set…`).
+
+**Verified.** No code compares message text, so the rewording can't break
+logic (grep). Afterwards the only non-comment em dash left is the Gemini
+prompt. The tab title shows the new text. Typecheck and lint pass.
 
 ---
 

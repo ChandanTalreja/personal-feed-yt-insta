@@ -63,13 +63,24 @@ export async function api<T = ApiReply>(
     fallback?: string;
   } = {}
 ): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    keepalive,
-    ...(body === undefined
-      ? {}
-      : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      keepalive,
+      ...(body === undefined
+        ? {}
+        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+    });
+  } catch {
+    // The request never reached the server ("Failed to fetch"): say why in
+    // plain words. Ask, Summary and the like need a live connection.
+    throw new Error(
+      typeof navigator !== "undefined" && navigator.onLine === false
+        ? "You're offline. This needs a connection."
+        : "Couldn't reach the server. Please try again."
+    );
+  }
   // A reply that isn't JSON (a crashed function, a proxy error page) reads as {}.
   const data = await res.json().catch(() => ({}));
   // A change (or a sync, which is a GET) may have touched anything: forget

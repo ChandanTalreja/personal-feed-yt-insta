@@ -4,6 +4,7 @@ import type { ProgressUpdate } from "@/components/PlayerModal";
 import type { FeedVideo } from "@/components/types";
 import { notifyNavChanged } from "@/lib/nav-events";
 import { remember, rememberedReply, updateRemembered } from "@/lib/api-client";
+import { PENDING_RESTORED, isOffline, queueVideoSave } from "@/lib/offline";
 import type { Kind, LengthFilter } from "./model";
 
 type Filters = {
@@ -145,6 +146,11 @@ export function useFeedData(
     // Async server fetch, not a synchronous state cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPage(0, true);
+    // Changes left waiting from before a reload were just saved: this page
+    // loaded without them, so load it again.
+    const onRestored = () => loadPage(0, true);
+    window.addEventListener(PENDING_RESTORED, onRestored);
+    return () => window.removeEventListener(PENDING_RESTORED, onRestored);
   }, [loadPage]);
 
   // A video entered or left the current view's set: keep the count and the
@@ -200,46 +206,114 @@ export function useFeedData(
     onPatchedRef.current(id, patch);
   }, []);
 
+  // ✓ seen and the bookmark change the screen at once, then save.
+  // - No connection: the change stays and waits in lib/offline.ts's list,
+  //   saving by itself when the connection is back (the offline bar says so).
+  // - The server refused (logged out, server error): waiting won't help, so
+  //   put the card and every count back as they were, and say so.
+  async function saveVideo(
+    id: number,
+    field: "watched" | "later",
+    value: boolean
+  ): Promise<"saved" | "queued" | "refused"> {
+    const queue = () => {
+      queueVideoSave(id, field, value);
+      return "queued" as const;
+    };
+    if (isOffline()) return queue();
+    try {
+      const res = await fetch(`/api/videos/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      });
+      return res.ok ? "saved" : "refused";
+    } catch {
+      return queue(); // the request never reached the server
+    }
+  }
+
+  /** Put a card that left the list back where it was (a failed save). */
+  function restoreCard(video: FeedVideo, at: number) {
+    setVideos((prev) => {
+      if (prev.some((v) => v.id === video.id)) return prev;
+      const next = [...prev];
+      next.splice(Math.max(0, Math.min(at, next.length)), 0, video);
+      return next;
+    });
+    patchRemembered(video.id, { watched: video.watched, laterAt: video.laterAt });
+  }
+
+  const NOT_SAVED = "Couldn't save. Please try again.";
+
   async function toggleWatched(video: FeedVideo) {
     const next = !video.watched;
     // Marking watched also takes it off Watch Later (the server does the
     // same) — and on the Later view the card leaves the list.
     const leavesLater = next && video.laterAt != null;
-    if (view === "later" && leavesLater) {
-      setVideos((prev) => prev.filter((v) => v.id !== video.id));
-      patchRemembered(video.id, { watched: next, laterAt: null });
-    } else {
-      // Everywhere else the card stays put, dimmed, with an Undo.
-      patchVideo(video.id, { watched: next, laterAt: leavesLater ? null : video.laterAt });
+    const leavesList = view === "later" && leavesLater;
+    const at = videos.findIndex((v) => v.id === video.id);
+    // `on`: apply the change; off: undo it after a failed save.
+    const show = (on: boolean) => {
+      if (leavesList) {
+        if (on) {
+          setVideos((prev) => prev.filter((v) => v.id !== video.id));
+          patchRemembered(video.id, { watched: next, laterAt: null });
+        } else {
+          restoreCard(video, at);
+        }
+      } else {
+        // Everywhere else the card stays put, dimmed, with an Undo.
+        patchVideo(
+          video.id,
+          on
+            ? { watched: next, laterAt: leavesLater ? null : video.laterAt }
+            : { watched: video.watched, laterAt: video.laterAt }
+        );
+      }
+      if (leavesLater) adjustLaterCounts(video, on ? -1 : 1);
+      bumpFacets(video, "watched", on ? next : !next);
+      // Inbox counts unwatched videos and History counts watched ones, so a
+      // toggle moves the video out of (or back into) that view's total.
+      // (It ends up watched when the change is applied and `next` is
+      // watched, or undone and `next` was unwatched.)
+      const endsWatched = on === next;
+      if (view === "unwatched") adjustTotals(video, endsWatched ? -1 : 1);
+      if (view === "watched") adjustTotals(video, endsWatched ? 1 : -1);
+    };
+    show(true);
+    const result = await saveVideo(video.id, "watched", next);
+    if (result === "saved") notifyNavChanged();
+    if (result === "refused") {
+      show(false);
+      onErrorRef.current(NOT_SAVED);
     }
-    if (leavesLater) adjustLaterCounts(video, -1);
-    bumpFacets(video, "watched", next);
-    // Inbox counts unwatched videos and History counts watched ones, so a
-    // toggle moves the video out of (or back into) that view's total.
-    if (view === "unwatched") adjustTotals(video, next ? -1 : 1);
-    if (view === "watched") adjustTotals(video, next ? 1 : -1);
-    await fetch(`/api/videos/${video.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ watched: next }),
-    }).catch(() => {});
-    notifyNavChanged();
   }
 
   async function toggleLater(video: FeedVideo) {
     const saving = video.laterAt == null;
-    if (view === "later" && !saving) {
-      setVideos((prev) => prev.filter((v) => v.id !== video.id));
-      patchRemembered(video.id, { laterAt: null });
-    } else {
-      patchVideo(video.id, { laterAt: saving ? new Date().toISOString() : null });
+    const leavesList = view === "later" && !saving;
+    const at = videos.findIndex((v) => v.id === video.id);
+    const show = (on: boolean) => {
+      if (leavesList) {
+        if (on) {
+          setVideos((prev) => prev.filter((v) => v.id !== video.id));
+          patchRemembered(video.id, { laterAt: null });
+        } else {
+          restoreCard(video, at);
+        }
+      } else {
+        patchVideo(video.id, {
+          laterAt: on ? (saving ? new Date().toISOString() : null) : video.laterAt,
+        });
+      }
+      adjustLaterCounts(video, saving === on ? 1 : -1);
+    };
+    show(true);
+    if ((await saveVideo(video.id, "later", saving)) === "refused") {
+      show(false);
+      onErrorRef.current(NOT_SAVED);
     }
-    adjustLaterCounts(video, saving ? 1 : -1);
-    await fetch(`/api/videos/${video.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ later: saving }),
-    }).catch(() => {});
   }
 
   // A progress save came back: update the card (progress bar, resume point)

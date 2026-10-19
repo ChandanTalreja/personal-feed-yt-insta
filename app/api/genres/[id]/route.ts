@@ -31,7 +31,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     updates.color = body.color;
   }
   if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    return NextResponse.json({ error: "There's nothing to change." }, { status: 400 });
   }
   const db = await getDb();
   const [updated] = await db
@@ -40,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .where(eq(genres.id, id))
     .returning();
   if (!updated) {
-    return NextResponse.json({ error: "Genre not found" }, { status: 404 });
+    return NextResponse.json({ error: "That genre doesn't exist anymore." }, { status: 404 });
   }
   return NextResponse.json({ genre: updated });
 }

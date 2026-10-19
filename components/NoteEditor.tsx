@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { notifyNavChanged } from "@/lib/nav-events";
 import { api } from "@/lib/api-client";
+import { isOffline } from "@/lib/offline";
 
 interface Props {
   videoId: number;
@@ -56,36 +57,51 @@ export default function NoteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Saves go out one at a time, in order. Typing pause, blur and close can
+  // all ask for a save while one is still in flight; without the queue an
+  // older save could land last and overwrite newer text. Each queued save
+  // sends whatever the text is *when its turn comes*, and skips if that's
+  // already saved — so typing then deleting during a save still deletes.
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+
   function save(final = false) {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
+    queueRef.current = queueRef.current.then(() => send(final));
+  }
+
+  async function send(final: boolean) {
     const value = textRef.current;
     if (value.trim() === savedRef.current) return;
     if (!final) setStatus("saving");
-    api(`/api/videos/${videoId}`, {
-      method: "PATCH",
-      body: { personalNote: value },
-      keepalive: final, // let the last save finish as the panel closes
-      fallback: "Save failed",
-    })
-      .then((data) => {
-        savedRef.current = value.trim();
-        onSavedRef.current?.(data.video.personalNote, data.video.personalNoteAt);
-        notifyNavChanged();
-        if (!final) setStatus("saved");
-      })
-      .catch(() => {
-        if (final) return;
-        setStatus("error");
-        timerRef.current = setTimeout(() => save(), RETRY_AFTER_MS);
+    try {
+      const data = await api(`/api/videos/${videoId}`, {
+        method: "PATCH",
+        body: { personalNote: value },
+        keepalive: final, // let the last save finish as the panel closes
+        fallback: "Save failed",
       });
+      savedRef.current = value.trim();
+      onSavedRef.current?.(data.video.personalNote, data.video.personalNoteAt);
+      notifyNavChanged();
+      if (!final) setStatus("saved");
+    } catch {
+      // Closed already: the closing save, queued behind this one, retries.
+      if (final || !openRef.current) return;
+      setStatus("error");
+      timerRef.current = setTimeout(() => save(), RETRY_AFTER_MS);
+    }
   }
 
-  // Flush anything unsaved when the editor closes.
+  // Flush anything unsaved when the editor closes (queued behind any save
+  // still in flight, so it lands last).
+  const openRef = useRef(true);
   useEffect(() => {
+    openRef.current = true;
     return () => {
-      if (textRef.current.trim() !== savedRef.current) save(true);
+      openRef.current = false;
       if (timerRef.current) clearTimeout(timerRef.current);
+      save(true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -106,7 +122,9 @@ export default function NoteEditor({
           ? "Saved ✓"
           : "Note deleted"
         : status === "error"
-          ? "Couldn't save — retrying…"
+          ? isOffline()
+            ? "You're offline. Your note will save when you're back online."
+            : "Couldn't save, retrying…"
           : "Saves automatically";
 
   return (
@@ -117,7 +135,7 @@ export default function NoteEditor({
         }`}
         rows={rows}
         maxLength={MAX_CHARS}
-        placeholder="Your note on this video — timestamps, what to revise, what to skip…"
+        placeholder="Your note on this video: timestamps, what to revise, what to skip…"
         ref={areaRef}
         value={text}
         onChange={(e) => onChange(e.target.value)}

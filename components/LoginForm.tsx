@@ -17,7 +17,7 @@ export default function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/login", { method: "POST", body: { password }, fallback: "Login failed" });
+      await api("/api/login", { method: "POST", body: { password }, fallback: "Couldn't log in. Please try again." });
       router.push("/");
       router.refresh();
     } catch (err) {

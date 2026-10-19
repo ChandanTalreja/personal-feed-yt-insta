@@ -19,7 +19,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
   if ("isActive" in body) updates.isActive = !!body.isActive;
   if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    return NextResponse.json({ error: "There's nothing to change." }, { status: 400 });
   }
   const db = await getDb();
   const [updated] = await db
@@ -28,7 +28,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .where(eq(channels.id, id))
     .returning();
   if (!updated) {
-    return NextResponse.json({ error: "Channel not found" }, { status: 404 });
+    return NextResponse.json({ error: "That channel isn't in your library anymore." }, { status: 404 });
   }
   return NextResponse.json({ channel: updated });
 }

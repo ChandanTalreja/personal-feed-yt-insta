@@ -116,7 +116,7 @@ export default function StyleguideClient() {
               <p className="flex flex-wrap items-baseline gap-3 text-sm">
                 <span className="font-semibold">Pen (blue) = margin notes:</span>
                 <span className="pen-note">newest first, no algorithm</span>
-                <span className="text-meta text-muted">— at most one per screen, beside the page title.</span>
+                <span className="text-meta text-muted">At most one per screen, beside the page title.</span>
               </p>
             </div>
           </Block>

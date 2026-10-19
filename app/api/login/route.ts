@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   if (Number(failures) >= MAX_ATTEMPTS) {
     return NextResponse.json(
       {
-        error: `Too many attempts — try again in ${WINDOW_MINUTES} minutes.`,
+        error: `Too many attempts. Try again in ${WINDOW_MINUTES} minutes.`,
       },
       { status: 429 }
     );
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     await db
       .delete(loginAttempts)
       .where(lt(loginAttempts.attemptedAt, new Date(Date.now() - 3_600_000)));
-    return NextResponse.json({ error: "Wrong password" }, { status: 401 });
+    return NextResponse.json({ error: "Wrong password. Please try again." }, { status: 401 });
   }
 
   await db.delete(loginAttempts).where(eq(loginAttempts.ip, ip));

@@ -22,7 +22,7 @@ export async function isAuthed(): Promise<boolean> {
 
 /** The reply for an API call that isn't logged in. */
 export function unauthorized(): NextResponse {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return NextResponse.json({ error: "Your login has expired. Please log in again." }, { status: 401 });
 }
 
 /**

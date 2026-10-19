@@ -12,5 +12,5 @@ export function parseId(raw: string): number | null {
 
 /** The reply for an id that isn't one. */
 export function badId(): NextResponse {
-  return NextResponse.json({ error: "Invalid id." }, { status: 400 });
+  return NextResponse.json({ error: "That link isn't valid." }, { status: 400 });
 }

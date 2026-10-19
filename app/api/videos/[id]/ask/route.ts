@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     .from(videos)
     .where(eq(videos.id, id));
   if (!video) {
-    return NextResponse.json({ error: "Video not found" }, { status: 404 });
+    return NextResponse.json({ error: "That video isn't in your library anymore." }, { status: 404 });
   }
 
   // Same question asked before → return the saved answer, no Gemini call.

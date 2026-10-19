@@ -93,7 +93,7 @@ export default function ChannelsClient() {
     const data = await api("/api/channels/bulk", {
       method: "POST",
       body: { ids, action, genreId },
-      fallback: "That didn't work",
+      fallback: "That didn't work. Please try again.",
     });
     return data.changed as number;
   }

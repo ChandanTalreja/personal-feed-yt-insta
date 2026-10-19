@@ -52,6 +52,10 @@ export async function GET(req: NextRequest) {
   const channelC =
     channelIds.length > 0 ? [inArray(videos.channelId, channelIds)] : [];
   const searchC = [];
+  // While searching, titles that really contain the words come first and
+  // fuzzy look-alikes after ("redis" also matches "Redux" at 0.5), each
+  // group in the view's usual order — the same rule as global search.
+  const searchOrder = [];
   // Fuzzy title search: exact/substring via ILIKE, plus pg_trgm trigram
   // word-similarity so small typos ("kubernets") still match. Just one
   // more AND — it narrows within whatever filters are already applied.
@@ -61,6 +65,7 @@ export async function GET(req: NextRequest) {
     searchC.push(
       sql`(${videos.title} ILIKE ${like} OR word_similarity(${term}::text, lower(${videos.title})) > 0.4)`
     );
+    searchOrder.push(sql`(${videos.title} ILIKE ${like}) DESC`);
   }
 
   // Length buckets: under 10 min / 10–30 min / 30 min and up. A duration of
@@ -131,7 +136,8 @@ export async function GET(req: NextRequest) {
       .innerJoin(channels, eq(videos.channelId, channels.id))
       .where(where)
       // LATER: newest saved first. Every other tab: newest uploaded first.
-      .orderBy(later ? desc(videos.laterAt) : desc(videos.publishedAt))
+      // (Searching: exact title matches ahead of near matches.)
+      .orderBy(...searchOrder, later ? desc(videos.laterAt) : desc(videos.publishedAt))
       .limit(PAGE_SIZE + 1)
       .offset(page * PAGE_SIZE),
     // Everything saved, ignoring filters — the tab badge's total.

@@ -44,6 +44,9 @@ const DDL = [
     fetched_at timestamptz NOT NULL DEFAULT now()
   )`,
   `CREATE INDEX IF NOT EXISTS videos_published_idx ON videos (published_at DESC)`,
+  // One channel's videos, newest first (channel filter, per-channel counts):
+  // an index scan instead of reading every video.
+  `CREATE INDEX IF NOT EXISTS videos_channel_published_idx ON videos (channel_id, published_at DESC)`,
   `CREATE INDEX IF NOT EXISTS videos_title_trgm_idx ON videos USING gin (title gin_trgm_ops)`,
   `CREATE TABLE IF NOT EXISTS gemini_usage (
     id serial PRIMARY KEY,

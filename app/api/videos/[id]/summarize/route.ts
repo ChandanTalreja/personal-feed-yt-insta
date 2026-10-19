@@ -21,7 +21,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     .from(videos)
     .where(eq(videos.id, id));
   if (!video) {
-    return NextResponse.json({ error: "Video not found" }, { status: 404 });
+    return NextResponse.json({ error: "That video isn't in your library anymore." }, { status: 404 });
   }
   if (video.summary) {
     return NextResponse.json({ summary: video.summary, cached: true });

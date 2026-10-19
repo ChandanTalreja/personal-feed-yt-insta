@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./db";
 import { appMeta, channels, videos, type Channel } from "./schema";
 import { getVideoDetails, isShortVideo, listUploadsPage } from "./youtube";
@@ -138,6 +138,8 @@ interface RefreshResult {
   channels: number;
   added: number;
   errors: string[];
+  /** Titles of the channels that couldn't be checked this time. */
+  failed: string[];
   /** Channels that actually had new videos, e.g. [{ title, added }] */
   breakdown: { title: string; added: number }[];
   /** When this sync finished (ISO). */
@@ -146,6 +148,9 @@ interface RefreshResult {
 
 /** app_meta key holding the last full sync time. */
 export const LAST_SYNC_KEY = "last_sync_at";
+
+/** app_meta key holding the titles of channels the last sync couldn't check (JSON array). */
+export const LAST_SYNC_FAILED_KEY = "last_sync_failed";
 
 export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
   const active = await db
@@ -188,20 +193,28 @@ export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
       if (outcome.count > 0) breakdown.push({ title, added: outcome.count });
     }
   });
-  // Remember when this sync finished — the top bar's "Synced 4 min ago".
-  // Upsert, so the same row is simply updated every time.
+  // Remember when this sync finished — the top bar's "Synced 4 min ago" —
+  // and which channels it couldn't check, so a failure is visible (amber
+  // dot) even after the 6-hourly sync nobody watched. A failed channel's
+  // videos aren't lost: the next sync looks back 14 days again. Both rows
+  // are upserted in one statement.
   const syncedAt = new Date();
+  const failed = outcomes.flatMap((o, i) => ("error" in o ? [active[i].title] : []));
   await db
     .insert(appMeta)
-    .values({ key: LAST_SYNC_KEY, value: syncedAt.toISOString(), updatedAt: syncedAt })
+    .values([
+      { key: LAST_SYNC_KEY, value: syncedAt.toISOString(), updatedAt: syncedAt },
+      { key: LAST_SYNC_FAILED_KEY, value: JSON.stringify(failed), updatedAt: syncedAt },
+    ])
     .onConflictDoUpdate({
       target: appMeta.key,
-      set: { value: syncedAt.toISOString(), updatedAt: syncedAt },
+      set: { value: sql`excluded.value`, updatedAt: sql`excluded.updated_at` },
     });
   return {
     channels: active.length,
     added,
     errors,
+    failed,
     breakdown,
     syncedAt: syncedAt.toISOString(),
   };

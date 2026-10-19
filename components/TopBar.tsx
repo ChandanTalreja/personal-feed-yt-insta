@@ -17,6 +17,14 @@ interface NavSummary {
   notebook: number;
   tracks: number;
   lastSyncAt: string | null;
+  /** Channels the last sync couldn't check (optional: older remembered replies lack it). */
+  lastSyncFailed?: string[];
+}
+
+/** "X, Y and 3 more" — channel names for a short message. */
+function nameList(titles: string[], max = 3): string {
+  const shown = titles.slice(0, max).join(", ");
+  return titles.length > max ? `${shown} and ${titles.length - max} more` : shown;
 }
 
 const TABS: { href: string; label: string; count?: keyof NavSummary }[] = [
@@ -37,22 +45,37 @@ function syncedLabel(iso: string | null, now: number): string {
   return `Synced ${Math.floor(hours / 24)}d ago`;
 }
 
-/** The refresh result in plain words. */
+/**
+ * The refresh result in plain words — including channels that couldn't be
+ * checked, so a failure never hides behind "you're up to date".
+ */
 function syncMessage(data: {
   added: number;
   channels: number;
+  failed?: string[];
   breakdown?: { title: string; added: number }[];
 }): string {
+  const failed = data.failed ?? [];
+  const checked = data.channels - failed.length;
+  let result: string;
   if (data.added === 0) {
-    return `You're up to date — checked ${data.channels} channels, nothing new.`;
+    result = failed.length
+      ? `Nothing new in the ${checked} channels checked.`
+      : `You're up to date. Checked ${data.channels} channels, nothing new.`;
+  } else {
+    const list = data.breakdown ?? [];
+    const shown = list
+      .slice(0, 4)
+      .map((b) => `${b.title} (${b.added})`)
+      .join(", ");
+    const more = list.length > 4 ? ` and ${list.length - 4} more` : "";
+    result = `${data.added} new video${data.added === 1 ? "" : "s"}: ${shown}${more}.`;
   }
-  const list = data.breakdown ?? [];
-  const shown = list
-    .slice(0, 4)
-    .map((b) => `${b.title} (${b.added})`)
-    .join(", ");
-  const more = list.length > 4 ? ` and ${list.length - 4} more` : "";
-  return `${data.added} new video${data.added === 1 ? "" : "s"} — ${shown}${more}.`;
+  if (!failed.length) return result;
+  return (
+    `${result} Couldn't check ${failed.length} channel${failed.length === 1 ? "" : "s"}: ` +
+    `${nameList(failed)}. They'll be retried on the next sync.`
+  );
 }
 
 /**
@@ -137,7 +160,7 @@ export default function TopBar({
   async function sync() {
     setSyncing(true);
     try {
-      const data = await api("/api/cron", { fallback: "Sync failed" });
+      const data = await api("/api/cron", { fallback: "Couldn't check for new videos. Please try again." });
       setToast(syncMessage(data));
       setNow(Date.now());
       await Promise.all([loadNav(), onRefreshed?.()]);
@@ -147,6 +170,8 @@ export default function TopBar({
       setSyncing(false);
     }
   }
+
+  const failedChannels = nav?.lastSyncFailed ?? [];
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -160,7 +185,7 @@ export default function TopBar({
         {/* Logo — hover shows the tagline as a speech bubble from the TV. */}
         <Link
           href="/"
-          aria-label="TUBEBOX — your feed, no algorithm"
+          aria-label="TUBEBOX: your feed, no algorithm"
           className="group relative flex items-center gap-2.5 py-3"
         >
           <Mascot size={34} />
@@ -212,10 +237,27 @@ export default function TopBar({
           {syncing ? (
             <SpinnerBadge label="Syncing" />
           ) : (
-            <span className="flex items-center gap-2 whitespace-nowrap text-meta text-muted" title={nav ? syncedLabel(nav.lastSyncAt, now) : undefined}>
+            <span
+              className="flex items-center gap-2 whitespace-nowrap text-meta text-muted"
+              title={
+                nav
+                  ? syncedLabel(nav.lastSyncAt, now) +
+                    (failedChannels.length
+                      ? `. Couldn't check ${nameList(failedChannels, 8)}, they'll be retried on the next sync.`
+                      : "")
+                  : undefined
+              }
+            >
               {nav && (
                 <>
-                  <span className="h-[7px] w-[7px] rounded-full bg-ok shadow-[0_0_0_3px_rgb(47_179_107/0.18)]" />
+                  {/* Green: every channel checked. Amber: some couldn't be (hover for which). */}
+                  <span
+                    className={`h-[7px] w-[7px] rounded-full ${
+                      failedChannels.length
+                        ? "bg-warn shadow-[0_0_0_3px_rgb(154_88_0/0.2)]"
+                        : "bg-ok shadow-[0_0_0_3px_rgb(47_179_107/0.18)]"
+                    }`}
+                  />
                   <span className="hidden xl:inline">{syncedLabel(nav.lastSyncAt, now)}</span>
                 </>
               )}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo_Black, Caveat, Space_Grotesk, Space_Mono } from "next/font/google";
 import "./globals.css";
+import OfflineBar from "@/components/OfflineBar";
 
 const display = Archivo_Black({
   variable: "--font-display",
@@ -29,7 +30,7 @@ const pen = Caveat({
 });
 
 export const metadata: Metadata = {
-  title: "TUBEBOX — your feed, no algorithm",
+  title: "TUBEBOX: your feed, no algorithm",
   description:
     "A personal, distraction-free YouTube feed: only the channels you choose, in chronological order.",
 };
@@ -44,7 +45,10 @@ export default function RootLayout({
       lang="en"
       className={`${display.variable} ${body.variable} ${mono.variable} ${pen.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <OfflineBar />
+      </body>
     </html>
   );
 }

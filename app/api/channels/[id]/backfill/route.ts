@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const db = await getDb();
   const [channel] = await db.select().from(channels).where(eq(channels.id, id));
   if (!channel) {
-    return NextResponse.json({ error: "Channel not found" }, { status: 404 });
+    return NextResponse.json({ error: "That channel isn't in your library anymore." }, { status: 404 });
   }
   try {
     const step = await backfillChannel(db, channel, backfillSince(months), {
