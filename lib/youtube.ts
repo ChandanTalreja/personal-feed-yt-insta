@@ -1,3 +1,5 @@
+import { parseChapters, type Chapter } from "./chapters";
+
 const API = "https://www.googleapis.com/youtube/v3";
 
 function apiKey(): string {
@@ -136,6 +138,8 @@ export async function listUploadsPage(
 }
 
 interface VideoDetails {
+  /** From the description (lib/chapters.ts); [] when it lists none. */
+  chapters: Chapter[];
   ytVideoId: string;
   title: string;
   thumbnail: string | null;
@@ -172,12 +176,26 @@ export async function getVideoDetails(
           item.snippet.thumbnails?.medium?.url ??
           null,
         durationSeconds: parseISODuration(item.contentDetails.duration),
+        // The description comes with the snippet we already ask for, so
+        // reading chapters costs nothing extra.
+        chapters: parseChapters(item.snippet.description, parseISODuration(item.contentDetails.duration)),
         isLive: !!item.liveStreamingDetails,
         publishedAt: new Date(item.snippet.publishedAt),
       });
     }
   }
   return out;
+}
+
+/**
+ * Chapters for one already-stored video (videos saved before chapters were
+ * read). 1 quota unit. null = YouTube no longer has the video.
+ */
+export async function fetchVideoChapters(ytVideoId: string): Promise<Chapter[] | null> {
+  const data = await yt("videos", { part: "snippet,contentDetails", id: ytVideoId });
+  const item = data.items?.[0];
+  if (!item) return null;
+  return parseChapters(item.snippet.description, parseISODuration(item.contentDetails.duration));
 }
 
 function parseISODuration(duration: string | undefined): number {

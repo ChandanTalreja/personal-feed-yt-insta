@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 import { drizzle as drizzleNeon, NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import * as schema from "./schema";
 
 export type Db = NeonHttpDatabase<typeof schema>;
@@ -100,6 +101,26 @@ const DDL = [
     value text NOT NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
   )`,
+  // Cheat sheets (FEAT-15). A new table changes the schema fingerprint, so
+  // the first cold start after deploying runs this list once (PERF-05).
+  `CREATE TABLE IF NOT EXISTS cheat_sheets (
+    id serial PRIMARY KEY,
+    query text NOT NULL,
+    query_key text NOT NULL,
+    genre_key text NOT NULL,
+    questions jsonb NOT NULL,
+    line_count integer NOT NULL,
+    video_count integer NOT NULL,
+    lines_hash text NOT NULL,
+    model text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS cheat_sheets_key_idx ON cheat_sheets (query_key, genre_key)`,
+  // Podcasts (FEAT-14): a channel's home, and a video's chapters.
+  `ALTER TABLE channels ADD COLUMN IF NOT EXISTS section text NOT NULL DEFAULT 'feed'`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS chapters jsonb`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS chapters_source text`,
 ];
 
 // Short random tag for this server process. On Netlify the app runs on AWS
@@ -128,13 +149,52 @@ const SCHEMA_LOCK_KEY = 7_201_314;
 // other's ShareLock: a deadlock (seen in production, SQLSTATE 40P01). The
 // advisory lock on line one makes the second instance wait there, holding
 // nothing, until the first commits; it is released automatically at END.
+//
+// After taking the lock it checks the version stamp again: when several
+// instances cold-start right after a schema change, the first one runs the
+// list and stamps it, and the ones queued behind it skip straight to END.
+// (The nested IF matters: PL/pgSQL plans a statement only when it reaches
+// it, so on a brand-new database the app_meta SELECT is never planned.)
 function schemaSetupBlock(): string {
   return [
     "DO $$ BEGIN",
     `PERFORM pg_advisory_xact_lock(${SCHEMA_LOCK_KEY});`,
+    "IF to_regclass('app_meta') IS NOT NULL THEN",
+    `  IF EXISTS (SELECT 1 FROM app_meta WHERE key = '${SCHEMA_VERSION_KEY}' AND value = '${SCHEMA_VERSION}') THEN RETURN; END IF;`,
+    "END IF;",
     `${DDL.join(";\n")};`,
+    `INSERT INTO app_meta (key, value) VALUES ('${SCHEMA_VERSION_KEY}', '${SCHEMA_VERSION}')`,
+    "  ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now();",
     "END $$",
   ].join("\n");
+}
+
+// The schema rarely changes, yet every cold instance used to run the whole
+// list above, queuing on the advisory lock behind the others (6 instances
+// that cold-started together after a deploy lost ~1 s each). Now the list
+// is stamped with a fingerprint of its own text in app_meta, and a cold
+// instance first does one plain read of that stamp: if it matches, the
+// schema is already current, so there is no lock, no queue and no DDL.
+// Any edit to DDL changes the fingerprint by itself, so the next cold
+// instance runs the list once and re-stamps it.
+const SCHEMA_VERSION_KEY = "schema_version";
+const SCHEMA_VERSION = createHash("sha256")
+  .update(DDL.join(";"))
+  .digest("hex")
+  .slice(0, 12);
+
+async function schemaIsCurrent(db: Db): Promise<boolean> {
+  try {
+    const rows = await db
+      .select({ value: schema.appMeta.value })
+      .from(schema.appMeta)
+      .where(eq(schema.appMeta.key, SCHEMA_VERSION_KEY));
+    return rows[0]?.value === SCHEMA_VERSION;
+  } catch {
+    // Brand-new database (no app_meta table yet). If the database is
+    // unreachable instead, the full setup below throws the real error.
+    return false;
+  }
 }
 
 async function init(): Promise<Db> {
@@ -158,7 +218,8 @@ async function init(): Promise<Db> {
     db = drizzlePglite(client, { schema }) as unknown as Db;
   }
   const t1 = performance.now();
-  await db.execute(sql.raw(schemaSetupBlock()));
+  const current = await schemaIsCurrent(db);
+  if (!current) await db.execute(sql.raw(schemaSetupBlock()));
   const t2 = performance.now();
   // Timing breakdown for the cold-start cost. On Neon, "schema" is one round
   // trip when the compute is awake and round trip + wake-up when it was
@@ -166,7 +227,9 @@ async function init(): Promise<Db> {
   // above ~500 ms means the wake-up, not the DDL.
   console.log(
     `[db ${INSTANCE}] cold init (${mode}): driver ${Math.round(t1 - t0)}ms, ` +
-      `schema ${Math.round(t2 - t1)}ms (${DDL.length} statements, 1 round trip), ` +
+      (current
+        ? `schema ${Math.round(t2 - t1)}ms (skipped, version ${SCHEMA_VERSION} is current), `
+        : `schema ${Math.round(t2 - t1)}ms (${DDL.length} statements, version ${SCHEMA_VERSION}), `) +
       `total ${Math.round(t2 - t0)}ms`
   );
   return db;

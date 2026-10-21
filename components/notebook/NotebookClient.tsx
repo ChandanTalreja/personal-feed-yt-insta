@@ -5,21 +5,34 @@ import TopBar from "@/components/TopBar";
 import PlayerModal, { type ProgressUpdate } from "@/components/PlayerModal";
 import Button from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
+import GeminiMark from "@/components/ui/GeminiMark";
 import Icon from "@/components/ui/Icon";
 import Spinner from "@/components/ui/Spinner";
 import { useDismiss } from "@/components/ui/useDismiss";
 import { Thumb } from "@/components/ui/Media";
 import SearchField from "@/components/ui/SearchField";
 import SegmentedControl from "@/components/ui/SegmentedControl";
+import { looseMatcher } from "@/components/ui/highlight";
 import { timeAgo } from "@/lib/format";
 import { api, rememberedReply } from "@/lib/api-client";
 import { notifyNavChanged } from "@/lib/nav-events";
-import type { Answer, FeedVideo, GenreItem } from "@/components/types";
+import type { Answer, CheatSheetItem, FeedVideo, GenreItem } from "@/components/types";
+import {
+  MAX_CHARS,
+  MAX_LINES,
+  collectLines,
+  genreMatches,
+  linesChars,
+  linesHash,
+  type LineSource,
+} from "@/lib/cheatSheetLines";
+import { looseKey } from "@/lib/looseMatch";
+import CheatSheetView, { CheatSheetMaking } from "./CheatSheetView";
 import { CopyAllItem, Dropdown } from "./ListControls";
-import { videoMarkdown, type Entry } from "./model";
+import { genreLabel, sheetTitle, videoMarkdown, type Entry } from "./model";
 import NotebookReader from "./NotebookReader";
 
-type TypeFilter = "all" | "answers" | "notes";
+type TypeFilter = "all" | "answers" | "notes" | "sheets";
 
 /** A question shows up in the question filter once you've asked it this many times. */
 const QUESTION_MIN_USES = 2;
@@ -53,22 +66,35 @@ export default function NotebookClient() {
   const [reading, setReading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [playing, setPlaying] = useState<FeedVideo | null>(null);
+  // Cheat sheets (FEAT-15): saved ones, the open one, and one being made.
+  const [sheets, setSheets] = useState<CheatSheetItem[]>(() => rememberedReply("/api/cheat-sheets")?.sheets ?? []);
+  const [sheetId, setSheetId] = useState<number | null>(null);
+  const [making, setMaking] = useState<{ query: string; genreKey: string; lines: number; videos: number } | null>(null);
+  const [sheetError, setSheetError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
       api("/api/notebook", { fallback: "Couldn't load the notebook" }),
       // Genres only label things; a failure here mustn't hide the notebook.
       api("/api/genres").catch(() => ({})),
+      api("/api/cheat-sheets").catch(() => ({})),
     ])
-      .then(([nb, g]) => {
+      .then(([nb, g, cs]) => {
         // The API sends newest first; a video's answers read oldest first.
         setAnswers([...(nb.answers ?? [])].reverse());
         setVideos(nb.videos ?? []);
         setGenres(g.genres ?? []);
-        // A link like /notebook?v=123 opens that video.
-        const v = Number(new URLSearchParams(window.location.search).get("v"));
+        if (cs.sheets) setSheets(cs.sheets);
+        // A link like /notebook?v=123 opens that video; ?sheet=7 a cheat sheet.
+        const params = new URLSearchParams(window.location.search);
+        const v = Number(params.get("v"));
+        const sheet = Number(params.get("sheet"));
         if (v) {
           setSelectedId(v);
+          setReading(true);
+        } else if (sheet) {
+          setSheetId(sheet);
+          setTypeFilter("sheets");
           setReading(true);
         }
       })
@@ -118,13 +144,15 @@ export default function NotebookClient() {
   }, [answers]);
 
   const query = normalize(search);
+  // Loose: "hash map" also finds "HashMap" (components/ui/highlight.tsx).
+  const hit = useMemo(() => looseMatcher(query), [query]);
 
   /** Does this answer match the question filter and the search? */
   const answerMatches = useCallback(
     (a: Answer) =>
       (!questionFilter || normalize(a.prompt) === questionFilter) &&
-      (!query || a.answer.toLowerCase().includes(query) || a.prompt.toLowerCase().includes(query)),
-    [questionFilter, query]
+      (!hit || hit(a.answer) || hit(a.prompt)),
+    [questionFilter, hit]
   );
 
   // Everything except genre decides which videos qualify; genre then picks
@@ -133,15 +161,15 @@ export default function NotebookClient() {
     () =>
       entries.filter((e) => {
         const v = e.video;
-        const titleHit = !query || v.title.toLowerCase().includes(query) || v.channelTitle.toLowerCase().includes(query);
-        const noteHit = !!v.personalNote && (!query || v.personalNote.toLowerCase().includes(query));
+        const titleHit = !hit || hit(v.title) || hit(v.channelTitle);
+        const noteHit = !!v.personalNote && (!hit || hit(v.personalNote));
         const answerHit = e.answers.some(answerMatches);
         if (questionFilter) return answerHit; // a question is about answers
         if (typeFilter === "answers") return e.answers.length > 0 && (titleHit || answerHit);
         if (typeFilter === "notes") return !!v.personalNote && (titleHit || noteHit);
         return titleHit || noteHit || answerHit;
       }),
-    [entries, query, questionFilter, typeFilter, answerMatches]
+    [entries, hit, questionFilter, typeFilter, answerMatches]
   );
   const visible =
     genreFilter === "all"
@@ -153,6 +181,7 @@ export default function NotebookClient() {
 
   function select(id: number) {
     setSelectedId(id);
+    setSheetId(null);
     setReading(true);
     // Keep the open video in the address, so it can be linked and reloaded.
     window.history.replaceState(null, "", `/notebook?v=${id}`);
@@ -166,6 +195,108 @@ export default function NotebookClient() {
     setTypeFilter("all");
     setQuestionFilter("");
     setSearch("");
+  }
+
+  // ---------- Cheat sheets ----------
+
+  // Every answer and own note as a line source, with its video's genre.
+  const sources = useMemo(() => {
+    const genreOf = new Map(videos.map((v) => [v.id, v.genreId]));
+    const all: (LineSource & { genreId: number | null })[] = answers.map((a) => ({
+      videoId: a.videoId,
+      text: a.answer,
+      kind: "answer",
+      genreId: genreOf.get(a.videoId) ?? null,
+    }));
+    for (const v of videos) {
+      if (v.personalNote) all.push({ videoId: v.id, text: v.personalNote, kind: "note", genreId: v.genreId });
+    }
+    return all;
+  }, [answers, videos]);
+  // The same rules the server uses (lib/cheatSheetLines.ts), run here for
+  // free: the button's count, and "new matching lines since".
+  const linesFor = useCallback(
+    (q: string, genreKey: string) => collectLines(sources.filter((src) => genreMatches(genreKey, src.genreId)), q),
+    [sources]
+  );
+  const searchLines = useMemo(() => (query ? linesFor(search, genreFilter) : []), [query, search, genreFilter, linesFor]);
+  const tooBig = searchLines.length > MAX_LINES || linesChars(searchLines) > MAX_CHARS;
+  const existingSheet = query
+    ? sheets.find((x) => x.queryKey === looseKey(search) && x.genreKey === genreFilter)
+    : undefined;
+  // The "Cheat sheets" tab: sheets matching the search and the genre choice.
+  const visibleSheets = useMemo(
+    () =>
+      sheets.filter(
+        (x) =>
+          (!query || x.queryKey.includes(looseKey(query)) || looseKey(query).includes(x.queryKey)) &&
+          (genreFilter === "all" || x.genreKey === genreFilter)
+      ),
+    [sheets, query, genreFilter]
+  );
+  const showingSheets = typeFilter === "sheets";
+  // In that tab the reader shows the chosen sheet, or the first one listed.
+  const openSheet = useMemo(
+    () => sheets.find((x) => x.id === sheetId) ?? (showingSheets && !making ? visibleSheets[0] ?? null : null),
+    [sheets, sheetId, showingSheets, making, visibleSheets]
+  );
+  const videosById = useMemo(() => new Map(videos.map((v) => [v.id, v])), [videos]);
+  const sheetChange = useMemo(() => {
+    if (!openSheet) return null;
+    const now = linesFor(openSheet.query, openSheet.genreKey);
+    return linesHash(now) === openSheet.linesHash ? null : Math.max(0, now.length - openSheet.lineCount);
+  }, [openSheet, linesFor]);
+
+  function showSheet(id: number) {
+    setSheetId(id);
+    setSheetError(null);
+    setReading(true);
+    window.history.replaceState(null, "", `/notebook?sheet=${id}`);
+    if (window.innerWidth < 1024) window.scrollTo({ top: 0 });
+  }
+
+  /** Makes (or updates) a sheet: one Gemini call on the server. */
+  async function makeSheet(q: string, genreKey: string) {
+    const lines = linesFor(q, genreKey);
+    // A new sheet: leave the one that's open, so an error isn't shown on it.
+    if (!sheets.some((x) => x.queryKey === looseKey(q) && x.genreKey === genreKey)) setSheetId(null);
+    setMaking({ query: q.trim(), genreKey, lines: lines.length, videos: new Set(lines.flatMap((l) => l.videoIds)).size });
+    setSheetError(null);
+    setReading(true);
+    try {
+      const data = await api("/api/cheat-sheets", {
+        method: "POST",
+        body: { query: q, genreKey },
+        fallback: "Couldn't make the cheat sheet",
+      });
+      const sheet: CheatSheetItem = data.sheet;
+      setSheets((list) => [sheet, ...list.filter((x) => x.id !== sheet.id)]);
+      showSheet(sheet.id);
+    } catch (err) {
+      setSheetError((err as Error).message);
+    } finally {
+      setMaking(null);
+    }
+  }
+
+  async function deleteSheet(id: number) {
+    try {
+      await api(`/api/cheat-sheets/${id}`, { method: "DELETE", fallback: "Couldn't delete the cheat sheet" });
+      setSheets((list) => list.filter((x) => x.id !== id));
+      setSheetId(null);
+      window.history.replaceState(null, "", "/notebook");
+    } catch (err) {
+      setSheetError((err as Error).message);
+    }
+  }
+
+  /** From a sheet to one of its videos, scrolled to the matching line (REF-12). */
+  function openFromSheet(sheet: CheatSheetItem, videoId: number) {
+    setSearch(sheet.query);
+    setGenreFilter(sheet.genreKey);
+    setQuestionFilter("");
+    setTypeFilter("all");
+    select(videoId);
   }
 
   const answerCount = visible.reduce((n, e) => n + e.answers.length, 0);
@@ -235,6 +366,43 @@ export default function NotebookClient() {
           placeholder="Search answers, notes, titles"
           label="Search the notebook"
         />
+        {/* Cheat sheets (FEAT-15): one quiet line, the sparkle stands for Gemini. */}
+        {query && existingSheet && (
+          <button
+            type="button"
+            onClick={() => showSheet(existingSheet.id)}
+            className="group flex items-center gap-1.5 self-start text-meta"
+          >
+            <span className="text-muted">Already asked</span>
+            <GeminiMark size={15} className="transition-transform duration-300 group-hover:rotate-90" />
+            <span className="font-semibold group-hover:underline">Open the cheat sheet</span>
+          </button>
+        )}
+        {query && !existingSheet && searchLines.length > 0 && !tooBig && (
+          <button
+            type="button"
+            disabled={!!making}
+            onClick={() => makeSheet(search, genreFilter)}
+            title={`Gemini merges the ${searchLines.length} matching line${searchLines.length === 1 ? "" : "s"} into one cheat sheet of unique questions`}
+            className="group flex items-center gap-1.5 self-start text-meta disabled:opacity-50"
+          >
+            <span className="text-muted">
+              Worried about{" "}
+              {/* Like the active top-bar tab: bold, dark, yellow underneath. */}
+              <span className="font-semibold text-ink underline decoration-primary decoration-4 underline-offset-2 [text-decoration-skip-ink:none]">
+                duplicates
+              </span>
+              ?
+            </span>
+            <span className="font-semibold">Ask</span>
+            <GeminiMark size={15} className="transition-transform duration-300 group-hover:rotate-90" />
+          </button>
+        )}
+        {query && !existingSheet && tooBig && (
+          <p className="text-meta text-muted">
+            “{search.trim()}” matches too much of your notebook for one cheat sheet. Pick a genre or narrow the search.
+          </p>
+        )}
         <div className="flex gap-2">
           <Dropdown
             label="Genre"
@@ -261,7 +429,8 @@ export default function NotebookClient() {
             className="flex-[1.2]"
           />
         </div>
-        <div className="flex items-center gap-3">
+        {/* self-start: as a column item it would stretch to the full width. */}
+        <div className="self-start">
           <SegmentedControl
             size="sm"
             label="Show"
@@ -271,24 +440,58 @@ export default function NotebookClient() {
               { value: "all", label: "All" },
               { value: "answers", label: "Answers" },
               { value: "notes", label: "My notes" },
+              ...(sheets.length > 0 || showingSheets
+                ? [{ value: "sheets" as const, label: `Cheat sheets ${sheets.length}` }]
+                : []),
             ]}
           />
-          <span className="ml-auto text-right font-mono text-xs text-muted">
-            {visible.length} video{visible.length === 1 ? "" : "s"}
-            <br />
-            {answerCount} answer{answerCount === 1 ? "" : "s"} · {noteCount} note{noteCount === 1 ? "" : "s"}
-          </span>
         </div>
-        {filtering && (
-          <button type="button" onClick={clearFilters} className="self-start text-meta font-semibold hover:underline">
-            Clear filters
-          </button>
-        )}
+        {/* Counts on one line of their own, so the switch never squeezes them. */}
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-muted">
+            {showingSheets
+              ? `${visibleSheets.length} cheat sheet${visibleSheets.length === 1 ? "" : "s"}`
+              : `${visible.length} video${visible.length === 1 ? "" : "s"} · ${answerCount} answer${answerCount === 1 ? "" : "s"} · ${noteCount} note${noteCount === 1 ? "" : "s"}`}
+          </span>
+          {filtering && (
+            <button type="button" onClick={clearFilters} className="ml-auto text-meta font-semibold hover:underline">
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       <ul className="min-h-0 flex-1 overflow-y-auto">
-        {visible.map((e) => {
-          const on = selected?.video.id === e.video.id;
+        {showingSheets &&
+          visibleSheets.map((x) => {
+            const on = openSheet?.id === x.id && !making;
+            return (
+              <li key={x.id}>
+                <button
+                  type="button"
+                  onClick={() => showSheet(x.id)}
+                  aria-current={on ? "true" : undefined}
+                  className={`flex w-full items-center gap-3 border-b border-l-[3px] border-b-line px-5 py-3 text-left transition-colors ${
+                    on ? "border-l-primary bg-surface" : "border-l-transparent hover:bg-ink/[0.03]"
+                  }`}
+                >
+                  <Icon name="summary" size={18} className="shrink-0" />
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="truncate text-sm font-semibold">{sheetTitle(x.query)}</span>
+                    <span className="truncate text-meta text-muted">
+                      {genreLabel(x.genreKey, genres)} · {x.questions.length} question{x.questions.length === 1 ? "" : "s"} ·{" "}
+                      {timeAgo(x.updatedAt)}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        {showingSheets && visibleSheets.length === 0 && (
+          <li className="px-5 py-6 text-sm text-muted">No cheat sheets match these filters.</li>
+        )}
+        {!showingSheets && visible.map((e) => {
+          const on = !openSheet && !making && selected?.video.id === e.video.id;
           return (
             <li key={e.video.id}>
               <button
@@ -343,12 +546,32 @@ export default function NotebookClient() {
               <Icon name="chev" size={14} className="rotate-90" />
               All videos
             </button>
-            {selected ? (
+            {making ? (
+              <CheatSheetMaking query={making.query} lines={making.lines} videos={making.videos} />
+            ) : openSheet ? (
+              <CheatSheetView
+                key={openSheet.id}
+                sheet={openSheet}
+                genre={genreLabel(openSheet.genreKey, genres)}
+                videosById={videosById}
+                newLines={sheetChange}
+                busy={!!making}
+                error={sheetError}
+                onOpenVideo={(id) => openFromSheet(openSheet, id)}
+                onUpdate={() => makeSheet(openSheet.query, openSheet.genreKey)}
+                onDelete={() => deleteSheet(openSheet.id)}
+              />
+            ) : sheetError ? (
+              <EmptyState title="No cheat sheet" action={<Button onClick={() => setSheetError(null)}>Back to the notebook</Button>}>
+                {sheetError}
+              </EmptyState>
+            ) : selected ? (
               <NotebookReader
                 key={selected.video.id}
                 entry={selected}
                 genre={genres.find((g) => g.id === selected.video.genreId) ?? null}
                 isMatch={(a) => (questionFilter || query ? answerMatches(a) : false)}
+                highlight={query}
                 onWatch={setPlaying}
                 onAnswer={addAnswer}
                 onNoteSaved={(note, at) => patchVideo(selected.video.id, { personalNote: note, personalNoteAt: at })}

@@ -31,7 +31,13 @@ function toFeedChannels(reply: { channels?: { channel: FeedChannel; videoCount: 
   }));
 }
 
-export default function FeedClient() {
+/**
+ * The Feed, and the Podcasts page (FEAT-14): the same screen over a
+ * different set of channels. Podcasts drops genres and adds "Continue
+ * listening" and chapters.
+ */
+export default function FeedClient({ section = "feed" }: { section?: "feed" | "podcasts" }) {
+  const podcasts = section === "podcasts";
   // Each starts from the copy remembered in this tab (instant when coming
   // back), then refreshes (see lib/api-client.ts).
   const [genres, setGenres] = useState<GenreItem[]>(() => rememberedReply("/api/genres")?.genres ?? []);
@@ -53,6 +59,12 @@ export default function FeedClient() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  // Where the player starts: a chapter's second, or the resume point.
+  const [playFrom, setPlayFrom] = useState<number | undefined>(undefined);
+  // Podcasts: episodes started and not finished.
+  const [continueList, setContinueList] = useState<FeedVideo[]>(() =>
+    podcasts ? (rememberedReply("/api/videos?section=podcasts&continue=1")?.videos ?? []) : []
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -73,7 +85,7 @@ export default function FeedClient() {
     toggleLater,
     applyProgress,
   } = useFeedData(
-    { kind, view, genreId, channelIds, search: debouncedSearch, lengthFilter },
+    { section, kind, view, genreId, channelIds, search: debouncedSearch, lengthFilter },
     {
       onError: setToast,
       // The study panel holds its own copy of the video: keep it in step.
@@ -87,6 +99,17 @@ export default function FeedClient() {
       setChannels(toFeedChannels(await api("/api/channels")));
     } catch {}
   }, []);
+
+  const loadContinue = useCallback(() => {
+    if (!podcasts) return;
+    api("/api/videos?section=podcasts&continue=1")
+      .then((d) => setContinueList(d.videos ?? []))
+      .catch(() => {});
+  }, [podcasts]);
+
+  useEffect(() => {
+    loadContinue();
+  }, [loadContinue]);
 
   useEffect(() => {
     api("/api/genres")
@@ -152,8 +175,8 @@ export default function FeedClient() {
         .then((d) => d.video && setStudy({ video: d.video, tab: "ask", track: false }))
         .catch(() => {});
     }
-    router.replace("/", { scroll: false });
-  }, [searchParams, router]);
+    router.replace(podcasts ? "/podcasts" : "/", { scroll: false });
+  }, [searchParams, router, podcasts]);
 
   // After a sync from the top bar: new videos may have arrived, so reload
   // the first page and the channel counts.
@@ -193,7 +216,10 @@ export default function FeedClient() {
   const closePlayer = useCallback(() => {
     setPlaying(null);
     setQueue(null);
-  }, []);
+    setPlayFrom(undefined);
+    // Where you stopped changed: refresh "Continue listening".
+    loadContinue();
+  }, [loadContinue]);
 
   /**
    * Shorts' "Play unseen in a row": line up the unseen shorts on screen,
@@ -236,6 +262,13 @@ export default function FeedClient() {
   // Opening a video doesn't mark it seen — the player reports real
   // progress, and the server marks it watched once half is actually played.
   function handlePlay(video: FeedVideo) {
+    setPlayFrom(undefined);
+    setPlaying(video);
+  }
+
+  /** A chapter was picked: play from its first second. */
+  function playAt(video: FeedVideo, seconds: number) {
+    setPlayFrom(seconds);
     setPlaying(video);
   }
 
@@ -275,8 +308,9 @@ export default function FeedClient() {
     setLengthFilter("any");
   }
 
-  // Channels are scoped to the active genre (the outer filter).
-  const visibleChannels = channels.filter((c) => genreId == null || c.genreId === genreId);
+  // This page's channels (Feed or Podcasts), scoped to the active genre.
+  const sectionChannels = channels.filter((c) => (c.section ?? "feed") === section);
+  const visibleChannels = sectionChannels.filter((c) => genreId == null || c.genreId === genreId);
 
   // Watch Later bookkeeping for the "hidden here" hint.
   const otherKind: Kind = kind === "videos" ? "shorts" : "videos";
@@ -342,6 +376,7 @@ export default function FeedClient() {
       onToggleChannel={toggleChannel}
       onClearChannels={() => setChannelIds([])}
       facets={facets}
+      podcasts={podcasts}
     />
   );
 
@@ -357,8 +392,16 @@ export default function FeedClient() {
         <main className="@container min-w-0 flex-1 px-4 pb-16 pt-8 sm:px-8 xl:px-10">
           {/* Title row: where you are, its pen note, and the shape-of-feed controls. */}
           <PageTitle
-            title={kind === "shorts" ? "Shorts" : VIEW_TITLES[view]}
-            note={kind === "shorts" ? "no endless scroll here" : VIEW_NOTES[view]}
+            title={
+              kind === "shorts"
+                ? podcasts ? "Podcast shorts" : "Shorts"
+                : podcasts && view === "unwatched" ? "Podcasts" : VIEW_TITLES[view]
+            }
+            note={
+              kind === "shorts"
+                ? "no endless scroll here"
+                : podcasts && view === "unwatched" ? "long listens, at your pace" : VIEW_NOTES[view]
+            }
             summary={subtitle() || "\u00a0"}
           >
             <Button className="lg:hidden" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}>
@@ -463,6 +506,33 @@ export default function FeedClient() {
             </div>
           )}
 
+          {/* Podcasts: where you left off, above the new episodes. */}
+          {podcasts && kind === "videos" && view === "unwatched" && !debouncedSearch &&
+            channelIds.length === 0 && continueList.length > 0 && (
+              <section className="mb-8">
+                <h2 className="label-caps mb-3 text-muted">Continue listening</h2>
+                <div className={gridClass}>
+                  {continueList.map((video) => (
+                    <VideoCard
+                      key={`continue-${video.id}`}
+                      video={video}
+                      genreColor={genreFor(video)?.color ?? "var(--color-line)"}
+                      dimSeen={false}
+                      activeTool={study?.video.id === video.id ? (study.track ? "track" : study.tab) : null}
+                      onPlay={handlePlay}
+                      onToggleWatched={async (v) => {
+                        await toggleWatched(v);
+                        loadContinue();
+                      }}
+                      onToggleLater={toggleLater}
+                      onOpenTool={openTool}
+                    />
+                  ))}
+                </div>
+                <h2 className="label-caps mb-3 mt-8 text-muted">New episodes</h2>
+              </section>
+            )}
+
           {/* Grid — placeholders while a new set loads, so the page doesn't jump. */}
           {loading === "first" ? (
             <div className={gridClass}>
@@ -472,7 +542,8 @@ export default function FeedClient() {
             </div>
           ) : videos.length === 0 ? (
             <FeedEmptyState
-              hasChannels={channels.length > 0}
+              hasChannels={sectionChannels.length > 0}
+              podcasts={podcasts}
               search={debouncedSearch}
               kind={kind}
               lengthFilter={lengthFilter}
@@ -533,6 +604,7 @@ export default function FeedClient() {
               everyday={everyday}
               onClose={() => setStudy(null)}
               onWatch={handlePlay}
+              onPlayAt={playAt}
               onVideoChange={patchVideo}
             />
           </div>
@@ -544,6 +616,8 @@ export default function FeedClient() {
           // A new video means a new player (fresh resume point and timers).
           key={playing.id}
           video={playing}
+          startAt={playFrom}
+          showChapters={playing.section === "podcasts"}
           onClose={closePlayer}
           onProgress={applyProgress}
           onEnded={queue ? queueEnded : undefined}

@@ -19,12 +19,12 @@ for the rules and where each idea came from.
 
 | | |
 |---|---|
-| **Status** | **Redesign complete: Phases 1–10 built**, plus PERF-03 (instant screens) REF-09 (pen tagline, "See its videos") and REF-10 (genre-coloured channel tag). 1–9 committed; Phase 10, PERF-03, REF-09 and REF-10 built 2026-10-17, uncommitted, awaiting the owner's review. |
+| **Status** | **Redesign complete: Phases 1–10 built**, plus PERF-03 to PERF-06, REF-09 to REF-13, FIX-01 to FIX-08, FEAT-13 (offline). Committed and deployed up to `8be36ad` (2026-10-19). **Not yet committed:** PERF-05 (audit B2, `lib/db.ts`), FIX-06 (Gemini model order and 503 fallback, `lib/gemini.ts`), PERF-06 (audit B5 step 1: no YouTube captions try on Netlify; `lib/hosting.ts`, `lib/transcript.ts`), `.gitignore` (now keeps `.env.example`), FIX-07 (Add to track: cursor, confirmation, lit icon), REF-11 (Notebook search highlights), REF-12 (opens at the first match), REF-13 ("hash map" finds "HashMap"), FIX-08 (dictation paste race, `components/PasteFix.tsx`), FEAT-15 (cheat sheets: new `cheat_sheets` table, created automatically on the first cold start), FEAT-14 v1 (Podcasts: new columns `channels.section`, `videos.chapters`, `videos.chapters_source`, also automatic) and doc updates. **Before deploying FIX-06:** delete `GEMINI_MODEL` on Netlify (and in `.env.local`), or 3.1 Flash-Lite stays forced to the front. On 2026-10-19 an external audit was triaged and its quick wins built: see [audit/AuditFollowUp.md](audit/AuditFollowUp.md) (what was done, why, which audit finding, the code changes, what's left). |
 | **Phases done** | 10 of 10 (plus 4.1) |
-| **Next step** | The owner tests the app (behaviour should be identical to Phase 9), then commits and pushes. Also uncommitted (2026-10-18): the Apify-outage message, the Firecrawl backup, parallel refresh, FIX-01 and PERF-04 (changelog). Before deploying, add `FIRECRAWL_API_KEY` to Netlify's environment variables (it applies on the next deploy). After deploying: refresh should take well under 30s, even after hours idle. And one check: a logged-out request to an API route should answer 401 (CLEAN-03; not testable locally without a password). |
-| **Where things are** | Current design: §2. Every change, one line each: §4; full write-ups: [redesign-history.md](redesign-history.md). Code layout: [ARCHITECTURE.md](ARCHITECTURE.md) "UI layer". |
-| **Open questions** | Parked ideas waiting for a yes: FEAT-11 greeting, FEAT-12 "Pick up where you left off". Still unanswered: turning off Next's Turbopack build cache (`experimental.turbopackFileSystemCacheForBuild: false`), which caused the stale-styles deploy and slow builds. |
-| **Last updated** | 2026-10-19 |
+| **Next step** | **The 2026-10-19 deploy's checks are all confirmed** (2026-10-21): cron 200 (23 of 23 in 24 h), offline test, green dot, "redis" search (owner). Also confirmed live: new error wording, `?secret=` refused (401), new tab title, the channel index created (setup = 25 statements), 0 server errors since the deploy. **For the next deploy:** delete `GEMINI_MODEL` on Netlify (FIX-06), then check an Ask note shows `gemini-3.5-flash-lite`, an Ask on a new video answers (PERF-06), Add to track, Notebook search and Willow dictation work live. **After deploying PERF-05:** Netlify's function logs should show `cold init … (skipped, version … is current)` on cold starts (the first cold instance after the deploy runs the 25 statements once and writes the stamp). **Then the remaining audit B items:** B1 (first screen's data with the page), B4. B3 is optional now that stricter search is dropped. B5's stopwatch was declined (see PERF-06). **Parked by the owner (2026-10-21):** `watchLimitMinutes()` in `lib/gemini.ts` still checks `process.env.NETLIFY`, which doesn't exist at runtime, so Gemini watch-the-video may be attempting (and timing out) on the live site for caption-less videos. |
+| **Where things are** | Current design: §2. Every change, one line each: §4; full write-ups: [redesign-history.md](redesign-history.md). Audit and its follow-up: [audit/AuditFollowUp.md](audit/AuditFollowUp.md) (the ChatGPT report itself, `audit/AuditReport.md`, is kept locally, not committed). Code layout: [ARCHITECTURE.md](ARCHITECTURE.md) "UI layer". Architecture diagram: [diagrams/](diagrams/). |
+| **Open questions** | Parked ideas waiting for a yes: FEAT-11 greeting, FEAT-12 "Pick up where you left off", **FEAT-14 v2** (Gemini's own chapters, a "Make chapters ✦" button; test against an episode that has YouTube chapters first). Also parked: handwritten notes. Dropped: the stricter search (owner decided against it). Undecided: whether AuditFollowUp.md should stop linking to the uncommitted AuditReport.md. Still unanswered: turning off Next's Turbopack build cache (`experimental.turbopackFileSystemCacheForBuild: false`). |
+| **Last updated** | 2026-10-21 |
 
 *Update this block at the end of every session.*
 
@@ -369,6 +369,8 @@ sidebar views; mono caps for small labels ("YOUR FEED", "GENRES").
 | Handwriting | Blue pen (Caveat), at most one note per screen, beside the page title | Personality that stays special; blue is reserved for words |
 | Greeting ("Good morning, Chandan.") | **Parked** (FEAT-11) | Needs the owner's name stored somewhere; and the first try copied Dan's swoosh too literally |
 | "Pick up where you left off" | **Parked** (FEAT-12) | A new feature, not a look change; needs no new tracking when it's wanted |
+| Podcasts section | **v1 built** (FEAT-14) | Own section and Shorts; Ask and Summary kept (one call per Ask even for 2 h); no Transcript tab, no genres in v1; chapters from the description first, Gemini's own later |
+| Cheat sheets (was "Ask across notes") | **Built** (FEAT-15) | Send only the matching lines (headings bring the items under them), not whole notes: ~1–2k tokens per sheet at any notebook size. Saved in the Notebook and shown in ⌘K |
 | Top search text | "Search everything" | It covers channels, videos, answers and notes; listing three of four was wrong |
 | Page search text | "Filter this list" | It no longer looks like a second copy of the top search |
 | Starred / recently used | Not needed | Notebook already gathers everything asked and noted |
@@ -430,6 +432,9 @@ in Phase 10. New items are written there in the same seven-part format.
 | REF-08 | Wording pass | ✅ 2026-10-17 |
 | REF-09 | The logo's tagline in the pen; "See its videos" after adding a channel | ✅ 2026-10-17 |
 | REF-10 | Channel name as a genre-coloured tag on cards | ✅ 2026-10-17 |
+| REF-11 | Notebook search highlights the found words in titles, questions, answers and your note | ✅ 2026-10-21 |
+| REF-12 | Notebook search opens a video at its first match | ✅ 2026-10-21 |
+| REF-13 | Notebook search ignores spaces and hyphens: "hash map" finds "HashMap" | ✅ 2026-10-21 |
 | FEAT-01 | Global search | ✅ 2026-10-17 |
 | FEAT-02 | Sidebar and nav counts | ✅ 2026-10-16 |
 | FEAT-03 | Seen with Undo | ✅ 2026-10-16 |
@@ -442,7 +447,9 @@ in Phase 10. New items are written there in the same seven-part format.
 | FEAT-10 | Backfill 1Y–5Y replaces Re-sync (Phase 4.1) | ✅ 2026-10-17 |
 | FEAT-11 | Greeting | ⏸ parked |
 | FEAT-12 | Pick up where you left off | ⏸ parked |
+| FEAT-14 | Podcasts: their own section and Shorts, Continue listening, chapters (YouTube's, then Gemini's) with jumping | ✅ v1 2026-10-21 (v2: Gemini chapters) |
 | FEAT-13 | Offline: changes wait and save when you're back online | ✅ 2026-10-19 |
+| FEAT-15 | Cheat sheets: unique questions on a topic across your notes, saved in the Notebook, in ⌘K | ✅ 2026-10-21 |
 | CLEAN-01 | Names that say what they are | ✅ 2026-10-17 |
 | CLEAN-02 | Shared building blocks instead of copies | ✅ 2026-10-17 |
 | CLEAN-03 | API routes: one login check, safe ids | ✅ 2026-10-17 |
@@ -450,11 +457,16 @@ in Phase 10. New items are written there in the same seven-part format.
 | CLEAN-05 | Docs that match the code | ✅ 2026-10-17 |
 | PERF-03 | Instant screens: remembered data and reused pages | ✅ 2026-10-17 |
 | PERF-04 | Lighter thumbnails (WebP, same size), first row loads first | ✅ 2026-10-18 |
+| PERF-05 | Cold starts skip the schema check when its version stamp matches (audit B2) | ✅ 2026-10-21 |
+| PERF-06 | No YouTube captions try on Netlify (always refused there); 5 s limit on it locally; `onNetlify()` runtime check (audit B5, step 1) | ✅ 2026-10-21 |
 | FIX-01 | Channels with "bold" names can't be filtered (handle match + plain letters on save) | ✅ 2026-10-18 |
 | FIX-02 | Dictated questions vanished from the Ask box (cursor now kept in it) | ✅ 2026-10-19 |
 | FIX-03 | Search: titles containing the words before look-alikes | ✅ 2026-10-19 |
 | FIX-04 | Audit quick wins A1–A6: honest saves, ordered note saves, failed-sync visibility, channel index, parallel channel reads, header-only cron secret | ✅ 2026-10-19 |
 | FIX-05 | Friendlier messages, no em dashes in on-screen text | ✅ 2026-10-19 |
+| FIX-06 | Gemini: new model order (3.5 Flash-Lite first), busy models retried then skipped, plain messages instead of raw JSON | ✅ 2026-10-21 |
+| FIX-07 | Add to track: cursor goes to the track name, "Added to …" confirmation, the card's track icon lights when the video is in a track | ✅ 2026-10-21 |
+| FIX-08 | Dictated text sometimes didn't appear: every text box now pastes from the paste event's own snapshot (Willow's clipboard race) | ✅ 2026-10-21 |
 
 ---
 
@@ -590,3 +602,17 @@ flowchart LR
 | 2026-10-19 | FIX-04 (audit A1–A6): ✓ Seen/bookmark undo on a failed save with a toast; note autosaves queued in order; refresh names channels it couldn't check and the synced dot turns amber; index on videos(channel_id, published_at); channels list reads in parallel; `/api/cron` takes the secret from the header only. |
 | 2026-10-19 | FEAT-13: offline bar on every page; ✓ Seen/bookmark changes made offline wait (survive reload, last value wins) and save when back online; refused saves still undo; Ask etc. say "You're offline. This needs a connection." No em dashes in the new copy. |
 | 2026-10-19 | FIX-05: 43 on-screen messages reworded: no em dashes, plain sentences with proper capitalisation (e.g. "Your login has expired. Please log in again."); tab title "TUBEBOX: your feed, no algorithm". |
+| 2026-10-19 | Committed and deployed (`8be36ad`). Started [audit/AuditFollowUp.md](audit/AuditFollowUp.md). Parked FEAT-14 (Podcasts). Post-deploy checks listed in Resume here. |
+| 2026-10-21 | PERF-05 (audit B2): the schema list in `lib/db.ts` is stamped with a fingerprint of itself in `app_meta`; a cold start reads the stamp and skips the lock, the queue and the 25 statements when it matches. Tested on throwaway PGlite databases (new, restart, stale stamp, in-lock recheck) and a copy of the real local data. Parked FEAT-15 (Ask across notes). Stricter search dropped. Willow's empty pastes traced to Willow, not the app. |
+| 2026-10-21 | FIX-06: Gemini models tried in a fixed order, 3.5 Flash-Lite → 3.1 Flash-Lite → 3.8 Flash → 3.7 Flash (names checked with Google); a 503/500 gets one retry, then the next model; 429/404 skip at once; bad requests stop; on Netlify no new try after 20 s; the user sees "Gemini is busy right now. Please try again in a minute." instead of JSON. Tested with fake replies plus one real 3.5 Flash-Lite call. `GEMINI_MODEL` must be removed on Netlify. |
+| 2026-10-21 | PERF-06 (audit B5 step 1): on Netlify transcripts go straight to Apify, skipping the InnerTube try YouTube always refuses from cloud IPs; locally InnerTube stays, with a 5 s limit. Found that `NETLIFY=true` exists only at build time, so a new `onNetlify()` (checks `SITE_ID`) now drives this and FIX-06's 20 s window. B5's whole-request stopwatch declined as too risky for the gain. `.env.example` now committed (`!.env.example` in `.gitignore`). |
+| 2026-10-21 | FIX-07: Add to track opens with the cursor in "New track name" (it went to the Ask box via FIX-02); each tick confirms "Added to AI" / "Removed from AI" / "Created … and added this video" for 4 s; feed videos carry `trackCount`, and the card's track icon lights up with "In N tracks". Verified on real local data, all changes undone. Styled: track name underlined yellow on Added/Created, red on Removed (owner's choice). |
+| 2026-10-21 | REF-11: Notebook search marks the found words with ⌘K's soft yellow highlighter in the video title, question lines, answers (a small rehype plugin for markdown) and your note. |
+| 2026-10-21 | REF-12: while searching, the Notebook reader jumps to the first highlighted word (centred) when a video opens or the search pauses for 400 ms; instant rather than smooth. |
+| 2026-10-21 | REF-13: Notebook search ignores spaces, hyphens and underscores between letters (`loosePattern`), so "hash map", "hashmap" and "HashMap" find each other; marks follow. On real notes: "hash map" 3 → 10 videos, "concurrent hash map" 0 → 5. |
+| 2026-10-21 | FIX-08: Willow dictation failed in ~3 of 4 tries on every TUBEBOX box (recorded: Ask 2/8, ⌘K 2/11) but worked on Google. Cause: Chrome re-reads the clipboard after the paste event, racing Willow's clipboard restore; a blank-page control showed a plain input at 1/4, an input pasting from the event's snapshot at 4/4. `PasteFix` (root layout) does that for every text box; ⌘K then 5/5 with Willow. Post-deploy checks 4 to 6 (offline, green dot, "redis") confirmed by the owner. |
+| 2026-10-21 | FEAT-15 redesigned with the owner as **Cheat sheets**: search a topic, collect only the matching lines (a matching heading brings its items), one Gemini call merges them into unique questions with their videos; saved under CHEAT SHEETS in the Notebook, updatable ("4 new lines since"), listed in ⌘K. Design only. |
+| 2026-10-21 | FEAT-15 built: "Make a cheat sheet · N matching lines" in the Notebook search; one Gemini call; sheet view with most-asked first, short answers, "asked in N videos", video chips that open the video at the match; CHEAT SHEETS group in the list; "new matching lines since → Update"; ⌘K group CHEAT SHEETS · IN YOUR NOTEBOOK. First real sheet: "hash map", 17 lines → 12 questions. |
+| 2026-10-21 | FEAT-15: saved sheets moved from a group on top of the Notebook list into a "Cheat sheets N" tab of the Show switch (the group pushed the videos down). Then the owner's wording replaced the make button: "Worried about duplicates? Ask ✦" (Gemini sparkle, `GeminiMark`), "Already asked ✦ Open the cheat sheet" when one exists; the counts moved to their own line under the switch. |
+| 2026-10-21 | FEAT-14 Podcasts designed with the owner: own section (`channels.section`), own Shorts, Ask and Summary kept, no Transcript tab, no genres in v1, Continue listening, chapters from YouTube descriptions (v1) and Gemini from a timed transcript (v2), jump to any chapter from the panel and the player. |
+| 2026-10-21 | FEAT-14 v1 built: Podcasts page (`/podcasts`) and tab, channels move between Feed and Podcasts, podcast Shorts only there, Continue listening, Chapters tab and player chapter strip from YouTube descriptions (stored by the sync; older episodes looked up once). Waveform added by the owner. |

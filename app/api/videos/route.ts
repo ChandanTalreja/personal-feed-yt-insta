@@ -21,6 +21,8 @@ import { channels, videos } from "@/lib/schema";
 const PAGE_SIZE = 24;
 /** Ceiling for ids=1 — a track of 300+ videos is a search that's too broad. */
 const MAX_BULK_IDS = 300;
+/** Episodes shown under "Continue listening". */
+const CONTINUE_LIMIT = 4;
 
 export async function GET(req: NextRequest) {
   const denied = await denyUnlessAuthed();
@@ -36,6 +38,10 @@ export async function GET(req: NextRequest) {
   const page = Math.max(0, Number(q.get("page")) || 0);
   const search = (q.get("search") ?? "").trim();
   const length = q.get("length") ?? "any"; // any | short | medium | long
+  // Feed and Podcasts are separate pages over the same videos (FEAT-14):
+  // every query here is scoped to one of them.
+  const section = q.get("section") === "podcasts" ? "podcasts" : "feed";
+  const sectionC = eq(channels.section, section);
 
   // Each filter is kept as its own piece, so the sidebar counts can drop
   // exactly one of them (see `facets` below).
@@ -80,10 +86,31 @@ export async function GET(req: NextRequest) {
   }
 
   const conditions = [
-    ...kindC, ...viewC, ...genreC, ...channelC, ...searchC, ...lengthC,
+    sectionC, ...kindC, ...viewC, ...genreC, ...channelC, ...searchC, ...lengthC,
   ];
   const where = conditions.length ? and(...conditions) : undefined;
   const db = await getDb();
+
+  // continue=1 (Podcasts): episodes you started and didn't finish, the most
+  // recently played first, for "Continue listening".
+  if (q.get("continue") === "1") {
+    const rows = await db
+      .select(feedVideoColumns)
+      .from(videos)
+      .innerJoin(channels, eq(videos.channelId, channels.id))
+      .where(
+        and(
+          sectionC,
+          eq(videos.watched, false),
+          eq(videos.isShort, false),
+          isNotNull(videos.lastPlayedAt),
+          gt(videos.resumeSeconds, 60)
+        )
+      )
+      .orderBy(desc(videos.lastPlayedAt))
+      .limit(CONTINUE_LIMIT);
+    return NextResponse.json({ videos: rows });
+  }
 
   // ids=1: every matching video id, oldest upload first (capped) — used by
   // "Add these N to a track", so bulk-adding runs through exactly the same
@@ -117,12 +144,12 @@ export async function GET(req: NextRequest) {
             })
             .from(videos)
             .innerJoin(channels, eq(videos.channelId, channels.id))
-            .where(andAll([...kindC, ...genreC, ...channelC, ...searchC, ...lengthC])),
+            .where(andAll([sectionC, ...kindC, ...genreC, ...channelC, ...searchC, ...lengthC])),
           db
             .select({ genreId: channels.genreId, n: count() })
             .from(videos)
             .innerJoin(channels, eq(videos.channelId, channels.id))
-            .where(andAll([...kindC, ...viewC, ...searchC, ...lengthC]))
+            .where(andAll([sectionC, ...kindC, ...viewC, ...searchC, ...lengthC]))
             .groupBy(channels.genreId),
         ] as const)
       : null;
@@ -140,11 +167,12 @@ export async function GET(req: NextRequest) {
       .orderBy(...searchOrder, later ? desc(videos.laterAt) : desc(videos.publishedAt))
       .limit(PAGE_SIZE + 1)
       .offset(page * PAGE_SIZE),
-    // Everything saved, ignoring filters — the tab badge's total.
+    // Everything saved on this page, ignoring filters — the tab badge's total.
     db
       .select({ isShort: videos.isShort, n: count() })
       .from(videos)
-      .where(isNotNull(videos.laterAt))
+      .innerJoin(channels, eq(videos.channelId, channels.id))
+      .where(and(sectionC, isNotNull(videos.laterAt)))
       .groupBy(videos.isShort),
     // Count and total length of everything the current filters match — not
     // just the loaded page. On LATER, the count is also how many saved

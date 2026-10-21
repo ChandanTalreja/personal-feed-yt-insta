@@ -34,6 +34,8 @@ export default function AddChannelBar({
 }) {
   const [input, setInput] = useState("");
   const [addGenre, setAddGenre] = useState("");
+  // Its home: the Feed or Podcasts (FEAT-14).
+  const [addSection, setAddSection] = useState<"feed" | "podcasts">("feed");
   const [years, setYears] = useState("1");
   const [adding, setAdding] = useState(false);
   const [pending, setPending] = useState<ResolvedPreview | null>(null);
@@ -82,6 +84,7 @@ export default function AddChannelBar({
         body: {
           input: value,
           genreId: addGenre ? Number(addGenre) : null,
+          section: addSection,
           years: Number(years),
         },
         fallback: "Couldn't add the channel",
@@ -151,6 +154,15 @@ export default function AddChannelBar({
             {g.name}
           </option>
         ))}
+      </select>
+      <select
+        className="field h-10 cursor-pointer px-2.5 text-sm font-semibold"
+        value={addSection}
+        onChange={(e) => setAddSection(e.target.value === "podcasts" ? "podcasts" : "feed")}
+        aria-label="Where the new channel's videos go"
+      >
+        <option value="feed">Feed</option>
+        <option value="podcasts">Podcasts</option>
       </select>
       <span
         className="ml-1 label-caps"

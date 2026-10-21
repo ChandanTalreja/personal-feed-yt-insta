@@ -19,7 +19,9 @@
 | A6 | The sync endpoint takes its secret from a header only, never the URL | §5 Reliability, **Medium** | Done (FIX-04) |
 | FEAT-13 | Offline: changes wait and save by themselves when the connection is back | Not in the audit. The owner's idea, built on top of A1 | Done |
 | FIX-05 | 43 on-screen messages reworded: no em dashes, plain sentences | Not in the audit. The owner's request | Done |
-| B1 to B5 | Bigger performance items | §4 P1/P2 | **Not started** (see section 5) |
+| B2 | Cold starts skip the table setup when its version stamp matches | §4 **P1**, Remove production schema setup | Done 2026-10-21 (PERF-05 in redesign-history) |
+| B5 (step 1) | Skip the YouTube captions try on Netlify (always refused there) | §4 **P1** for AI reliability | Done 2026-10-21 (PERF-06). The whole-request time limit was declined |
+| B1, B3, B4 | Bigger performance items | §4 P1/P2 | **Not started** (see section 5) |
 
 Everything was tested locally in the running app, and none of it used YouTube API quota, Gemini calls or Apify/Firecrawl credits. Typecheck and lint pass for the whole project.
 
@@ -227,17 +229,21 @@ Kept on purpose: the instructions sent *to* Gemini (never shown) and setup error
 ## 5. What's left
 
 1. **B1: send the first screen's data with the page.** The biggest remaining win for the "Poor" LCP score. A real rework of each screen; its own session. Add some tests first.
-2. **B2: move table setup to deploy time.** Removes 0.1 to 3 seconds of setup from cold starts (seen in the logs). Must keep the zero-setup local PGlite.
-3. **B3 + the stricter search:** if adopted, do both in one change.
+2. ~~**B2: move table setup to deploy time.**~~ **Done 2026-10-21 as PERF-05**, a different way: instead of deploy time, the setup list is stamped with a fingerprint of itself in `app_meta`, and a cold start that finds a matching stamp skips the lock, the queue and the 25 statements. Same gain, no build step, local PGlite stays zero-setup. Full write-up in redesign-history.
+3. **B3: make search use its index.** Faster search, same results. Optional: search already feels fast, and the stricter search it was paired with has been dropped by the owner.
 4. **B4: targeted cache clearing** instead of clearing everything after any save.
-5. **B5: skip YouTube captions on Netlify, and one overall time limit** for transcript + Gemini.
+5. **B5:** ~~skip YouTube captions on Netlify~~ **done 2026-10-21 (PERF-06)**. The other half, one overall time limit for transcript + Gemini, was **declined by the owner**: it only turns a rare bare 502 into a friendly message while touching the timing of every step. Revisit only if bare 502s show up in real use.
 
 ---
 
 ## 6. Checks after deploying
 
-- [ ] Netlify logs: the next 6-hourly sync still shows `feed-cron: 200` (confirms A6, the header-only secret).
-- [ ] The top-bar dot is green and the refresh message is normal (A3).
-- [ ] Filtering by a channel works as before (the A4 index is created on the first request after deploy).
-- [ ] Offline test (FEAT-13): in Chrome DevTools → Network, switch to **Offline**, tick ✓ Seen on a card, check the bar says "1 waiting", switch back to **No throttling**, and check "Back online. All changes saved." appears.
-- [ ] Search "redis": real Redis videos first (FIX-03).
+**Deployed 2026-10-19 (`8be36ad`).** Already confirmed on the live site: the new error wording ("Your login has expired. Please log in again."), `?secret=` refused with 401, the new tab title, the channel index created (setup now 25 statements), and 0 server errors since the deploy. Still to check:
+
+- [x] Netlify logs: the 6-hourly sync still returns 200 (confirms A6, the header-only secret). **Checked 2026-10-21:** all 23 `/api/cron` requests in the last 24 h returned 200 (the scheduled runs at 00:01, 06:01, 12:01 and 18:01 UTC plus Refresh button presses), none 401.
+- [x] The top-bar dot is green and the refresh message is normal (A3). Confirmed by the owner 2026-10-21.
+- [x] Filtering by a channel works as before (the A4 index is created on the first request after deploy). Confirmed by the owner 2026-10-21.
+- [x] Offline test (FEAT-13): in Chrome DevTools → Network, switch to **Offline**, tick ✓ Seen on a card, check the bar says "1 waiting", switch back to **No throttling**, and check "Back online. All changes saved." appears. Confirmed by the owner 2026-10-21.
+- [x] Search "redis": real Redis videos first (FIX-03). Confirmed by the owner 2026-10-21.
+- [ ] **After deploying B2 (PERF-05):** Netlify function logs show `cold init … (skipped, version … is current)` on cold starts. The very first cold instance after the deploy shows `(25 statements, version …)` once, because it writes the stamp.
+- [ ] **FIX-06 (not an audit item, same deploy):** `GEMINI_MODEL` deleted on Netlify before deploying; an Ask answers, and the note's model shows `gemini-3.5-flash-lite`.

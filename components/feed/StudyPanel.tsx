@@ -15,10 +15,11 @@ import SearchField from "@/components/ui/SearchField";
 import Spinner from "@/components/ui/Spinner";
 import SidePanel from "@/components/ui/SidePanel";
 import type { Answer, FeedVideo } from "@/components/types";
+import type { Chapter } from "@/lib/chapters";
 import { useAsk } from "@/components/useAsk";
 import { api, rememberedReply } from "@/lib/api-client";
 
-export type StudyTab = "ask" | "summary" | "transcript" | "note";
+export type StudyTab = "ask" | "summary" | "transcript" | "chapters" | "note";
 
 interface Props {
   video: FeedVideo;
@@ -32,6 +33,8 @@ interface Props {
   everyday: string[];
   onClose: () => void;
   onWatch: (video: FeedVideo) => void;
+  /** Play from a chapter's first second (podcasts). */
+  onPlayAt?: (video: FeedVideo, seconds: number) => void;
   /** Tell the feed what changed (summary, answer count, note) so the card agrees. */
   onVideoChange: (id: number, patch: Partial<FeedVideo>) => void;
 }
@@ -40,6 +43,14 @@ const TABS: [StudyTab, string][] = [
   ["ask", "Ask"],
   ["summary", "Summary"],
   ["transcript", "Transcript"],
+  ["note", "Note"],
+];
+
+// Podcasts (FEAT-14): chapters instead of a two-hour transcript.
+const PODCAST_TABS: [StudyTab, string][] = [
+  ["ask", "Ask"],
+  ["summary", "Summary"],
+  ["chapters", "Chapters"],
   ["note", "Note"],
 ];
 
@@ -62,8 +73,10 @@ export default function StudyPanel({
   everyday,
   onClose,
   onWatch,
+  onPlayAt,
   onVideoChange,
 }: Props) {
+  const podcast = video.section === "podcasts";
   // Latest callback without re-running effects when the parent re-renders.
   const onVideoChangeRef = useRef(onVideoChange);
   useEffect(() => {
@@ -186,14 +199,21 @@ export default function StudyPanel({
           </Button>
           {trackOpen && (
             <div className="w-full rounded-md border border-line bg-cream p-2.5">
-              <TrackMenu mode="toggle" videoId={video.id} />
+              <TrackMenu
+                mode="toggle"
+                videoId={video.id}
+                autoFocus
+                onInCount={(trackCount) => {
+                  if (trackCount !== video.trackCount) onVideoChange(video.id, { trackCount });
+                }}
+              />
             </div>
           )}
         </>
       }
       tabs={
         <div role="tablist" aria-label="Study tools" className="flex px-2">
-          {TABS.map(([value, label]) => (
+          {(podcast ? PODCAST_TABS : TABS).map(([value, label]) => (
             <button
               key={value}
               type="button"
@@ -300,6 +320,10 @@ export default function StudyPanel({
           find={find}
           onFind={setFind}
         />
+      )}
+
+      {tab === "chapters" && (
+        <ChaptersView video={video} onPlayAt={(seconds) => (onPlayAt ? onPlayAt(video, seconds) : onWatch(video))} />
       )}
 
       {tab === "note" && (
@@ -495,4 +519,53 @@ function Waiting({ label, note }: { label: string; note?: string }) {
 
 function ErrorText({ children }: { children: ReactNode }) {
   return <p className="text-sm font-semibold text-danger">{children}</p>;
+}
+
+/**
+ * An episode's chapters (FEAT-14): each one plays the episode from its
+ * first second. Read from the creator's description, so most episodes have
+ * them; older episodes are looked up once (lib/chapters.ts).
+ */
+function ChaptersView({ video, onPlayAt }: { video: FeedVideo; onPlayAt: (seconds: number) => void }) {
+  const [chapters, setChapters] = useState<Chapter[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api(`/api/videos/${video.id}/chapters`, { fallback: "Couldn't load the chapters" })
+      .then((d) => setChapters(d.chapters ?? []))
+      .catch((err) => setError((err as Error).message));
+  }, [video.id]);
+  if (error) return <ErrorText>{error}</ErrorText>;
+  if (chapters == null) return <Waiting label="Looking for chapters…" />;
+  if (chapters.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-line p-4 text-sm text-muted">
+        This episode has no chapters on YouTube. Play it from the start, or ask about it.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <Label>{chapters.length} chapters · click one to play from there</Label>
+      <ol className="flex flex-col">
+        {chapters.map((c, i) => {
+          const playedPast = (video.resumeSeconds ?? 0) >= c.start && (video.resumeSeconds ?? 0) > 0;
+          return (
+            <li key={i}>
+              <button
+                type="button"
+                onClick={() => onPlayAt(c.start)}
+                className="group flex w-full items-baseline gap-3 rounded-sm px-2 py-2 text-left hover:bg-ink/[0.04]"
+              >
+                <span className="w-16 shrink-0 font-mono text-xs text-muted group-hover:text-ink">
+                  {c.start === 0 ? "0:00" : formatDuration(c.start)}
+                </span>
+                <span className={`flex-1 text-sm ${playedPast ? "text-muted" : "font-semibold"}`}>{c.title}</span>
+                <Icon name="play" size={12} filled className="shrink-0 opacity-0 group-hover:opacity-100" />
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
 }

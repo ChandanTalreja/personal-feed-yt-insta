@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { FeedVideo } from "./types";
+import { api } from "@/lib/api-client";
+import type { Chapter } from "@/lib/chapters";
 import { formatDuration } from "@/lib/format";
 import { CHUNK_SECONDS, chunkCount, mergeProgress } from "@/lib/progress";
 import { loadYouTubeApi, type YTPlayer } from "@/lib/youtubePlayer";
@@ -27,6 +29,10 @@ interface Props {
   /** Playing through a list (Shorts' "Play unseen in a row"): shows where
    *  you are and a Next button that skips ahead without marking it seen. */
   queue?: { label: string; onNext: () => void };
+  /** Start here (a chapter picked in the panel) instead of the resume point. */
+  startAt?: number;
+  /** Podcasts (FEAT-14): load the chapters and show the chapter strip. */
+  showChapters?: boolean;
 }
 
 const TICK_MS = 1000;
@@ -45,6 +51,8 @@ export default function PlayerModal({
   onProgress,
   onEnded,
   queue,
+  startAt,
+  showChapters = false,
 }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
@@ -56,8 +64,21 @@ export default function PlayerModal({
     onEndedRef.current = onEnded;
   });
   const [fallback, setFallback] = useState(false);
-  const [resumedAt] = useState(() => resumePoint(video));
+  // A picked chapter wins over the resume point.
+  const [resumedAt] = useState(() => (startAt != null ? 0 : resumePoint(video)));
+  const [firstSecond] = useState(() => (startAt != null ? Math.floor(startAt) : resumedAt));
   const [startedOver, setStartedOver] = useState(false);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  // Where playback is (updated every second while playing): the current chapter.
+  const [position, setPosition] = useState(firstSecond);
+  const currentChip = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!showChapters) return;
+    api(`/api/videos/${video.id}/chapters`)
+      .then((d) => setChapters(d.chapters ?? []))
+      .catch(() => {});
+  }, [showChapters, video.id]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -108,6 +129,7 @@ export default function PlayerModal({
         return;
       }
       const t = p.getCurrentTime();
+      setPosition(t);
       if (lastTime != null) {
         const delta = t - lastTime;
         // Normal playback moves ~1s per tick (up to ~2s at 2× speed). Bigger
@@ -171,7 +193,7 @@ export default function PlayerModal({
             autoplay: 1,
             rel: 0,
             playsinline: 1,
-            ...(resumedAt ? { start: resumedAt } : {}),
+            ...(firstSecond ? { start: firstSecond } : {}),
           },
           events: {
             onStateChange: (e) => {
@@ -211,6 +233,20 @@ export default function PlayerModal({
     playerRef.current?.seekTo(0, true);
     setStartedOver(true);
   }
+
+  // The chapter playing now: the last one that has started.
+  const current = chapters.reduce((at, c, i) => (c.start <= position + 0.5 ? i : at), 0);
+  function playChapter(i: number) {
+    const c = chapters[Math.max(0, Math.min(i, chapters.length - 1))];
+    if (!c || !playerRef.current) return;
+    playerRef.current.seekTo(c.start, true);
+    playerRef.current.playVideo();
+    setPosition(c.start);
+  }
+  // Keep the current chapter's chip in view as playback moves on.
+  useEffect(() => {
+    currentChip.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [current]);
 
   return (
     <div
@@ -259,7 +295,7 @@ export default function PlayerModal({
             <iframe
               className="absolute inset-0 h-full w-full"
               src={`https://www.youtube-nocookie.com/embed/${video.ytVideoId}?autoplay=1&rel=0${
-                resumedAt ? `&start=${resumedAt}` : ""
+                firstSecond ? `&start=${firstSecond}` : ""
               }`}
               title={video.title}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -269,6 +305,41 @@ export default function PlayerModal({
             <div ref={mountRef} className="absolute inset-0 h-full w-full" />
           )}
         </div>
+        {/* Chapters (podcasts): the one playing is highlighted; jump to any. */}
+        {chapters.length > 0 && !fallback && (
+          <div className="mt-3 flex items-center gap-2">
+            <IconButton label="Previous chapter" onClick={() => playChapter(current - 1)} disabled={current === 0}>
+              <Icon name="chev" size={15} className="rotate-90" />
+            </IconButton>
+            <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto py-0.5 [scrollbar-width:thin]">
+              {chapters.map((c, i) => (
+                <button
+                  key={i}
+                  ref={i === current ? currentChip : undefined}
+                  type="button"
+                  onClick={() => playChapter(i)}
+                  aria-current={i === current ? "true" : undefined}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-sm border px-2 py-1 text-meta ${
+                    i === current
+                      ? "border-ink bg-primary font-semibold text-ink"
+                      : "border-line text-muted hover:border-ink hover:text-ink"
+                  }`}
+                >
+                  <span className="font-mono text-xs">{c.start === 0 ? "0:00" : formatDuration(c.start)}</span>
+                  <span className="max-w-[220px] truncate">{c.title}</span>
+                </button>
+              ))}
+            </div>
+            <IconButton
+              label="Next chapter"
+              align="right"
+              onClick={() => playChapter(current + 1)}
+              disabled={current >= chapters.length - 1}
+            >
+              <Icon name="chev" size={15} className="-rotate-90" />
+            </IconButton>
+          </div>
+        )}
       </div>
     </div>
   );

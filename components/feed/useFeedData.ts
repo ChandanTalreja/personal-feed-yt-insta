@@ -8,6 +8,8 @@ import { PENDING_RESTORED, isOffline, queueVideoSave } from "@/lib/offline";
 import type { Kind, LengthFilter } from "./model";
 
 type Filters = {
+  /** Feed or Podcasts: the page these videos are for (FEAT-14). */
+  section: "feed" | "podcasts";
   kind: Kind;
   view: View;
   genreId: number | null;
@@ -20,6 +22,7 @@ type Filters = {
 /** The feed's filters as query params. */
 function feedParams(f: Filters): URLSearchParams {
   const params = new URLSearchParams({ kind: f.kind, watched: f.view });
+  if (f.section === "podcasts") params.set("section", "podcasts");
   if (f.genreId != null) params.set("genreId", String(f.genreId));
   if (f.channelIds.length > 0) params.set("channelIds", f.channelIds.join(","));
   if (f.search) params.set("search", f.search);
@@ -71,7 +74,7 @@ export function useFeedData(
     onPatched: (id: number, patch: Partial<FeedVideo>) => void;
   }
 ) {
-  const { kind, view, genreId, channelIds, search, lengthFilter } = filters;
+  const { section, kind, view, genreId, channelIds, search, lengthFilter } = filters;
   // Coming back to the feed: start from the page remembered for these filters
   // (instant), while the first load below fetches a fresh one.
   const [initial] = useState(() => rememberedReply<FeedReply>(feedPath(filters, 0)));
@@ -103,14 +106,14 @@ export function useFeedData(
   // The feed's current filters as query params — shared by the page loader
   // and "add these to a track", so both always mean the same videos.
   const filterParams = useCallback(
-    () => feedParams({ kind, view, genreId, channelIds, search, lengthFilter }),
-    [kind, view, genreId, channelIds, search, lengthFilter]
+    () => feedParams({ section, kind, view, genreId, channelIds, search, lengthFilter }),
+    [section, kind, view, genreId, channelIds, search, lengthFilter]
   );
 
   const loadPage = useCallback(
     async (pageToLoad: number, replace: boolean): Promise<FeedVideo[]> => {
       const id = ++requestId.current;
-      const path = feedPath({ kind, view, genreId, channelIds, search, lengthFilter }, pageToLoad);
+      const path = feedPath({ section, kind, view, genreId, channelIds, search, lengthFilter }, pageToLoad);
       const show = (data: FeedReply) => {
         setVideos((prev) => (replace ? data.videos : [...prev, ...data.videos]));
         setHasMore(data.hasMore);
@@ -139,7 +142,7 @@ export function useFeedData(
         if (id === requestId.current) setLoading(null);
       }
     },
-    [kind, view, genreId, channelIds, search, lengthFilter]
+    [section, kind, view, genreId, channelIds, search, lengthFilter]
   );
 
   useEffect(() => {

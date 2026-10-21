@@ -127,6 +127,19 @@ export default function ChannelsClient() {
     });
   }
 
+  /** Feed ↔ Podcasts (FEAT-14). The videos move with the channel. */
+  function setSection(ids: number[], section: "feed" | "podcasts") {
+    return run("Moving…", async () => {
+      await Promise.all(
+        ids.map((id) =>
+          api(`/api/channels/${id}`, { method: "PATCH", body: { section }, fallback: "Couldn't move the channel" })
+        )
+      );
+      notifyNavChanged();
+      return section === "podcasts" ? `Moved ${plural(ids.length)} to Podcasts.` : `Moved ${plural(ids.length)} back to the Feed.`;
+    });
+  }
+
   async function deleteIds(ids: number[]) {
     await run("Deleting…", async () => {
       const n = await bulk(ids, "delete");
@@ -466,6 +479,7 @@ export default function ChannelsClient() {
                   onMove={(genreId) => moveTo([r.channel.id], genreId)}
                   onBackfill={(y) => backfill([r.channel.id], y)}
                   onPause={(pause) => setPaused([r.channel.id], pause)}
+                  onSection={(section) => setSection([r.channel.id], section)}
                   onDelete={() => {
                     setSelected(new Set([r.channel.id]));
                     setConfirmDelete(true);

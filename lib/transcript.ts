@@ -1,6 +1,7 @@
 // Caption fetching is a graceful-degradation chain:
 //   1. InnerTube (Android client) — free, works from residential IPs.
-//      YouTube blocks this route from datacenter IPs (Netlify/AWS), so:
+//      YouTube blocks this route from datacenter IPs (Netlify/AWS), so it
+//      is skipped on Netlify and the chain starts at:
 //   2. Apify transcript Actor — only when APIFY_TOKEN is set (i.e. on the
 //      hosted deployment). ~$0.005/video from the recurring free credit.
 //   3. null — callers treat it as "no captions" (Gemini watches the video
@@ -19,6 +20,7 @@
 
 import { eq } from "drizzle-orm";
 import type { Db } from "./db";
+import { onNetlify } from "./hosting";
 import { appMeta } from "./schema";
 
 const ANDROID_UA =
@@ -44,8 +46,13 @@ export async function fetchCaptions(
   db: Db,
   ytVideoId: string
 ): Promise<string | null> {
-  const viaInnerTube = await fetchViaInnerTube(ytVideoId);
-  if (viaInnerTube) return viaInnerTube;
+  // YouTube refuses InnerTube from cloud IPs (Netlify runs on AWS), so on
+  // Netlify the try only cost a round trip before Apify. Locally it works
+  // and is free.
+  if (!onNetlify()) {
+    const viaInnerTube = await fetchViaInnerTube(ytVideoId);
+    if (viaInnerTube) return viaInnerTube;
+  }
   // No backup configured: Apify alone, no breaker to keep.
   if (!process.env.APIFY_TOKEN || !process.env.FIRECRAWL_API_KEY) {
     return fetchViaApify(ytVideoId);
@@ -135,6 +142,9 @@ async function fetchViaInnerTube(
           },
           videoId: ytVideoId,
         }),
+        // A hang here would hold up the whole request; give up and let the
+        // next source try.
+        signal: AbortSignal.timeout(5_000),
         cache: "no-store",
       }
     );
@@ -153,6 +163,7 @@ async function fetchViaInnerTube(
 
     const res = await fetch(`${track.baseUrl}&fmt=json3`, {
       headers: { "user-agent": ANDROID_UA },
+      signal: AbortSignal.timeout(5_000),
       cache: "no-store",
     });
     if (!res.ok) return null;

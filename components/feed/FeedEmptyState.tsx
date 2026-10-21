@@ -9,6 +9,7 @@ import type { Kind, LengthFilter } from "./model";
 /** What the feed says when the grid is empty — the most specific reason wins. */
 export default function FeedEmptyState({
   hasChannels,
+  podcasts = false,
   search,
   kind,
   lengthFilter,
@@ -19,6 +20,8 @@ export default function FeedEmptyState({
   onSeeEverything,
 }: {
   hasChannels: boolean;
+  /** The Podcasts page (FEAT-14): no podcast channels yet means "move one". */
+  podcasts?: boolean;
   /** The (debounced) title search. */
   search: string;
   kind: Kind;
@@ -35,7 +38,15 @@ export default function FeedEmptyState({
   let action: ReactNode = (
     <Button onClick={onClearFilters}>Clear filters</Button>
   );
-  if (!hasChannels) {
+  if (!hasChannels && podcasts) {
+    title = "No podcasts yet";
+    body = "Move a channel here from the Channels page, or add one and choose Podcasts.";
+    action = (
+      <Link href="/channels" className={buttonClass("primary")}>
+        Open Channels
+      </Link>
+    );
+  } else if (!hasChannels) {
     title = "No channels yet";
     body = "Add a channel and TUBEBOX fetches its last year of uploads.";
     action = (

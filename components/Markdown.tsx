@@ -1,6 +1,7 @@
 "use client";
 
 import ReactMarkdown, { type Components } from "react-markdown";
+import { MARK_CLASS, rehypeHighlight } from "./ui/highlight";
 
 /**
  * Renders Gemini's markdown (bold, headings, lists) as real formatting.
@@ -30,6 +31,7 @@ const components: Components = {
     </blockquote>
   ),
   hr: () => <hr className="my-3 border-line" />,
+  mark: ({ children }) => <mark className={MARK_CLASS}>{children}</mark>,
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noopener noreferrer" className="underline decoration-primary decoration-2 underline-offset-2 hover:decoration-ink">
       {children}
@@ -37,10 +39,16 @@ const components: Components = {
   ),
 };
 
-export default function Markdown({ text }: { text: string }) {
+/** `highlight`: a search query whose matches get the highlighter. */
+export default function Markdown({ text, highlight }: { text: string; highlight?: string }) {
   return (
     <div className="break-words">
-      <ReactMarkdown components={components}>{text}</ReactMarkdown>
+      <ReactMarkdown
+        components={components}
+        rehypePlugins={highlight ? [[rehypeHighlight, highlight]] : []}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }

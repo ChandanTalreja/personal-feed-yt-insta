@@ -57,6 +57,7 @@ export default function FeedSidebar({
   onToggleChannel,
   onClearChannels,
   facets,
+  podcasts = false,
 }: {
   view: View;
   onView: (v: View) => void;
@@ -68,6 +69,8 @@ export default function FeedSidebar({
   channelIds: number[];
   onToggleChannel: (id: number) => void;
   onClearChannels: () => void;
+  /** The Podcasts page: its own heading, and no genres (FEAT-14). */
+  podcasts?: boolean;
   facets: Facets | null;
 }) {
   const [query, setQuery] = useState("");
@@ -95,7 +98,7 @@ export default function FeedSidebar({
 
   return (
     <nav aria-label="Feed filters" className="text-ink">
-      <SidebarSection title="Your feed">
+      <SidebarSection title={podcasts ? "Your podcasts" : "Your feed"}>
         {VIEWS.map(([value, label, icon, tile]) => (
           <SidebarItem
             key={value}
@@ -112,30 +115,32 @@ export default function FeedSidebar({
         ))}
       </SidebarSection>
 
-      <SidebarSection title="Genres">
-        <SidebarItem
-          label="All genres"
-          active={genreId == null}
-          count={allGenresCount != null ? short(allGenresCount) : undefined}
-          onClick={() => onGenre(null)}
-          leading={<span className="h-[9px] w-[9px] shrink-0 rounded-[3px] bg-ink" />}
-        />
-        {genres.map((g) => (
+      {!podcasts && (
+        <SidebarSection title="Genres">
           <SidebarItem
-            key={g.id}
-            label={g.name}
-            active={genreId === g.id}
-            count={facets ? short(facets.genres[g.id] ?? 0) : undefined}
-            onClick={() => onGenre(g.id)}
-            leading={
-              <span
-                className="h-[9px] w-[9px] shrink-0 rounded-[3px]"
-                style={{ backgroundColor: g.color }}
-              />
-            }
+            label="All genres"
+            active={genreId == null}
+            count={allGenresCount != null ? short(allGenresCount) : undefined}
+            onClick={() => onGenre(null)}
+            leading={<span className="h-[9px] w-[9px] shrink-0 rounded-[3px] bg-ink" />}
           />
-        ))}
-      </SidebarSection>
+          {genres.map((g) => (
+            <SidebarItem
+              key={g.id}
+              label={g.name}
+              active={genreId === g.id}
+              count={facets ? short(facets.genres[g.id] ?? 0) : undefined}
+              onClick={() => onGenre(g.id)}
+              leading={
+                <span
+                  className="h-[9px] w-[9px] shrink-0 rounded-[3px]"
+                  style={{ backgroundColor: g.color }}
+                />
+              }
+            />
+          ))}
+        </SidebarSection>
+      )}
 
       <SidebarSection
         title="Channels"

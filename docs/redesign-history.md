@@ -1611,6 +1611,149 @@ choosing:
   age still showing.
 - Typecheck and lint pass.
 
+#### REF-11 · Notebook search highlights the words it found — ✅ done · 2026-10-21
+
+**The problem (owner, in use).** Searching the Notebook ("hash map") finds
+the right answers and gives each matching answer a yellow bar on its left,
+but inside a long answer you still had to hunt for where the words were.
+
+**The change.** The searched words get the soft yellow highlighter, the same
+mark global search (⌘K) already uses, in the video title, each answer's
+question line, the answer itself (inside lists, bold text, headings) and
+your own note. Clearing the search clears the marks.
+
+**How it works.**
+- `components/ui/highlight.tsx` already had `highlight(text, term)` for ⌘K.
+  It is unchanged, apart from its class now coming from a shared
+  `MARK_CLASS` constant (same value). The reader uses it for the title,
+  the question lines and the note.
+- Answers are markdown, so plain text splitting can't reach inside them. A
+  small `rehypeHighlight(term)` plugin in the same file walks the HTML tree
+  react-markdown builds and wraps matches in `<mark>`; `Markdown` takes an
+  optional `highlight` prop and styles `mark` with `MARK_CLASS`. It works
+  after parsing, so it never touches markdown syntax and adds no package.
+- `NotebookClient` passes the search (`highlight={query}`); the question
+  filter alone doesn't highlight, since it matches whole questions.
+- Matching is the search's own: case-insensitive, plain text. A match split
+  by formatting ("hash **map**") isn't marked, though the answer is still
+  found.
+
+**Key code.**
+```tsx
+<ReactMarkdown components={components} rehypePlugins={highlight ? [[rehypeHighlight, highlight]] : []}>
+```
+
+**Alternatives considered.** *An underline* (the owner's first idea, like
+FIX-07's): links in answers already have a yellow underline, so a match and
+a link would look the same; a highlighter background is unmistakable and is
+already the app's search mark. *A markdown-highlighting package*: a 40-line
+plugin does it with nothing new to install. *Next up, separately (owner's
+order):* (A) open the video at its first match; (B) let "hash map" also find
+"HashMap" by ignoring spaces and hyphens when matching.
+
+**Files.** `components/ui/highlight.tsx`, `components/Markdown.tsx`,
+`components/notebook/NotebookReader.tsx`,
+`components/notebook/NotebookClient.tsx`.
+
+**Verified** (local, real notebook, read-only). "hash map": "Hash Map"
+marked inside a list item. "interview": 1 mark in the title, 1 in the
+question line, 5 in the answer. Empty search: no marks. The mark is
+`bg-primary/45`, identical to ⌘K's. No server errors; typecheck and lint
+pass. Not checked visually: an own note, as the local database has none
+(same `highlight()` call as the title).
+
+#### REF-12 · Notebook search opens at the first match — ✅ done · 2026-10-21
+
+**The problem.** With REF-11 the found words are highlighted, but a match
+can sit far down a long answer (one was 1,615 px below the top), so you
+still scrolled to find it. Item A of the owner's step-by-step list.
+
+**The change.** While searching, the reader jumps to the first highlighted
+word (outside the title, which is already at the top) and puts it in the
+middle of the screen: when you open a video from the list, and when you
+change the search, after a 400 ms pause so it doesn't jump on every
+keystroke. No search, no scrolling.
+
+**How it works.** An effect in `NotebookReader` keyed on `highlight`. The
+reader is keyed by video id, so opening a video mounts a fresh one and the
+effect runs; typing changes `highlight` and the timer restarts. It finds the
+first `<mark>` outside the `<header>` and calls `scrollIntoView({ block:
+"center" })`.
+
+**Key code.**
+```tsx
+useEffect(() => {
+  if (!highlight) return;
+  const timer = setTimeout(() => {
+    const first = [...(articleRef.current?.querySelectorAll("mark") ?? [])].find(
+      (m) => !m.closest("header")
+    );
+    first?.scrollIntoView({ block: "center" });
+  }, 400);
+  return () => clearTimeout(timer);
+}, [highlight]);
+```
+
+**Alternatives considered.** *Smooth scrolling*: tried first. It's slow to
+watch over 1,500+ px, and it never ran in the in-app test browser, so it
+couldn't be verified; an instant jump is clear and testable. *"1 of 5" with
+next/previous buttons*: more UI; possible later if one jump isn't enough.
+
+**Files.** `components/notebook/NotebookReader.tsx`.
+
+**Verified** (local, read-only). "hash map": jumped to the first match in
+the answer (centred). Opening another listed video: jumped 1,615 px to its
+match. Typing "h", "ha" quickly: no jump; after the pause: jumped. Clearing
+the search: no scroll. Typecheck and lint pass.
+
+#### REF-13 · Notebook search ignores spaces and hyphens ("hash map" finds "HashMap") — ✅ done · 2026-10-21
+
+**The problem.** Notebook search compared text exactly (ignoring case), so
+"hash map" missed notes that say "HashMap", "hashmap" or "hash-map", and
+"concurrent hash map" found nothing at all, since the notes write
+"ConcurrentHashMap". Item B of the owner's step-by-step list.
+
+**The change.** Spaces, hyphens and underscores between letters no longer
+matter, in the query or in the notes. "hash map", "hashmap" and "HashMap"
+all find each other, and the highlighter (REF-11) marks whichever spelling
+was found. "HashSet" and "hashing map" still don't match.
+
+**How it works.** `loosePattern(term)` in `components/ui/highlight.tsx`
+drops separators from the query and joins its characters with
+`[\s\-_]*`, case-insensitive; every character is regex-escaped, so "c++"
+or "a.b" are safe. `looseMatcher()` (a non-global regex, so `test()` has no
+leftover state) does the Notebook's filtering; `highlightLoose()` and
+`rehypeHighlight()` use the same pattern for the marks, so what is found is
+exactly what is highlighted. ⌘K's `highlight()` is unchanged (global search
+is still exact; it runs on the server).
+
+**Key code.**
+```ts
+export function loosePattern(term: string, flags = "gi"): RegExp | null {
+  const chars = [...term.toLowerCase().replace(/[\s\-_]+/g, "")];
+  if (chars.length === 0) return null;
+  const escaped = chars.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(escaped.join("[\\s\\-_]*"), flags);
+}
+```
+
+**Alternatives considered.** *Fuzzy (typo-tolerant) matching*: finds more,
+but also junk (the reason the stricter feed search was dropped); this only
+forgives how words are joined. *Removing separators from both sides and
+comparing*: simple for filtering, but then the highlight can't map back to
+the original text; the regex does both.
+
+**Files.** `components/ui/highlight.tsx`,
+`components/notebook/NotebookClient.tsx`,
+`components/notebook/NotebookReader.tsx`.
+
+**Verified.** Unit check: the three spellings match "HashMap", "hash map",
+"hash-map", "hash_map", "hashmap", "ConcurrentHashMap" and "Hash   Map", not
+"HashSet" or "hashing map"; "c++" and "a.b" match literally; an all-spaces
+query doesn't filter. In the app (real notebook, read-only): "hash map" 3 →
+10 videos, "hashmap" 8 → 10, "concurrent hash map" 0 → 5, with
+"ConcurrentHashMap" highlighted. Typecheck and lint pass.
+
 ### FEAT — new features
 
 #### FEAT-01 · Global search — ✅ done · 2026-10-17
@@ -2277,6 +2420,326 @@ A server-refused save was undone with the toast and not queued. Ask offline
 showed the message, kept the question, and made no Gemini call. Test changes
 were undone; typecheck and lint pass.
 
+#### FEAT-14 · Podcasts: their own section, with chapters — ✅ v1 built · 2026-10-21
+
+**The idea (owner).** Long-form podcasts (e.g. MKBHD's Waveform) in their
+own section, never mixed into the normal feed, Shorts included. Parked on
+2026-10-19; designed with the owner on 2026-10-21.
+
+**Decisions (owner, 2026-10-21).**
+- **Ask and Summary stay** on podcasts. Worry was cost; the numbers say it's
+  fine: the free tier counts calls, not length. A 2-hour episode is roughly
+  25k tokens of transcript, one call per Ask, inside the 250k tokens per
+  minute and well inside Netlify's 30 s. The transcript is fetched once
+  (Apify, ~$0.005) and saved, so later Asks skip it. Nothing runs on its own.
+- **No Transcript tab** on podcasts. **Add to track** stays (same tracks).
+- **No genres in v1.** Podcasts jump between topics and there are few
+  podcast channels, so the channel list is the filter. Their own genre set
+  later if missed.
+- **Podcast Shorts** live only in Podcasts (its own Videos / Shorts switch).
+- **Continue listening** (episodes started but not finished, with their
+  progress and "resume at 47:12") in v1: watch progress already exists.
+- **Chapters**, with a jump to any of them (below).
+
+**v1: the section.**
+- Each channel gets a home: `channels.section` = `feed` (default) or
+  `podcasts`. The add-channel box asks which; the Channels page can move a
+  channel. Same 6-hourly sync, no extra YouTube quota.
+- A **Podcasts** tab in the top bar with its count, beside Feed. The page
+  reuses the Feed screen (Inbox / Watch later / Watched, Videos / Shorts,
+  cards, study panel) with every query scoped to podcast channels; the Feed
+  is scoped to feed channels. Nav counts, ⌘K and the Notebook keep working
+  across both (the Notebook is about answers, wherever the video lives).
+- **Continue listening**: a row at the top of Podcasts, episodes with
+  progress between ~2% and ~95%, newest listened first, each opening the
+  player at its resume point.
+
+**v1: chapters from YouTube.** Most podcasts list chapters in the video
+description ("0:00 Intro", "5:10 Early career"…). The sync already fetches
+each video's `snippet`, which includes the description; it would start
+saving the chapters it finds (parsed with YouTube's own rule: the first at
+0:00, at least three, in order). Older videos: fetched once when the episode
+is opened (videos.list, 1 quota unit). Saved on the video as `chapters`
+(jsonb `[{start, title}]`) with `chapters_source` = `youtube`.
+
+**v2: our own chapters, when the video has none.** A "**Make chapters ✦**"
+action on the episode (one Gemini call, saved forever, like a summary).
+- **The catch, solved:** saved transcripts are plain text with no times.
+  The Apify Actor's own docs show its normal output **includes timestamps**
+  (we turned them off with `include_transcript_text`), so this fetches the
+  timed version once (~$0.005), groups it into ~30-second blocks
+  ("[12:30] …"), and sends that.
+- Gemini returns `[{start, title}]` as JSON. Checked before saving: starts
+  must be real block times, in order, at least ~2 minutes apart, the first
+  at 0:00, within the episode's length. `chapters_source` = `gemini`, shown
+  with the sparkle so you know they're Gemini's, not the creator's.
+- **Quality:** chapter titles are well within Flash-Lite's reach; the hard
+  part is where each chapter starts. Plan: test on a podcast that already
+  has YouTube chapters, make Gemini's own for it, and compare. If
+  Flash-Lite's boundaries drift, use `gemini-3.8-flash` for this one job:
+  it's made once per episode, so its 20 a day is plenty.
+- A 2-hour episode with timestamps is ~35k tokens: one call.
+
+**Jumping between chapters (owner: "not just a list").**
+- In the study panel: a **Chapters** list (time + title). Clicking one
+  **opens the player at that second**.
+- In the player: a chapter strip under the video, the **current chapter
+  highlighted** as it plays, and **previous / next chapter** buttons. The
+  player already seeks (it's how Resume works) with the YouTube IFrame API's
+  `seekTo`.
+
+**Data (planned).** `channels.section` (text, default `feed`); on `videos`:
+`description` (text, new videos), `chapters` (jsonb), `chapters_source`
+(text). All added through `lib/db.ts`'s list, so PERF-05's stamp runs them
+once on the first cold start.
+
+**Costs.** Section, page, Shorts, Continue listening: none (same sync and
+queries). YouTube chapters: none for new videos; 1 quota unit per older
+episode opened. Gemini chapters: one Gemini call + one Apify run per
+episode, only when asked.
+
+**Open questions.** Should "Make chapters" happen by itself the first time
+you open an episode without chapters, or only on a button? (Button keeps
+every call deliberate.) Which channels move to Podcasts first?
+
+**Owner's answers.** "Make chapters ✦" is a **button** (never automatic):
+every Gemini call stays deliberate. First podcast channel: Waveform (the
+owner added "WVFRM Podcast", @waveform, with the new form: 62 episodes,
+30 Shorts).
+
+**v1 as built (2026-10-21).**
+- `channels.section` (`feed` | `podcasts`, default `feed`); `videos.chapters`
+  (jsonb, null = never looked) and `videos.chapters_source`. No
+  `description` column after all: the sync reads the chapters straight out
+  of the description it already fetches (`lib/chapters.ts`,
+  `parseChapters`: first at 0:00, at least three, in order, 10 s apart,
+  inside the episode) and stores only them.
+- `/api/videos` scopes every query (list, totals, sidebar facets, Watch
+  later counts, `ids=1`) to `section` (default `feed`), and `continue=1`
+  lists unwatched episodes with `resume_seconds` > 60, most recently played
+  first (4). `/api/nav` counts unwatched per section (`inbox` = feed,
+  `podcasts`) and `podcastChannels`; the top bar shows the **Podcasts** tab
+  once a channel lives there.
+- `app/podcasts/page.tsx` renders `FeedClient section="podcasts"`: title
+  "Podcasts", pen note "long listens, at your pace", sidebar "Your podcasts"
+  with no genres, its own Videos / Shorts ("Podcast shorts"), **Continue
+  listening** above "New episodes", empty state pointing to Channels.
+- Study panel and cards: **Chapters** replaces Transcript for podcast
+  videos (Ask, Summary, Chapters, Note). `GET /api/videos/[id]/chapters`
+  returns stored chapters, or looks an older video up once (1 quota unit)
+  and stores the answer, even "none".
+- Player: `startAt` (a chapter's second, which wins over the resume point)
+  and, for podcasts, a **chapter strip** under the video: the chapter
+  playing is highlighted (from the 1 s progress tick), any chip jumps
+  (`seekTo` + `playVideo`), previous / next buttons.
+- Channels page: "Move to Podcasts" / "Move to the Feed" in each row's
+  menu, "· Podcasts" after the handle, and a Feed / Podcasts choice next to
+  the genre when adding a channel. ⌘K sends podcast channels and episodes
+  to `/podcasts?…`.
+
+**Files.** New: `lib/chapters.ts`, `app/podcasts/page.tsx`,
+`app/api/videos/[id]/chapters/route.ts`. Changed: `lib/schema.ts`,
+`lib/db.ts`, `lib/youtube.ts`, `lib/ingest.ts`, `lib/nav.ts`,
+`lib/search.ts`, `lib/videoColumns.ts`, `lib/youtubePlayer.ts`,
+`app/api/videos/route.ts`, `app/api/channels/route.ts`,
+`app/api/channels/[id]/route.ts`, `components/feed/FeedClient.tsx`,
+`components/feed/useFeedData.ts`, `components/feed/FeedSidebar.tsx`,
+`components/feed/FeedEmptyState.tsx`, `components/feed/StudyPanel.tsx`,
+`components/feed/VideoCard.tsx`, `components/feed/model.ts`,
+`components/PlayerModal.tsx`, `components/TopBar.tsx`,
+`components/GlobalSearch.tsx`, `components/channels/*` (row, page, add
+bar), `components/types.ts`.
+
+**Verified** (local, real data). Chapter parser: "0:00 Intro",
+"(00:00)", "[05:10]", "Intro 0:00", "1:02:33" all read; lists not starting
+at 0:00, with fewer than three, out of order or past the end rejected.
+Restart ran the new columns once (schema stamp). Nav: Feed 2,198, Podcasts
+92. Feed page and Feed Shorts contain **no** podcast videos (0 of 24 and 0
+of 24); Podcasts lists only Waveform (62 episodes, 30 Shorts). Real
+chapters: 11, 8 and 13 on three episodes. In the app: the Podcasts tab,
+title and sidebar; cards and panel show Chapters; clicking "5:14 Apple
+Homeview" opened the player at `start=314` with 11 chips and that one
+highlighted; Next jumped the real video to 26:55 (YouTube's own chapter
+label agreed) and the highlight followed; closing put the episode under
+Continue listening (resume 27:00). The test resume was reset to 0
+afterwards (one 10 s chunk stays marked played). The Feed is unchanged
+(Inbox, genres, Transcript tab). ⌘K: "wvfrm" returns the channel with
+section `podcasts`. Typecheck and lint pass. **v2** (Gemini chapters) not
+started.
+
+#### FEAT-15 · Cheat sheets: unique questions across your notes — ✅ built · 2026-10-21
+
+**The idea (owner).** In the Notebook, search a topic ("hash map", maybe
+within the Interview genre), and get **one clean list of the unique
+questions** about it across every note, each pointing back to the videos it
+came from. Plain search already finds the notes; the cheat sheet merges what
+they say into one revision page. Named "cheat sheets" by the owner (over
+"question lists/sets", "roundups", "digests").
+
+**Why this shape (from the size discussion).** Sending whole notes was
+measured first: an Ask answer averages ~2.7 KB (~680 tokens), so 154 notes
+≈ 105k tokens and 500 notes ≈ 340k, over the free tier's 250k tokens per
+minute for one request. Sending only the **matching lines** keeps a sheet at
+roughly 1–2k tokens, far inside every limit, at any notebook size. The
+trade-off, accepted: a related question that never mentions the words
+("what is load factor?" with no "hash map" nearby) isn't included. Finding
+notes by meaning (embeddings) stays a possible later upgrade.
+
+**How it works, step by step.**
+1. **Search** in the Notebook as today. Matching is REF-13's loose match, so
+   "hash map" also finds "HashMap" and "ConcurrentHashMap". The genre
+   filter narrows it (e.g. Interview).
+2. **Collect the matching lines** from the matching answers and your own
+   notes, each tagged with its video. Rules, based on the real answers (38
+   answers: ~844 bullets, 149 headings, mostly **bold lines**, 108 numbered
+   items, 72 nested bullets, usually a "*Solution:*"):
+   - a match in a **bullet or numbered item** → that item's own text (not
+     its nested sub-bullets, which are answers, not questions);
+   - a match in a **heading** (a `#` heading or a line that is only
+     **bold**) → the heading **plus every item under it**, up to the next
+     heading. This is the owner's favourite part: a "**HashMap
+     internals**" section brings its questions even when they don't say
+     "hash map" themselves;
+   - a match in a **plain line** → that line;
+   - your own notes (plain text): the matching line; a line ending in ":"
+     counts as a heading for the lines under it, up to a blank line.
+   - Each item is trimmed to ~300 characters; exact duplicates are dropped
+     before sending.
+3. **One Gemini call** through the normal model chain (FIX-06): "These are
+   questions about hash map from N videos. Merge the ones asking the same
+   thing; return each unique question once, with the videos it came from."
+   The reply is requested as **JSON** (`[{question, videoIds}]`) so the
+   links can't be garbled. `runChain()` needs a small option for the JSON
+   reply format.
+4. **Show it** on the right side of the Notebook, where a video normally
+   opens. Questions are ordered by **how many videos asked them**, most
+   first (handy for interview prep: the common ones lead), each with
+   "asked in 3 videos" and the video names as links. A link opens that video
+   with the sheet's search applied, so REF-12 jumps straight to the line.
+   **Copy as Markdown** like a video.
+
+**Saving and updating.**
+- Every sheet is saved. The Notebook's left list gets a **CHEAT SHEETS**
+  group at the top: "Hash map · Interview · 15 questions · today".
+  Reopening one is instant and makes **no Gemini call**.
+- The same search and genre again **updates** that sheet instead of making a
+  duplicate.
+- **"4 new matching lines since. Update?"**: the browser already holds every
+  note, so on opening a sheet it re-collects the lines (free, no server
+  call) and compares a fingerprint with the saved one. Update = one call.
+- Each sheet can be deleted.
+
+**In ⌘K global search.** A new group, **CHEAT SHEETS · IN YOUR NOTEBOOK**,
+with a **SHEET** badge (like GEMINI and NOTE on answers) and the subtitle
+"Notebook · Interview · 15 questions · today", so it's clear where it
+lives. Clicking opens the Notebook at that sheet (`/notebook?sheet=7`).
+
+**The button.** Appears in the Notebook while a search is active, e.g.
+"**Make a cheat sheet** · 23 matching lines". Past a size cap (around 400
+lines or ~40k characters) it says to narrow the search or pick a genre
+instead of sending.
+
+**Data and code (planned).**
+- New table `cheat_sheets`: `id`, `query` (as typed), `genre_id` (null =
+  all genres), `questions` (jsonb `[{question, videoIds}]`), `line_count`,
+  `lines_hash` (fingerprint of the lines used, for "new since"), `model`,
+  `created_at`, `updated_at`; unique on (normalised query, genre). Added to
+  `lib/db.ts`'s list, so PERF-05's stamp changes and the first cold start
+  creates it once.
+- `lib/cheatSheet.ts`: the line collection (pure, shared by the browser for
+  "new since" and the server for building) and the Gemini step.
+- API: `POST /api/cheat-sheets` (query, genre: the **server** collects the
+  lines itself, so it never trusts a list sent from the browser), `GET`
+  (list and one), `DELETE`.
+- `lib/search.ts` gains cheat sheets for ⌘K.
+- UI: the Notebook button, the CHEAT SHEETS group, a sheet view in the
+  reader area, `?sheet=` in the address.
+
+**Costs.** One Gemini call per sheet or update (counts toward the daily cap
+of 100); typically 1–2k tokens. Opening, copying and "new since" checks
+cost nothing. No YouTube, Apify or Firecrawl use.
+
+**Owner's choices.** Short answers included (the nested "*Solution:*"
+lines go along with their question, option B); "asked in N videos" counts
+shown; button "Make a cheat sheet · 23 matching lines".
+
+**As built (differences from the plan above).**
+- A matching **sub-point** also brings its parent item (a "Solution: use
+  ConcurrentHashMap" line belongs to a concurrency question).
+- `lib/looseMatch.ts` (moved out of `components/ui/highlight.tsx`) holds the
+  loose match, so the browser and the server match identically;
+  `lib/cheatSheetLines.ts` is the pure line collector and fingerprint;
+  `lib/cheatSheets.ts` the server side (load sources, size checks, upsert);
+  `buildCheatSheet()` in `lib/gemini.ts` the call (videos numbered 1…n in
+  the prompt, JSON reply checked; `runChain()` gained an optional JSON
+  schema). Routes: `GET`/`POST /api/cheat-sheets`, `DELETE
+  /api/cheat-sheets/[id]`.
+- The table stores `genre_key` as text ("all", "none" or a genre id), the
+  same values as the Notebook's genre filter, and `query_key` (the loose
+  form), unique together: "Hash Map" and "hashmap" are one sheet.
+- When a sheet already exists for the search, the button becomes "Open the
+  hash map cheat sheet" (no accidental second call); updating is from the
+  sheet's "new matching lines since" bar.
+- Titles show the search with a capital first letter ("Hash map cheat
+  sheet"). Deleting asks "Delete it?" inline.
+- The saved sheets live in a **"Cheat sheets N" tab** of the list's Show
+  switch (All, Answers, My notes, Cheat sheets), filtered by the search and
+  the genre; the reader opens the first one. A first version put a CHEAT
+  SHEETS group on top of the list; the owner rejected it because it pushed
+  the videos down. A `?sheet=` link opens on that tab.
+- The way in, in the **owner's own words**: one quiet line under the
+  search, "Worried about duplicates? **Ask** ✦", where ✦ is the **Gemini
+  sparkle** (`components/ui/GeminiMark.tsx`: Gemini's four-pointed star in
+  its blue-to-pink gradient, drawn inline, no image file) standing in for
+  the word; it turns a quarter on hover. When a sheet exists for the
+  search: "Already asked ✦ **Open the cheat sheet**". "duplicates" carries the thick
+  yellow underline (the same stroke as FIX-07's "Added to …"). While a
+  sheet is being made, the sparkle spins and the line moves on every 2.2 s:
+  "Gemini is reading 27 lines from 8 videos…", "…spotting the questions
+  that keep coming back…", "…folding the look-alikes into one…",
+  "…putting the most-asked on top…" (`CheatSheetMaking`). The GEMINI badge
+  on answers (Notebook and ⌘K) now carries the sparkle too.
+- Deleting: the bin turns **red** on hover (never the yellow "on" colour);
+  pressing it swaps it, in place, for a filled red **Delete** and a green
+  **Keep** (tile green with the "ok" green border). A dark bar copied from
+  the track delete was tried first and rejected by the owner. It replaced a big
+  yellow "Make a cheat sheet · N matching lines" button; the alternatives
+  shown before it (an icon in the search box, a first list row, a small
+  button by the counts, a bar over the reader, the pen note, a selection
+  toolbar, a ⌘K action, topic chips, flashcards) were all rejected.
+- The list's counts got a line of their own under the Show switch
+  ("33 videos · 38 answers · 0 notes", or "4 cheat sheets"), with "Clear
+  filters" on the right of it: the fourth tab had squeezed them into a
+  ragged column.
+
+**Files.** New: `lib/looseMatch.ts`, `lib/cheatSheetLines.ts`,
+`lib/cheatSheets.ts`, `app/api/cheat-sheets/route.ts`,
+`app/api/cheat-sheets/[id]/route.ts`,
+`components/notebook/CheatSheetView.tsx`. Changed: `lib/schema.ts`,
+`lib/db.ts` (table + unique index), `lib/gemini.ts`, `lib/search.ts`,
+`components/GlobalSearch.tsx`, `components/notebook/NotebookClient.tsx`,
+`components/notebook/NotebookReader.tsx` (exports `CopyMarkdownButton`),
+`components/notebook/model.ts`, `components/types.ts`,
+`components/ui/highlight.tsx`.
+
+**Verified** (local, real notebook). Line collector on real notes: "hash
+map" 17 excerpts from 10 videos, ~440 tokens; "auto-configuration" 24
+excerpts, a heading bringing its questions and Solution lines; "spring boot"
+~3,000 tokens. The restart after adding the table ran 27 statements once
+under a new schema version (PERF-05 working as designed). In the app: the
+button read "Make a cheat sheet · 17 matching lines"; one real Gemini call
+made **12 unique questions**, most-asked first ("HashMap vs
+ConcurrentHashMap?" asked in 3 videos), short answers where the notes had
+them. Reopening via `?sheet=1` made no POST (no Gemini). No "new lines"
+banner on a fresh sheet, so browser and server fingerprints agree. ⌘K for
+"hashmap" listed it under CHEAT SHEETS · IN YOUR NOTEBOOK. A video chip
+opened that video with the search set and jumped to the match. A topic in no
+notes: 400, "Nothing in your notes mentions …", no call. Delete of a missing
+id 404, a bad id 400. No server errors; typecheck and lint pass. **Not
+exercised yet:** the "new matching lines since → Update" path (needs a note
+to change) and deleting a real sheet from the screen; the "hash map" sheet
+was kept for the owner.
+
 ### CLEAN — code cleanup (Phase 10)
 
 The rule for all of Phase 10: reorganise, don't change behaviour. Two
@@ -2699,6 +3162,90 @@ placeholder case was found. WebP existed for 40/40 sampled stored
 thumbnails. Typecheck and lint pass. The live LCP graph will show the
 effect about a day after deploying.
 
+#### PERF-05 · Cold starts skip the schema check (audit B2) — ✅ done · 2026-10-21
+
+**The problem.** Every new Netlify instance (a "cold start") ran the whole
+schema list in `lib/db.ts` before serving its request: 25 statements (1
+extension, 9 tables, 8 added columns, 7 indexes), all `IF NOT EXISTS`, so
+the answer was almost always "already there". Since PERF-02 the list runs
+behind an advisory lock (only one instance at a time, to prevent the
+September deadlock). Opening the feed fires about 5 requests at once, so
+after an idle spell 5 or 6 fresh instances queued at that lock one behind
+the other. The deploy logs showed 6 instances cold-starting together at
+07:30:10, each losing about 1 s to the check and the queue. ChatGPT's audit
+flagged it as "schema setup on the request path" (§4 · P1).
+
+**The change.** The list is stamped with a fingerprint of its own text,
+stored in `app_meta` as `schema_version`. A cold instance first reads that
+one row. If it matches, the schema is current: no lock, no queue, no DDL.
+Only when it doesn't match (a brand-new database, or right after the list
+was edited) does the instance run the full list once and write the new
+stamp.
+
+**How it works.**
+- `SCHEMA_VERSION` is the first 12 hex characters of a SHA-256 of the DDL
+  list. Editing the list changes it by itself, so nobody has to remember to
+  bump a version and nothing can be skipped by mistake.
+- `schemaIsCurrent()` is a plain Drizzle read of the stamp. On a brand-new
+  database `app_meta` doesn't exist and the read fails; that counts as "not
+  current". If the database is unreachable instead, the full setup that
+  follows throws the real error.
+- The setup block keeps PERF-02's single round trip and advisory lock, and
+  now **checks the stamp again after taking the lock**. When several
+  instances cold-start right after a schema change, the first runs the list
+  and stamps it; the ones queued behind it find the new stamp and return
+  without running anything. The check is a nested `IF` because PL/pgSQL
+  plans a statement only when it reaches it, so on an empty database the
+  `app_meta` SELECT is never planned.
+- The stamp is written with `ON CONFLICT … DO UPDATE` at the end of the same
+  transaction, so it only exists if the whole list succeeded.
+- The cold-init log line now ends either `(skipped, version 405bef37620f
+  is current)` or `(25 statements, version 405bef37620f)`.
+
+**Key code.**
+```ts
+const SCHEMA_VERSION = createHash("sha256")
+  .update(DDL.join(";"))
+  .digest("hex")
+  .slice(0, 12);
+
+const current = await schemaIsCurrent(db);
+if (!current) await db.execute(sql.raw(schemaSetupBlock()));
+```
+```sql
+DO $$ BEGIN
+PERFORM pg_advisory_xact_lock(7201314);
+IF to_regclass('app_meta') IS NOT NULL THEN
+  IF EXISTS (SELECT 1 FROM app_meta WHERE key = 'schema_version' AND value = '…') THEN RETURN; END IF;
+END IF;
+-- the 25 statements
+INSERT INTO app_meta (key, value) VALUES ('schema_version', '…')
+  ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now();
+END $$
+```
+
+**Alternatives considered.** *Run the schema at deploy time* (the audit's
+suggestion): it would also remove the one remaining round trip, but needs
+the database password during the Netlify build, makes a deploy fail
+whenever Neon is asleep or down, and would need a separate path for local
+PGlite. The stamp gets almost all of the gain and keeps TUBEBOX zero-setup.
+*A hand-written version number*: works, but relies on remembering to bump
+it; the fingerprint can't be forgotten. *Skip the check entirely after the
+first run*: unsafe, since a new column or index would never be created.
+
+**Files.** `lib/db.ts`.
+
+**Verified** (local PGlite, throwaway database folders; the real local data
+was never opened). Brand-new database: full setup, 9 tables, stamp
+`405bef37620f` written. Restart: "skipped". Stamp changed to an old value:
+full setup ran once and re-stamped, the next start skipped. The in-lock
+recheck returned early before reaching a statement that would have failed
+(`1/0`). A copy of the real local database (2,183 videos, no stamp yet, like
+production on its first deploy): full setup once, then skipped, all videos
+intact. Typecheck and lint pass. **After deploying:** the Netlify function
+logs should show `skipped` on cold starts, once the first instance has
+written the stamp.
+
 
 ### FIX — problems found in use
 
@@ -2904,6 +3451,300 @@ Gemini (never shown) and setup errors aimed at whoever deploys
 **Verified.** No code compares message text, so the rewording can't break
 logic (grep). Afterwards the only non-comment em dash left is the Gemini
 prompt. The tab title shows the new text. Typecheck and lint pass.
+
+#### FIX-06 · Gemini "busy" (503) moves to the next model — ✅ done · 2026-10-21
+
+**The problem.** Ask failed with a 500 and showed Google's raw JSON under
+the box: `{"error":{"code":503,"message":"This model is currently
+experiencing high demand…","status":"UNAVAILABLE"}}`. The transcript was
+fine (no transcript errors in the logs, and the later tries failed in under
+2 s because it was already saved). The model chain only moved on for 429
+(quota) and 404 (unknown model), so on a 503 it gave up after one model
+instead of trying the others.
+
+**The change.** A new model order, agreed with the owner from their AI
+Studio limits: **3.5 Flash-Lite → 3.1 Flash-Lite → 3.8 Flash → 3.7 Flash**
+(500, 500, 20 and 20 a day; the 2.5 models dropped). The order is now
+**fixed** instead of "most budget left first". A busy model gets a second
+try, then the next model is used. The user only ever sees a plain sentence.
+
+**How it works.**
+- `DEFAULT_CHAIN` in `lib/gemini.ts` holds the order. The code names were
+  checked against Google's model list (a free call that uses no quota).
+  `GEMINI_MODEL` still forces one model to the front, so it must be **unset**
+  (locally and on Netlify) for 3.5 Flash-Lite to lead.
+- `availableModels()` (was `rankModels()`) keeps the chain's order and only
+  drops models that have used up today's budget in our `gemini_usage` ledger.
+- `classifyError()` sorts each failure, by the SDK's `status` first and the
+  message second:
+
+| Kind | Errors | What happens |
+|---|---|---|
+| busy | 503, 500, 504, UNAVAILABLE, overloaded, network drop | one more try on the same model after 1 s, then the next model |
+| skip | 429 quota, 404 unknown model, empty answer | next model at once |
+| fatal | bad request, video not accessible | stop: every model would fail the same way |
+
+- On Netlify (detected with `onNetlify()` in `lib/hosting.ts`, see PERF-06)
+  no new attempt starts after 20 s, so the message arrives before
+  the ~30 s cut-off. Locally there is no limit (a watch-the-video call can
+  take minutes).
+- Messages: all busy → "Gemini is busy right now. Please try again in a
+  minute."; all out of quota → "All Gemini models have used up today's free
+  budget. Please try again tomorrow."; anything else → "Gemini couldn't
+  answer right now. Please try again." The video-access message for
+  caption-less videos is unchanged. Raw errors go to the function log as
+  `[gemini] <model> try N failed (<kind>): …`.
+
+**Key code.**
+```ts
+for (const { model } of candidates) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    if (outOfTime()) throw new Error(BUSY_MESSAGE);
+    try { /* generateContent, record usage, return */ }
+    catch (err) {
+      const kind = classifyError(err);
+      if (kind === "fatal") throw new Error(FAILED_MESSAGE);
+      if (kind === "skip") break;          // next model
+      sawBusy = true;                      // busy: retry once, then next
+      if (attempt === 1) await sleep(BUSY_RETRY_DELAY_MS);
+    }
+  }
+}
+```
+
+**Alternatives considered.** *Two new env variables for the backups* (the
+owner's first idea): `GEMINI_MODELS` already holds an ordered list, and a
+code default means no env change at all. *Three tries per model*: with slow
+replies, 3 × 4 models could pass Netlify's 30 s; one retry plus the 20 s
+window keeps it safe. *Keep "most budget left first"*: it spreads use across
+models, but with 500/day each and an app cap of 100 that buys nothing, and a
+fixed order is easier to reason about. *3.8 Flash first* (newest, smartest):
+only 20 a day, so it would run out in a day or two; better saved as a backup
+(or a future "smart answer" button).
+
+**Files.** `lib/gemini.ts`, `.env.example`, `docs/ARCHITECTURE.md`.
+
+**Verified.** Against fake Gemini replies (the network swapped out; no real
+calls): 3.5 answers first; 3.5 busy twice → 3.1 answers (1 s later); busy
+once → the retry answers; 429 then 404 → 3.8 answers; all busy → 8 calls,
+then the busy message (4 s); bad request → 1 call, the plain message, no
+JSON; all 429 → the quota message; 3.5 at 500 in our ledger → starts at 3.1;
+on Netlify with every reply slow (7 s) and busy → stops after 3 calls at
+23 s with the busy message. The SDK doesn't retry on its own (call counts
+matched). One real call on the owner's key confirmed `gemini-3.5-flash-lite`
+answers. Typecheck and lint pass. **Still to note:** the 20 s window covers
+Gemini only; a slow transcript fetch before it isn't counted, which audit B5
+(one overall time limit) is meant to fix.
+
+#### PERF-06 · Skip YouTube captions on Netlify (audit B5, step 1) — ✅ done · 2026-10-21
+
+**The problem.** The first Ask, Summary or Transcript of a new video tries
+YouTube's InnerTube caption route first. YouTube refuses that route from
+cloud IPs (Netlify runs on AWS); this was found on the first deploy
+(ARCHITECTURE §6) and seen again in the Apify outage, when every first Ask
+failed even though InnerTube is tried before Apify. So on Netlify the try
+always failed, cost a round trip, and had **no time limit**: a slow YouTube
+reply could hold up the whole request. ChatGPT's audit flagged it (§4 · P1
+for AI reliability).
+
+**The change.** On Netlify the chain starts at Apify (and the Firecrawl
+breaker as before). Locally InnerTube is still tried first, since it works
+from home connections and is free, now with a 5 s limit on each of its two
+requests.
+
+**A bug found on the way.** The code checked `process.env.NETLIFY` to know
+it was on Netlify, but Netlify's docs say `NETLIFY=true` only exists during
+the **build**. Deployed functions get `SITE_ID`, `SITE_NAME` and `URL` at
+runtime instead. A new `onNetlify()` helper checks `SITE_ID` (and `NETLIFY`,
+for build-time code). It's used here and in FIX-06's 20 s window, which
+would otherwise never have applied on the live site. The same old check
+in `watchLimitMinutes()` (Gemini watching caption-less videos, meant to be
+off on Netlify) is **parked by the owner**: fixing it would show the
+"no captions, run it on your laptop" message on Netlify, but a very short
+caption-less video might be squeezing through within 30 s today.
+
+**Key code.**
+```ts
+// lib/hosting.ts
+export function onNetlify(): boolean {
+  return Boolean(process.env.SITE_ID || process.env.NETLIFY);
+}
+
+// lib/transcript.ts, fetchCaptions()
+if (!onNetlify()) {
+  const viaInnerTube = await fetchViaInnerTube(ytVideoId);
+  if (viaInnerTube) return viaInnerTube;
+}
+```
+
+**Alternatives considered.** *One stopwatch for the whole request* (the
+rest of B5: a shared time budget so transcript + Gemini always finish before
+Netlify's ~30 s): discussed and **not done**. It would only turn a rare bare
+502 into a friendly message, while touching the timing of every step in 5
+files; the owner judged the risk not worth it for now. Revisit if bare 502s
+show up in real use. *Keep trying InnerTube in case YouTube unblocks it*:
+being wrong costs about $0.005 of Apify per new video, and it's a one-line
+undo.
+
+**Files.** `lib/hosting.ts` (new), `lib/transcript.ts`, `lib/gemini.ts`.
+
+**Verified** (fake YouTube and Apify replies; no real calls). With `SITE_ID`
+set (as on Netlify): only Apify is called. Without it (local): YouTube, then
+Apify. A YouTube request that never answers is dropped after 5.0 s and Apify
+takes over. Typecheck and lint pass. **After deploying:** Ask on a new video
+still answers (via Apify), and FIX-06's busy message arrives within ~20 s.
+
+#### FIX-07 · Add to track: cursor, confirmation, lit icon — ✅ done · 2026-10-21
+
+**The problem (owner, in use).** Three things about **Add to track** on a
+feed card:
+1. The panel opened with the cursor in the **Ask** box, not in "New track
+   name". The card's track button opens the study panel on the Ask tab with
+   the track chooser on top, and FIX-02's "put the cursor in the Ask box when
+   it appears" (for Willow dictation) fired, because the Ask box appeared.
+2. Ticking a track only changed a tick and a small count; easy to miss.
+3. The card's track icon never showed that a video was already in a track.
+   The feed didn't even know: `FeedVideo` had no track information.
+
+The owner first called this "Watch later"; it is about tracks. Watch later
+(the bookmark) already fills yellow when saved.
+
+**The change.**
+1. Opening the chooser (from the card or the panel's own Add to track
+   button) puts the cursor in **New track name**. Opening via Ask still puts
+   it in the Ask box.
+2. A line under the chooser confirms each change for 4 s: "Added to AI",
+   "Removed from AI", "Created Kubernetes and added this video". Inside the
+   chooser rather than a toast, since the side panel can cover the toast
+   area. Styling (owner asked for a stylish underline): on "Added" and
+   "Created" the **track name** gets a thick (4px) straight **yellow**
+   underline, yellow being the app's "on" colour, like the lit track icon.
+   "Removed" has the same shape with an ✕ and a **red** underline. A quiet
+   grey "Removed" was tried first; the owner found it looked weak next to
+   the yellow, and chose red, accepting that red otherwise means errors in
+   this design system. Blue (the pen) was declined: handwriting only.
+3. The card's track icon **lights up** (like the note icon) when the video is
+   in at least one track, with the hover label "In 2 tracks". Ticking or
+   unticking updates the card at once.
+
+**How it works.**
+- `TrackMenu` takes `autoFocus` and focuses its name box in a `useEffect` on
+  mount. Effects run after ref callbacks, so this comes after `useAsk`'s ref
+  callback has focused the Ask box; and `focusAskBox()` never takes focus
+  from another text field, so the Ask box's own after-answer effect leaves it
+  alone too. No change to `useAsk`. Skipped on touch screens.
+- `confirm(text)` sets the notice after the server accepts the change (not
+  on the optimistic tick) and clears it after 4 s; `role="status"`.
+- `trackCount` joins `feedVideoColumns` (`lib/videoColumns.ts`), next to
+  `answerCount`: a per-row count on `track_videos`, cheap with the existing
+  `track_videos_video_idx`. Every screen that sends videos (feed, single
+  video, Notebook, tracks) gets it from that one list.
+- `TrackMenu` reports how many of its tracks are ticked (`onInCount`) after
+  every change and on first load; `StudyPanel` passes it to
+  `onVideoChange`, which patches the grid card, the panel and the
+  remembered feed data.
+
+**Key code.**
+```tsx
+// TrackMenu
+useEffect(() => {
+  if (!autoFocus || window.matchMedia("(pointer: coarse)").matches) return;
+  nameBox.current?.focus({ preventScroll: true });
+}, [autoFocus]);
+useEffect(() => {
+  if (tracks) onInCountRef.current?.(tracks.filter((t) => t.contains).length);
+}, [tracks]);
+
+// VideoCard
+lit={(tool === "note" && !!video.personalNote) || (tool === "track" && video.trackCount > 0)}
+```
+
+**Alternatives considered.** *A separate pop-up for adding to a track*
+(without Ask/Summary below): the owner prefers keeping the panel as it is,
+and it would be a new screen to maintain. *A toast for the confirmation*:
+the panel can cover it. *Turning FIX-02 off while the chooser is open*:
+needs `useAsk` to know about tracks; letting the chooser focus last is
+simpler and keeps `useAsk` untouched. *Showing the track names on the card*:
+too much on a small card; the hover label gives the count, the panel the
+names.
+
+**Files.** `components/feed/TrackMenu.tsx`, `components/feed/StudyPanel.tsx`,
+`components/feed/VideoCard.tsx`, `components/types.ts`,
+`lib/videoColumns.ts`.
+
+**Verified** (local, real data, every change undone). Card → Add to track:
+cursor in "New track name". Ticking "AI": "Added to AI", the card's icon
+"In 1 track", AI 3 → 4; unticking: "Removed from AI", back to "Add to track"
+and 3. New track "ZZ test track": "Created ZZ test track and added this
+video", card lit; the test track was then deleted (tracks back to "AI 3").
+Card → Ask: cursor still in the Ask box (FIX-02 intact). Feed, single video,
+Notebook and track APIs all return `trackCount` (200). After a reload the one
+card already in "AI" shows lit. No server errors; typecheck and lint pass.
+
+#### FIX-08 · Dictated text sometimes didn't appear (paste race) — ✅ done · 2026-10-21
+
+**The problem (owner, in use).** Willow Voice dictation often didn't land in
+TUBEBOX's boxes, while it worked on Google and other sites. FIX-02 had made
+sure the cursor was in the Ask box; this was a different fault. Recorded on
+the live site with a paste logger: the Ask box landed 2 of 8 dictations, ⌘K
+search 2 of 11, Notebook search 2 of 3. Every time, the page received the
+paste with the right text, nothing on the page blocked it, and Chrome's
+insert step got nothing (`beforeinput` with `data: null`, no `input`).
+
+**Why.** Willow pastes by putting the words on the clipboard, pressing ⌘V,
+and then putting the previous clipboard back. Chrome gives the page a
+snapshot of the clipboard with the paste event; if the page doesn't use it,
+Chrome reads the clipboard again to insert. When Willow's restore wins that
+race, the second read finds no text. Big sites (Google) insert from the
+snapshot themselves, so they never race. A control test on a blank page
+proved it isn't TUBEBOX-specific: a plain input landed **1 of 4**, the same
+input inserting from the snapshot **4 of 4**. (The restore is inferred from
+the pattern; the fix doesn't depend on the exact cause.)
+
+**The change.** One small component for the whole app, `PasteFix`, mounted
+in the root layout beside `OfflineBar`. Any paste of plain text into a text
+input or textarea is inserted from the paste event's own snapshot. After it:
+⌘K **5 of 5** with Willow on localhost; the owner confirmed the other boxes.
+
+**How it works.**
+- One `paste` listener on `document` (bubble phase, so a box with its own
+  paste handling, which would `preventDefault`, still wins).
+- Only text inputs (`text`, `search`, `url`, `tel`, `password`) and
+  textareas, not read-only or disabled ones. No plain text in the clipboard
+  (an image, a file): left to the browser.
+- `document.execCommand("insertText")` inserts at the cursor. It keeps ⌘Z
+  working, respects `maxLength`, and fires the input events React's
+  `onChange` listens to. If it's ever unavailable, `setRangeText` plus an
+  `input` event does the same.
+- Single-line boxes get line breaks turned into spaces, as Chrome does.
+
+**Key code.**
+```ts
+let text = e.clipboardData?.getData("text/plain");
+if (!text) return;
+text = isInput ? text.replace(/\r?\n/g, " ") : text.replace(/\r\n/g, "\n");
+e.preventDefault();
+if (document.execCommand("insertText", false, text)) return;
+el.setRangeText(text, start, end, "end");
+el.dispatchEvent(new Event("input", { bubbles: true }));
+```
+
+**Alternatives considered.** *Calling it Willow's problem* (the first
+diagnosis): true in the narrow sense, but the owner showed other sites cope,
+and the fix is small. *Per-box `onPaste` handlers*: the same code in many
+places, and new boxes would miss it; one listener covers every box. *Turning
+off Willow's clipboard restore*: would overwrite whatever the owner had
+copied, and depends on Willow's settings.
+
+**Files.** `components/PasteFix.tsx` (new), `app/layout.tsx`.
+
+**Verified.** Simulated pastes on localhost: the feed filter got "kafka";
+the Ask box got the text, the app saw it (send button enabled), two lines
+became one, ⌘Z undid it; an image paste was left alone. Real Willow on
+localhost with the paste logger: ⌘K 5 of 5 (before: 2 of 11 on the live
+site). The owner tested the other boxes: "Perfect works!". The note box
+wasn't simulated (it autosaves into real notes); same code path. Typecheck
+and lint pass.
 
 ---
 

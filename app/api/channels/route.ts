@@ -67,6 +67,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const input = String(body.input ?? "").trim();
     const genreId = body.genreId ? Number(body.genreId) : null;
+    // Its home: the Feed (default) or Podcasts (FEAT-14).
+    const section = body.section === "podcasts" ? "podcasts" : "feed";
     // "How far back" picker sends years (1–5); clamp to a real window here so
     // the message can report exactly what was pulled. Omitted → default.
     const backfillMonths = resolveBackfillMonths(
@@ -95,7 +97,7 @@ export async function POST(req: NextRequest) {
 
     const [inserted] = await db
       .insert(channels)
-      .values({ ...resolved, genreId })
+      .values({ ...resolved, genreId, section })
       .returning();
 
     // Same time budget as /backfill: a busy channel with a deep window may

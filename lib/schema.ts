@@ -6,7 +6,11 @@ import {
   boolean,
   timestamp,
   primaryKey,
+  jsonb,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { Chapter } from "./chapters";
+import type { CheatSheetQuestion } from "./cheatSheetLines";
 
 export const genres = pgTable("genres", {
   id: serial("id").primaryKey(),
@@ -32,6 +36,8 @@ export const channels = pgTable("channels", {
     onDelete: "set null",
   }),
   isActive: boolean("is_active").notNull().default(true),
+  /** Where its videos show: "feed" or "podcasts" (FEAT-14). */
+  section: text("section").notNull().default("feed"),
   addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -64,6 +70,10 @@ export const videos = pgTable("videos", {
   // from video_notes, which holds Gemini's saved Ask answers.
   personalNote: text("personal_note"),
   personalNoteAt: timestamp("personal_note_at", { withTimezone: true }),
+  // Chapters (FEAT-14): null = never looked for; [] = looked, there are
+  // none. `chaptersSource` says whose they are ("youtube" = the creator's).
+  chapters: jsonb("chapters").$type<Chapter[]>(),
+  chaptersSource: text("chapters_source"),
   fetchedAt: timestamp("fetched_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -141,6 +151,32 @@ export const trackVideos = pgTable(
   (t) => [primaryKey({ columns: [t.trackId, t.videoId] })]
 );
 
+// Cheat sheets (FEAT-15): the unique questions on a topic across your notes,
+// merged by Gemini from the matching lines. One per (topic, genre choice):
+// making the same one again updates it.
+export const cheatSheets = pgTable(
+  "cheat_sheets",
+  {
+    id: serial("id").primaryKey(),
+    /** The search as typed: "hash map". */
+    query: text("query").notNull(),
+    /** Its loose form, so "Hash Map" and "hashmap" are the same sheet. */
+    queryKey: text("query_key").notNull(),
+    /** The Notebook's genre choice: "all", "none" or a genre id. */
+    genreKey: text("genre_key").notNull(),
+    questions: jsonb("questions").$type<CheatSheetQuestion[]>().notNull(),
+    lineCount: integer("line_count").notNull(),
+    videoCount: integer("video_count").notNull(),
+    /** Fingerprint of the excerpts used, to notice new ones later. */
+    linesHash: text("lines_hash").notNull(),
+    model: text("model"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("cheat_sheets_key_idx").on(t.queryKey, t.genreKey)]
+);
+
 export type Genre = typeof genres.$inferSelect;
 export type Channel = typeof channels.$inferSelect;
 export type Video = typeof videos.$inferSelect;
+export type CheatSheet = typeof cheatSheets.$inferSelect;

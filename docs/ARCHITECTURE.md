@@ -171,6 +171,11 @@ on `videos.title` (search), `videos(later_at)` for saved ones,
 
 Schema management: `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ... ADD COLUMN
 IF NOT EXISTS` statements run once per process on first DB use (lib/db.ts).
+Since 2026-10-21 (PERF-05, audit B2) they only run when needed: the list is
+stamped in `app_meta` (`schema_version`, a fingerprint of the list's own
+text), and a cold process that reads a matching stamp skips the advisory
+lock and all 25 statements. Editing the list changes the fingerprint, so the
+next cold process runs it once and re-stamps.
 No migration tooling needed at this scale; `drizzle-kit push` remains
 available. **Note:** a failed init is not cached (the promise resets), but a
 *successful* init is cached per process — schema changes require a server
@@ -236,7 +241,10 @@ product scale). Our hosted fallback: an **Apify transcript Actor**
 permanently recurring $5/month free credit), called via
 `run-sync-get-dataset-items` only when `APIFY_TOKEN` is set — i.e. never in
 local dev. Verified: clean punctuated transcripts, better than raw
-InnerTube fragments.
+InnerTube fragments. Since 2026-10-21 (PERF-06) InnerTube is **skipped on
+Netlify** (`onNetlify()` in `lib/hosting.ts`, which checks the runtime
+`SITE_ID`; `NETLIFY=true` only exists at build time), and has a 5 s limit
+locally.
 
 **Risk posture:** any link can break any day. Each returns `null` when it
 has nothing to give (one exception: an Apify *outage* throws — see below);
@@ -268,14 +276,30 @@ All three AI features (Summary, Ask, Transcript) run through one engine:
 small text-only calls (~5–15K tokens even for hour-long transcripts).
 
 **Model selection:** `GEMINI_MODELS` env — `"model:rpd,model:rpd,…"`
-(default `gemini-3.1-flash-lite:500,gemini-2.5-flash:20,
-gemini-2.5-flash-lite:20,gemini-3.5-flash:20`; `GEMINI_MODEL` forces one to
-the front). Before each call, models are ranked by **remaining daily
-budget** = configured RPD − today's rows in `gemini_usage` (UTC midnight
-reset — approximates Google's Pacific reset; worst case a 429 walks the
-chain). Quota/unknown-model errors advance to the next model; content
-errors (unavailable video) abort immediately to avoid burning the chain.
+(default since 2026-10-21, FIX-06: `gemini-3.5-flash-lite:500,
+gemini-3.1-flash-lite:500,gemini-3.8-flash:20,gemini-3.7-flash:20`;
+`GEMINI_MODEL` forces one to the front, so leave it unset to keep this
+order). Models are tried in that **fixed order**, skipping any whose daily
+budget = configured RPD − today's rows in `gemini_usage` is used up (UTC
+midnight reset — approximates Google's Pacific reset; worst case a 429
+walks the chain). Per failed call: **busy** (503/500/504, overloaded) →
+one retry on the same model after 1 s, then the next model; **skip**
+(429 quota, 404 unknown model, empty answer) → next model at once;
+**fatal** (bad request, video not accessible) → stop, since every model
+would fail the same way. On Netlify no new attempt starts after 20 s, to
+stay under the ~30 s cut-off. Raw API errors go to the log
+(`[gemini] <model> try N failed (<kind>): …`); the user sees a plain
+sentence ("Gemini is busy right now. Please try again in a minute.").
 Every successful call records model + total tokens.
+
+**Cheat sheets (FEAT-15, 2026-10-21):** the one Gemini call that works
+across videos. The Notebook search's matching lines (a matching heading
+brings the items under it; `lib/cheatSheetLines.ts`, shared by browser and
+server) go to `buildCheatSheet()`, which asks for a JSON list of unique
+questions with their source videos (numbered 1…n in the prompt, checked on
+return). Saved in `cheat_sheets` (unique per loose topic + genre choice);
+reopening costs nothing. Only lines are sent, never whole notes, so a sheet
+is ~1–3k tokens at any notebook size (capped at 400 lines / 40k chars).
 
 **Free-tier facts learned the hard way:** TPM (250K) is a per-minute *speed
 limit*, not a budget — the AI Studio dashboard shows the 28-day *peak*, not
@@ -380,7 +404,7 @@ window); that's why fps+resolution tuning matters.
 | `CRON_SECRET` | deploy | Shared secret for the scheduled function → `/api/cron` |
 | `GEMINI_API_KEY` | for AI features | aistudio.google.com |
 | `GEMINI_MODELS` | no | Fallback chain `"model:rpd,…"` (see §7 default) |
-| `GEMINI_MODEL` | no | Force one model to the chain's front |
+| `GEMINI_MODEL` | no | Force one model to the chain's front. Leave unset to use the default order (3.5 Flash-Lite first) |
 | `GEMINI_WATCH_MAX_MINUTES` | no | Watch-once cap for caption-less videos; 0 disables watch. Defaults: 90 locally, 0 on Netlify (function timeout kills a watch mid-flight, wasting tokens) |
 | `GEMINI_DAILY_LIMIT` | no | App-level cap on total Gemini calls/day across all models (default 100) |
 | `APIFY_TOKEN` | hosted only | Enables the Apify transcript fallback (datacenter IPs can't use InnerTube) |
@@ -396,8 +420,8 @@ window); that's why fps+resolution tuning matters.
 2. Netlify → Import project (Next.js runtime auto-detected;
    `netlify.toml` is minimal on purpose).
 3. Set env vars: `YOUTUBE_API_KEY`, `DATABASE_URL` (Neon), `APP_PASSWORD`,
-   `CRON_SECRET` (`openssl rand -hex 24`), `GEMINI_API_KEY`, and
-   `GEMINI_MODEL=gemini-3.1-flash-lite` (matches local).
+   `CRON_SECRET` (`openssl rand -hex 24`), `GEMINI_API_KEY`. Leave
+   `GEMINI_MODEL` unset so the default model order applies (FIX-06).
 4. Deploy; tables self-create on first request. The scheduled function
    (`netlify/functions/feed-cron.mts`) runs every 6h automatically.
 5. Watch the first cron run's function logs once.
@@ -642,6 +666,9 @@ are safe; PGlite queues them. Measured with fake 300ms YouTube replies over
   video (Vishakha Sadhwani's) — needs a hosted test after deploy.
 
 **Ideas parked:**
+- **Podcasts section** (FEAT-14) — a separate top-level section for
+  podcast channels with their own genres; design notes in
+  redesign-history.md. Parked behind the audit's B items (2026-10-19).
 - **"Channels ▾" dropdown** (Option C) — the other candidate for the
   channel filter; unneeded now that the rail (Option B) shipped, parked in
   case the rail ever feels too heavy.

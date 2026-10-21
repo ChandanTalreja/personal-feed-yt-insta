@@ -23,6 +23,10 @@ export interface FeedVideo {
   genreId: number | null;
   /** Saved Ask answers for this video. */
   answerCount: number;
+  /** Tracks this video is in. */
+  trackCount: number;
+  /** "feed" or "podcasts": its channel's home (FEAT-14). */
+  section: string;
 }
 
 /** A saved Ask answer (a row of video_notes). */
@@ -49,5 +53,23 @@ export interface ChannelItem {
   thumbnail: string | null;
   genreId: number | null;
   isActive: boolean;
+  /** "feed" or "podcasts" (FEAT-14). */
+  section: string;
   addedAt: string;
+}
+
+/** A saved cheat sheet (FEAT-15), as the API sends it. */
+export interface CheatSheetItem {
+  id: number;
+  query: string;
+  queryKey: string;
+  /** The Notebook's genre choice it was made with: "all", "none" or a genre id. */
+  genreKey: string;
+  questions: { question: string; answer: string | null; videoIds: number[] }[];
+  lineCount: number;
+  videoCount: number;
+  linesHash: string;
+  model: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

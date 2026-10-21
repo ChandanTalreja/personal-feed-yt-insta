@@ -17,6 +17,7 @@ export default function ChannelRow({
   onMove,
   onBackfill,
   onPause,
+  onSection,
   onDelete,
   onMenu,
   onMenuPicked,
@@ -33,6 +34,8 @@ export default function ChannelRow({
   onMove: (genreId: number | null) => void;
   onBackfill: (years: number) => void;
   onPause: (pause: boolean) => void;
+  /** Move between the Feed and Podcasts. */
+  onSection: (section: "feed" | "podcasts") => void;
   /** Starts the delete confirmation for this row. */
   onDelete: () => void;
   onMenu: () => void;
@@ -58,7 +61,10 @@ export default function ChannelRow({
           <p className="truncate text-sm font-semibold" title={r.channel.title}>
             {r.channel.title}
           </p>
-          <p className="truncate text-meta text-muted">{r.channel.handle ?? r.channel.ytChannelId}</p>
+          <p className="truncate text-meta text-muted">
+            {r.channel.handle ?? r.channel.ytChannelId}
+            {r.channel.section === "podcasts" && <span className="font-semibold text-ink"> · Podcasts</span>}
+          </p>
           {/* Phones: the hidden columns, as one line. */}
           <p className="mt-0.5 truncate text-meta text-muted md:hidden">
             {g?.name ?? "No genre"} · {r.videoCount + r.shortCount} videos ·{" "}
@@ -127,6 +133,9 @@ export default function ChannelRow({
           r.channel.isActive
             ? { label: "Pause", onClick: () => onPause(true) }
             : { label: "Resume", onClick: () => onPause(false) },
+          r.channel.section === "podcasts"
+            ? { label: "Move to the Feed", onClick: () => onSection("feed") }
+            : { label: "Move to Podcasts", onClick: () => onSection("podcasts") },
           {
             label: "Delete…",
             danger: true,

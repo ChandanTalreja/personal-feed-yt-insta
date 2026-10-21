@@ -1,10 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CopyButton from "@/components/CopyButton";
 import Markdown from "@/components/Markdown";
 import NoteEditor from "@/components/NoteEditor";
 import Button from "@/components/ui/Button";
+import GeminiMark from "@/components/ui/GeminiMark";
 import Icon from "@/components/ui/Icon";
 import Spinner from "@/components/ui/Spinner";
+import { highlightLoose as mark } from "@/components/ui/highlight";
 import { useCopy } from "@/components/ui/useCopy";
 import type { Answer, FeedVideo, GenreItem } from "@/components/types";
 import { useAsk } from "@/components/useAsk";
@@ -16,6 +18,7 @@ export default function NotebookReader({
   entry,
   genre,
   isMatch,
+  highlight,
   onWatch,
   onAnswer,
   onNoteSaved,
@@ -24,6 +27,8 @@ export default function NotebookReader({
   genre: GenreItem | null;
   /** True for answers that match the active question filter or search. */
   isMatch: (a: Answer) => boolean;
+  /** The active search: its words get the highlighter ("" = none). */
+  highlight: string;
   onWatch: (v: FeedVideo) => void;
   onAnswer: (a: Answer) => void;
   onNoteSaved: (note: string | null, at: string | null) => void;
@@ -31,6 +36,22 @@ export default function NotebookReader({
   const { video, answers } = entry;
   const [editingNote, setEditingNote] = useState(false);
   const latestRef = useRef<HTMLDivElement>(null);
+  const articleRef = useRef<HTMLElement>(null);
+
+  // Searching: bring the first found word into view, so you don't hunt for
+  // it in a long answer. Runs when a video opens and when the search changes,
+  // after a short pause so it doesn't jump on every keystroke. The title is
+  // skipped: it's already at the top.
+  useEffect(() => {
+    if (!highlight) return;
+    const timer = setTimeout(() => {
+      const first = [...(articleRef.current?.querySelectorAll("mark") ?? [])].find(
+        (m) => !m.closest("header")
+      );
+      first?.scrollIntoView({ block: "center" }); // instant: the match can be far down
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [highlight]);
   const { question, setQuestion, pending, error: askError, ask, inputRef: askInputRef } = useAsk(video.id, (note) => {
     onAnswer(note);
     // Bring the new answer into view once it's rendered.
@@ -38,11 +59,11 @@ export default function NotebookReader({
   });
 
   return (
-    <article className="flex max-w-[820px] flex-col gap-5">
+    <article ref={articleRef} className="flex max-w-[820px] flex-col gap-5">
       {/* Title and actions */}
       <header className="flex flex-wrap items-start gap-4">
         <div className="min-w-[240px] flex-1">
-          <h2 className="font-display text-xl">{video.title}</h2>
+          <h2 className="font-display text-xl">{mark(video.title, highlight)}</h2>
           <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-meta text-muted">
             {genre && (
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: genre.color }} />
@@ -72,17 +93,18 @@ export default function NotebookReader({
           }`}
         >
           <div className="flex items-start gap-2.5 border-b border-line px-4 py-3">
-            <span className="mt-px rounded-xs bg-ink px-1.5 font-mono text-xs font-bold uppercase leading-5 text-cream">
+            <span className="mt-px flex shrink-0 items-center gap-1 rounded-xs bg-ink px-1.5 font-mono text-xs font-bold uppercase leading-5 text-cream">
+              <GeminiMark size={11} />
               Gemini
             </span>
-            <p className="min-w-0 flex-1 text-lg font-semibold">{a.prompt.trim()}</p>
+            <p className="min-w-0 flex-1 text-lg font-semibold">{mark(a.prompt.trim(), highlight)}</p>
             <span className="shrink-0 pt-0.5 text-meta text-muted">{timeAgo(a.createdAt)}</span>
             <span className="shrink-0 pt-0.5">
               <CopyButton text={a.answer} quiet />
             </span>
           </div>
           <div className="max-w-[760px] px-5 py-4 text-lg leading-[1.65]">
-            <Markdown text={a.answer} />
+            <Markdown text={a.answer} highlight={highlight} />
           </div>
         </section>
       ))}
@@ -152,7 +174,9 @@ export default function NotebookReader({
               Edit
             </button>
           </div>
-          <div className="whitespace-pre-wrap text-lg leading-relaxed">{video.personalNote}</div>
+          <div className="whitespace-pre-wrap text-lg leading-relaxed">
+            {mark(video.personalNote, highlight)}
+          </div>
         </section>
       ) : (
         <button
@@ -177,7 +201,7 @@ function NoteLabel() {
 }
 
 /** "Copy as Markdown" for one video; builds the text only when clicked. */
-function CopyMarkdownButton({ text }: { text: () => string }) {
+export function CopyMarkdownButton({ text }: { text: () => string }) {
   const { copied, copy } = useCopy();
   return (
     <Button size="sm" className="h-9" onClick={() => copy(text())}>

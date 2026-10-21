@@ -30,6 +30,8 @@ export interface FeedChannel {
   thumbnail: string | null;
   genreId: number | null;
   isActive: boolean;
+  /** "feed" or "podcasts" (FEAT-14). */
+  section: string;
   videoCount: number;
   shortCount: number;
 }

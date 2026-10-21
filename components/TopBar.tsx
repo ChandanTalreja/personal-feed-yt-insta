@@ -13,6 +13,8 @@ import { NAV_CHANGED } from "@/lib/nav-events";
 import { api, rememberedReply } from "@/lib/api-client";
 
 interface NavSummary {
+  podcasts: number;
+  podcastChannels: number;
   inbox: number;
   notebook: number;
   tracks: number;
@@ -29,6 +31,7 @@ function nameList(titles: string[], max = 3): string {
 
 const TABS: { href: string; label: string; count?: keyof NavSummary }[] = [
   { href: "/", label: "Feed", count: "inbox" },
+  { href: "/podcasts", label: "Podcasts", count: "podcasts" },
   { href: "/notebook", label: "Notebook", count: "notebook" },
   { href: "/tracks", label: "Tracks", count: "tracks" },
   { href: "/channels", label: "Channels" },
@@ -205,7 +208,10 @@ export default function TopBar({
 
         {/* Phones: the tabs get their own row (and scroll if they must). */}
         <div className="order-2 -mx-2 flex w-[calc(100%+1rem)] items-center gap-0.5 overflow-x-auto pb-2.5 [scrollbar-width:none] md:order-none md:gap-1 md:mx-0 md:w-auto md:overflow-visible md:pb-0">
-          {TABS.map((tab) => {
+          {TABS.filter(
+            // Podcasts shows once a channel lives there (or you're on it).
+            (tab) => tab.href !== "/podcasts" || (nav?.podcastChannels ?? 0) > 0 || isActive(tab.href)
+          ).map((tab) => {
             const active = isActive(tab.href);
             const n = tab.count && nav ? (nav[tab.count] as number) : null;
             return (

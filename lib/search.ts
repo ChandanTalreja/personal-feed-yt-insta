@@ -1,6 +1,7 @@
 import { and, desc, eq, ilike, isNotNull, or, sql } from "drizzle-orm";
 import type { Db } from "./db";
-import { channels, videoNotes, videos } from "./schema";
+import { looseKey } from "./looseMatch";
+import { channels, cheatSheets, genres, videoNotes, videos } from "./schema";
 
 // Global search (the top bar's box): channels, videos, and your answers and
 // notes, in one request. Personal scale (~100 channels, ~10k videos, a few
@@ -8,7 +9,7 @@ import { channels, videoNotes, videos } from "./schema";
 // already uses is fast enough — no search index or external service.
 
 /** How many of each group come back; "All" shows the first few of each. */
-const LIMIT = { channels: 8, videos: 10, answers: 10 };
+const LIMIT = { channels: 8, videos: 10, answers: 10, sheets: 5 };
 /** Characters of context around a match in an answer or note. */
 const BEFORE = 50;
 const AFTER = 110;
@@ -23,6 +24,8 @@ interface SearchResults {
     handle: string | null;
     thumbnail: string | null;
     videoCount: number;
+    /** "feed" or "podcasts": which page opens it. */
+    section: string;
   }[];
   videos: {
     id: number;
@@ -33,6 +36,7 @@ interface SearchResults {
     watched: boolean;
     publishedAt: Date;
     channelTitle: string;
+    section: string;
   }[];
   /** Saved Ask answers and personal notes, newest first. */
   answers: {
@@ -46,6 +50,15 @@ interface SearchResults {
     /** The lines around the first match. */
     snippet: string;
     at: Date;
+  }[];
+  /** Saved cheat sheets (FEAT-15) whose topic matches, newest first. */
+  sheets: {
+    id: number;
+    query: string;
+    genreKey: string;
+    genreName: string | null;
+    questionCount: number;
+    updatedAt: Date;
   }[];
   totals: { channels: number; videos: number; answers: number };
 }
@@ -77,6 +90,7 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
     channels: [],
     videos: [],
     answers: [],
+    sheets: [],
     totals: { channels: 0, videos: 0, answers: 0 },
   };
   if (term.length < 2) return empty;
@@ -99,6 +113,7 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
       title: channels.title,
       handle: channels.handle,
       thumbnail: channels.thumbnail,
+      section: channels.section,
       videoCount: sql<number>`(SELECT count(*)::int FROM videos WHERE videos.channel_id = ${channels.id})`,
       // Exact containment beats a fuzzy match; then alphabetical.
       exact: sql<boolean>`(${channels.title} ILIKE ${like} OR coalesce(${channels.handle}, '') ILIKE ${like})`,
@@ -121,9 +136,15 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
 
   const answerMatch = or(ilike(videoNotes.prompt, like), ilike(videoNotes.answer, like));
   const noteMatch = and(isNotNull(videos.personalNote), ilike(videos.personalNote, like));
+  // Cheat sheets: the topic as typed, or its loose form ("hashmap" finds
+  // the "hash map" sheet).
+  const sheetMatch = or(
+    ilike(cheatSheets.query, like),
+    sql`${cheatSheets.queryKey} LIKE ${likePattern(looseKey(term))}`
+  );
 
   // Everything at once: on Neon each query is a round trip, in parallel.
-  const [channelRows, videoRows, [videoCount], answerRows, [answerCount], noteRows, [noteCount]] =
+  const [channelRows, videoRows, [videoCount], answerRows, [answerCount], noteRows, [noteCount], sheetRows] =
     await Promise.all([
       channelQuery,
       db
@@ -136,6 +157,7 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
           watched: videos.watched,
           publishedAt: videos.publishedAt,
           channelTitle: channels.title,
+          section: channels.section,
         })
         .from(videos)
         .innerJoin(channels, eq(videos.channelId, channels.id))
@@ -171,6 +193,20 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
         .orderBy(desc(videos.personalNoteAt))
         .limit(LIMIT.answers),
       db.select({ n: sql<number>`count(*)::int` }).from(videos).where(noteMatch),
+      db
+        .select({
+          id: cheatSheets.id,
+          query: cheatSheets.query,
+          genreKey: cheatSheets.genreKey,
+          genreName: genres.name,
+          questionCount: sql<number>`jsonb_array_length(${cheatSheets.questions})::int`,
+          updatedAt: cheatSheets.updatedAt,
+        })
+        .from(cheatSheets)
+        .leftJoin(genres, sql`${genres.id}::text = ${cheatSheets.genreKey}`)
+        .where(sheetMatch)
+        .orderBy(desc(cheatSheets.updatedAt))
+        .limit(LIMIT.sheets),
     ]);
 
   const answers: SearchResults["answers"] = [
@@ -203,10 +239,12 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
     channels: channelRows.slice(0, LIMIT.channels).map(stripExact),
     videos: videoRows,
     answers,
+    sheets: sheetRows,
     totals: {
       channels: channelRows.length,
       videos: Number(videoCount?.n ?? 0),
-      answers: Number(answerCount?.n ?? 0) + Number(noteCount?.n ?? 0),
+      // Cheat sheets live in the Notebook, so they count with its answers.
+      answers: Number(answerCount?.n ?? 0) + Number(noteCount?.n ?? 0) + sheetRows.length,
     },
   };
 }

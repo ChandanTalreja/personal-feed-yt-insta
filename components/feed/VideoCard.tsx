@@ -9,7 +9,7 @@ import Icon, { type IconName } from "@/components/ui/Icon";
 import type { FeedVideo } from "@/components/types";
 
 /** The study panel's tabs; "track" opens the Add-to-track chooser. */
-export type StudyTool = "ask" | "summary" | "transcript" | "note" | "track";
+export type StudyTool = "ask" | "summary" | "transcript" | "chapters" | "note" | "track";
 
 interface Props {
   video: FeedVideo;
@@ -164,9 +164,16 @@ export default function VideoCard({
         {(
           [
             ["summary", "summary", "Summary"],
-            ["transcript", "text", "Transcript"],
+            // Podcasts (FEAT-14): chapters instead of a two-hour transcript.
+            video.section === "podcasts" ? ["chapters", "text", "Chapters"] : ["transcript", "text", "Transcript"],
             ["note", "note", video.personalNote ? "Your note" : "Note"],
-            ["track", "track", "Add to track"],
+            [
+              "track",
+              "track",
+              video.trackCount > 0
+                ? `In ${video.trackCount} track${video.trackCount === 1 ? "" : "s"}`
+                : "Add to track",
+            ],
           ] as [StudyTool, IconName, string][]
         ).map(([tool, icon, label], i, all) => (
           <StripButton
@@ -177,8 +184,13 @@ export default function VideoCard({
             className="w-7 shrink-0 justify-center @min-[12rem]:w-8"
             align={i === all.length - 1 ? "right" : "center"}
           >
-            {/* A lit note icon means a note already exists. */}
-            <Icon name={icon} size={18} lit={tool === "note" && !!video.personalNote} />
+            {/* A lit note icon means a note already exists; a lit track
+                icon, that the video is in at least one track. */}
+            <Icon
+              name={icon}
+              size={18}
+              lit={(tool === "note" && !!video.personalNote) || (tool === "track" && video.trackCount > 0)}
+            />
           </StripButton>
         ))}
       </div>

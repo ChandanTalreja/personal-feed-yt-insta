@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
 import Spinner from "@/components/ui/Spinner";
@@ -19,6 +19,10 @@ type Props =
       /** Card menu: tick/untick which tracks this video is in. */
       mode: "toggle";
       videoId: number;
+      /** How many tracks the video is in now (after each change). */
+      onInCount?: (count: number) => void;
+      /** Put the cursor in "New track name" when the menu appears. */
+      autoFocus?: boolean;
     }
   | {
       /** Bulk add: pick (or create) one track; the caller does the adding. */
@@ -37,8 +41,44 @@ export default function TrackMenu(props: Props) {
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [working, setWorking] = useState<number | "new" | null>(null);
+  // "Added to Kubernetes": a short confirmation under the list, so a tick
+  // that only nudges a small count isn't missed.
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nameBox = useRef<HTMLInputElement>(null);
 
   const videoId = props.mode === "toggle" ? props.videoId : undefined;
+  const autoFocus = props.mode === "toggle" && props.autoFocus;
+  const onInCount = props.mode === "toggle" ? props.onInCount : undefined;
+  const onInCountRef = useRef(onInCount);
+  useEffect(() => {
+    onInCountRef.current = onInCount;
+  });
+
+  // Opened to add to a track: the cursor goes to the name box. This runs
+  // after the panel's Ask box has taken the cursor (FIX-02), and the Ask
+  // box never takes it back from another text field. Not on touch screens,
+  // where focusing would pop the keyboard up.
+  useEffect(() => {
+    if (!autoFocus || window.matchMedia("(pointer: coarse)").matches) return;
+    nameBox.current?.focus({ preventScroll: true });
+  }, [autoFocus]);
+
+  // Keep the card's track icon in step with the ticks (also corrects it
+  // when the list first loads).
+  useEffect(() => {
+    if (tracks) onInCountRef.current?.(tracks.filter((t) => t.contains).length);
+  }, [tracks]);
+
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+
+  function confirm(next: Notice) {
+    setNotice(next);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 4000);
+  }
 
   useEffect(() => {
     fetch(videoId ? `/api/tracks?videoId=${videoId}` : "/api/tracks")
@@ -68,6 +108,7 @@ export default function TrackMenu(props: Props) {
       await (adding
         ? api(`/api/tracks/${track.id}/videos`, { method: "POST", body: { videoIds: [props.videoId] }, fallback })
         : api(`/api/tracks/${track.id}/videos?videoId=${props.videoId}`, { method: "DELETE", fallback }));
+      confirm({ kind: adding ? "added" : "removed", name: track.name });
     } catch (err) {
       setError((err as Error).message);
       setTracks((list) =>
@@ -99,6 +140,7 @@ export default function TrackMenu(props: Props) {
           { id: data.track.id, name: data.track.name, count: 1, contains: true },
           ...(list ?? []),
         ]);
+        confirm({ kind: "created", name: data.track.name });
       }
     } catch (err) {
       setError((err as Error).message);
@@ -149,6 +191,7 @@ export default function TrackMenu(props: Props) {
       )}
       <form onSubmit={create} className="flex gap-1.5">
         <input
+          ref={nameBox}
           className="field h-8 min-w-0 flex-1 rounded-sm px-2.5"
           placeholder="New track name, e.g. Kubernetes"
           value={newName}
@@ -164,7 +207,38 @@ export default function TrackMenu(props: Props) {
           {working === "new" ? <Spinner label="Adding" size={13} /> : <><Icon name="plus" size={13} />New</>}
         </button>
       </form>
+      {notice && !error && <NoticeLine notice={notice} />}
       {error && <p className="font-semibold text-danger">{error}</p>}
     </div>
+  );
+}
+
+type Notice = { kind: "added" | "removed" | "created"; name: string };
+
+/**
+ * The track name gets a thick straight underline: yellow (the app's "on"
+ * colour, like the lit track icon on the card) when the video went in, red
+ * when it came out. Thick because yellow on cream is faint.
+ */
+function NoticeLine({ notice }: { notice: Notice }) {
+  const removed = notice.kind === "removed";
+  const name = (
+    <span
+      className={`underline decoration-4 underline-offset-2 [text-decoration-skip-ink:none] ${
+        removed ? "decoration-danger" : "decoration-primary"
+      }`}
+    >
+      {notice.name}
+    </span>
+  );
+  return (
+    <p role="status" className="flex items-center gap-1.5 font-semibold">
+      <Icon name={removed ? "x" : "check"} size={13} />
+      <span>
+        {notice.kind === "added" && <>Added to {name}</>}
+        {notice.kind === "removed" && <>Removed from {name}</>}
+        {notice.kind === "created" && <>Created {name} and added this video</>}
+      </span>
+    </p>
   );
 }

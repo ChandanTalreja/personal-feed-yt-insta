@@ -6,6 +6,7 @@ export interface YTPlayer {
   getDuration(): number;
   getPlayerState(): number;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
+  playVideo(): void;
   destroy(): void;
 }
 

@@ -62,6 +62,8 @@ async function storePage(
     isShort: shortFlags[i],
     isLive: d.isLive,
     publishedAt: d.publishedAt,
+    chapters: d.chapters,
+    chaptersSource: d.chapters.length ? "youtube" : null,
   }));
   if (rows.length > 0) {
     await db.insert(videos).values(rows).onConflictDoNothing();

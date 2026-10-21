@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Archivo_Black, Caveat, Space_Grotesk, Space_Mono } from "next/font/google";
 import "./globals.css";
 import OfflineBar from "@/components/OfflineBar";
+import PasteFix from "@/components/PasteFix";
 
 const display = Archivo_Black({
   variable: "--font-display",
@@ -48,6 +49,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <OfflineBar />
+        <PasteFix />
       </body>
     </html>
   );

@@ -18,6 +18,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     updates.genreId = body.genreId === null ? null : Number(body.genreId);
   }
   if ("isActive" in body) updates.isActive = !!body.isActive;
+  // Move between the Feed and Podcasts (FEAT-14).
+  if ("section" in body) {
+    if (body.section !== "feed" && body.section !== "podcasts") {
+      return NextResponse.json({ error: "A channel lives in the Feed or in Podcasts." }, { status: 400 });
+    }
+    updates.section = body.section;
+  }
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "There's nothing to change." }, { status: 400 });
   }

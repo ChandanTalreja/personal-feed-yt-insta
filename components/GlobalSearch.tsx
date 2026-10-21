@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import GeminiMark from "./ui/GeminiMark";
 import { Avatar, Thumb } from "./ui/Media";
 import { highlight } from "./ui/highlight";
 import SearchField from "./ui/SearchField";
@@ -13,7 +14,7 @@ type Scope = "all" | "channels" | "videos" | "answers";
 interface Results {
   query: string;
   channelsOnly: boolean;
-  channels: { id: number; title: string; handle: string | null; thumbnail: string | null; videoCount: number }[];
+  channels: { id: number; title: string; handle: string | null; thumbnail: string | null; videoCount: number; section?: string }[];
   videos: {
     id: number;
     title: string;
@@ -23,6 +24,7 @@ interface Results {
     watched: boolean;
     publishedAt: string;
     channelTitle: string;
+    section?: string;
   }[];
   answers: {
     kind: "answer" | "note";
@@ -33,8 +35,19 @@ interface Results {
     snippet: string;
     at: string;
   }[];
+  sheets: {
+    id: number;
+    query: string;
+    genreKey: string;
+    genreName: string | null;
+    questionCount: number;
+    updatedAt: string;
+  }[];
   totals: { channels: number; videos: number; answers: number };
 }
+
+/** Which page a channel or video opens on: the Feed or Podcasts (FEAT-14). */
+const home = (section?: string) => (section === "podcasts" ? "/podcasts" : "/");
 
 /** In "All", each group shows its first few; a scope tab shows them all. */
 const ALL_LIMIT = { channels: 3, videos: 5, answers: 4 };
@@ -127,7 +140,7 @@ export default function GlobalSearch() {
         title: "CHANNELS",
         items: results.channels.slice(0, cap("channels", results.channels.length)).map((c) => ({
           key: `c${c.id}`,
-          href: `/?channel=${c.id}`,
+          href: `${home(c.section)}?channel=${c.id}`,
           node: (
             <>
               <Avatar src={c.thumbnail} name={c.title} size={30} />
@@ -155,7 +168,7 @@ export default function GlobalSearch() {
             : undefined,
         items: results.videos.slice(0, cap("videos", results.videos.length)).map((v) => ({
           key: `v${v.id}`,
-          href: `/?video=${v.id}`,
+          href: `${home(v.section)}?video=${v.id}`,
           node: (
             <>
               <Thumb src={v.thumbnail} className="w-16 shrink-0 rounded-xs" />
@@ -175,6 +188,34 @@ export default function GlobalSearch() {
         })),
       });
     }
+    // Cheat sheets live in the Notebook: the heading and the "Notebook · …"
+    // line say so, wherever they show up among the other results.
+    if (show("answers") && results.sheets?.length) {
+      out.push({
+        title: "CHEAT SHEETS · IN YOUR NOTEBOOK",
+        items: results.sheets.slice(0, cap("answers", results.sheets.length)).map((c) => ({
+          key: `s${c.id}`,
+          href: `/notebook?sheet=${c.id}`,
+          node: (
+            <>
+              <span className="h-fit shrink-0 rounded-xs border border-ink px-1.5 font-mono text-xs font-bold uppercase leading-[18px]">
+                SHEET
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">
+                  {highlight(`${c.query.charAt(0).toUpperCase()}${c.query.slice(1)}`, term)} cheat sheet
+                </span>
+                <span className="block truncate text-meta text-muted">
+                  Notebook · {c.genreKey === "all" ? "All genres" : c.genreKey === "none" ? "No genre" : (c.genreName ?? "A removed genre")} ·{" "}
+                  {c.questionCount}{" "}
+                  question{c.questionCount === 1 ? "" : "s"} · {timeAgo(c.updatedAt)}
+                </span>
+              </span>
+            </>
+          ),
+        })),
+      });
+    }
     if (show("answers") && results.answers.length) {
       out.push({
         title: "ANSWERS & NOTES",
@@ -184,11 +225,11 @@ export default function GlobalSearch() {
           node: (
             <>
               <span
-                className={`h-fit shrink-0 rounded-xs px-1.5 font-mono text-xs font-bold uppercase leading-5 ${
+                className={`flex h-fit shrink-0 items-center gap-1 rounded-xs px-1.5 font-mono text-xs font-bold uppercase leading-5 ${
                   a.kind === "note" ? "bg-primary text-ink" : "bg-ink text-cream"
                 }`}
               >
-                {a.kind === "note" ? "NOTE" : "GEMINI"}
+                {a.kind === "note" ? "NOTE" : <><GeminiMark size={11} />GEMINI</>}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="line-clamp-2 text-sm">{highlight(a.snippet, term)}</span>

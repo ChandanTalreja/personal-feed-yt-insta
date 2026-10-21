@@ -1,19 +1,37 @@
-import { GoogleGenAI, MediaResolution, type Part } from "@google/genai";
+import { GoogleGenAI, MediaResolution, Type, type Part, type Schema } from "@google/genai";
 import { count, eq, gte } from "drizzle-orm";
 import type { Db } from "./db";
 import { geminiUsage, videos, type Video } from "./schema";
+import { onNetlify } from "./hosting";
 import { fetchCaptions } from "./transcript";
+import type { CheatSheetLine, CheatSheetQuestion } from "./cheatSheetLines";
 
 interface ModelBudget {
   model: string;
   rpd: number;
 }
 
-// Free-tier daily budgets per model (from the AI Studio Rate Limit page).
-// Override with GEMINI_MODELS="model:rpd,model:rpd,..." — order = priority
-// among models with equal remaining budget.
+// Free-tier daily budgets per model (from the AI Studio Rate Limit page),
+// in the order they're tried: the two 500/day Flash-Lites do the work, the
+// 20/day Flash models are backups for when both are busy or used up.
+// Override with GEMINI_MODELS="model:rpd,model:rpd,...".
 const DEFAULT_CHAIN =
-  "gemini-3.1-flash-lite:500,gemini-2.5-flash:20,gemini-2.5-flash-lite:20,gemini-3.5-flash:20";
+  "gemini-3.5-flash-lite:500,gemini-3.1-flash-lite:500,gemini-3.8-flash:20,gemini-3.7-flash:20";
+
+const BUSY_MESSAGE = "Gemini is busy right now. Please try again in a minute.";
+const FAILED_MESSAGE = "Gemini couldn't answer right now. Please try again.";
+const QUOTA_MESSAGE =
+  "All Gemini models have used up today's free budget. Please try again tomorrow.";
+
+// A busy model gets one more try after this pause before we move on.
+const BUSY_RETRY_DELAY_MS = 1000;
+
+// Netlify cuts a request off at ~30 s. Past this point no new attempt is
+// started, so the friendly message arrives instead of a timeout. Locally
+// there's no cut-off (and a watch-the-video call can take minutes).
+function attemptWindowMs(): number {
+  return onNetlify() ? 20_000 : Infinity;
+}
 
 function modelChain(): ModelBudget[] {
   const raw = process.env.GEMINI_MODELS ?? DEFAULT_CHAIN;
@@ -35,12 +53,13 @@ function modelChain(): ModelBudget[] {
 }
 
 /**
- * Ranks models by remaining daily budget, using our own call ledger
- * (Google's API doesn't expose remaining quota). Counts reset at UTC
- * midnight — close enough to Google's Pacific-midnight reset for a
- * personal app; worst case a model 429s and we move down the chain.
+ * The chain in its fixed order, minus models that have used up today's
+ * budget by our own call ledger (Google's API doesn't expose remaining
+ * quota). Counts reset at UTC midnight — close enough to Google's
+ * Pacific-midnight reset for a personal app; worst case a model 429s and
+ * we move down the chain.
  */
-async function rankModels(db: Db): Promise<ModelBudget[]> {
+async function availableModels(db: Db): Promise<ModelBudget[]> {
   const dayStart = new Date();
   dayStart.setUTCHours(0, 0, 0, 0);
   const rows = await db
@@ -50,17 +69,30 @@ async function rankModels(db: Db): Promise<ModelBudget[]> {
     .groupBy(geminiUsage.model);
   const usedByModel = new Map(rows.map((r) => [r.model, Number(r.used)]));
 
-  return modelChain()
-    .map((m) => ({ ...m, remaining: m.rpd - (usedByModel.get(m.model) ?? 0) }))
-    .filter((m) => m.remaining > 0)
-    .sort((a, b) => b.remaining - a.remaining);
+  return modelChain().filter(
+    (m) => m.rpd - (usedByModel.get(m.model) ?? 0) > 0
+  );
 }
 
-function isQuotaOrMissingModelError(err: unknown): boolean {
+/**
+ * What a failed call means for the chain:
+ * - "busy": Google is overloaded or had a server error (503/500/504) —
+ *   worth one more try on the same model, then the next model.
+ * - "skip": this model can't serve us (out of quota, unknown id, empty
+ *   answer) — go straight to the next model.
+ * - "fatal": a problem with the request itself (bad input, video not
+ *   accessible) — every model would fail the same way, so stop.
+ */
+function classifyError(err: unknown): "busy" | "skip" | "fatal" {
+  const status = (err as { status?: unknown })?.status;
+  if (status === 500 || status === 503 || status === 504) return "busy";
+  if (status === 429 || status === 404) return "skip";
   const msg = String((err as Error)?.message ?? err);
-  return /429|RESOURCE_EXHAUSTED|quota|rate limit|404|NOT_FOUND|not found/i.test(
-    msg
-  );
+  if (/\b(500|503|504)\b|UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED|overloaded|high demand|fetch failed|ECONNRESET|socket hang up/i.test(msg))
+    return "busy";
+  if (/\b(429|404)\b|RESOURCE_EXHAUSTED|NOT_FOUND|quota|rate limit|not found|empty answer/i.test(msg))
+    return "skip";
+  return "fatal";
 }
 
 type VideoRow = Pick<
@@ -105,11 +137,15 @@ function watchLimitMinutes(): number {
   return process.env.NETLIFY ? 0 : 90;
 }
 
-/** Runs the model chain (most remaining budget first) on the given parts. */
+/**
+ * Runs the model chain (in its fixed order) on the given parts. `jsonSchema`
+ * asks for a JSON reply in that shape instead of prose.
+ */
 async function runChain(
   db: Db,
   parts: Part[],
-  videoMode: boolean
+  videoMode: boolean,
+  jsonSchema?: Schema
 ): Promise<{ text: string; model: string }> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
@@ -134,56 +170,75 @@ async function runChain(
     );
   }
 
-  const candidates = await rankModels(db);
+  const candidates = await availableModels(db);
   if (candidates.length === 0) {
-    throw new Error(
-      "All Gemini models have used up today's free budget. Please try again tomorrow."
-    );
+    throw new Error(QUOTA_MESSAGE);
   }
 
   const ai = new GoogleGenAI({ apiKey: key });
-  let lastError: unknown;
+  const started = Date.now();
+  const outOfTime = () => Date.now() - started > attemptWindowMs();
+  let sawBusy = false;
+  let sawQuota = false;
+  // Fixed order: the first model that answers wins. Raw API errors (often
+  // JSON) only go to the server log; the user gets a plain sentence.
   for (const { model } of candidates) {
-    try {
-      const res = await ai.models.generateContent({
-        model,
-        contents: [{ role: "user", parts }],
-        config: videoMode
-          ? { mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW }
-          : {},
-      });
-      const text = res.text;
-      if (!text) throw new Error("Gemini sent back an empty answer. Please try again.");
-      await db.insert(geminiUsage).values({
-        model,
-        tokens: res.usageMetadata?.totalTokenCount ?? null,
-      });
-      return { text: text.trim(), model };
-    } catch (err) {
-      lastError = err;
-      // Quota exhausted or model id unknown on this account → next model.
-      // Content problems (unavailable video etc.) would fail everywhere,
-      // so don't burn the rest of the chain on them.
-      if (isQuotaOrMissingModelError(err)) continue;
-      const msg = String((err as Error)?.message ?? err);
-      if (
-        videoMode &&
-        /INVALID_ARGUMENT|FAILED_PRECONDITION|not supported|unavailable|PERMISSION_DENIED/i.test(
-          msg
-        )
-      ) {
-        throw new Error(
-          "Gemini couldn't access this video. It may be age-restricted, " +
-            "private, members-only or region-locked. The YouTube player " +
-            "may still play it."
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (outOfTime()) throw new Error(BUSY_MESSAGE);
+      try {
+        const res = await ai.models.generateContent({
+          model,
+          contents: [{ role: "user", parts }],
+          config: videoMode
+            ? { mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW }
+            : jsonSchema
+              ? { responseMimeType: "application/json", responseSchema: jsonSchema }
+              : {},
+        });
+        const text = res.text;
+        if (!text) throw new Error("Gemini sent back an empty answer.");
+        await db.insert(geminiUsage).values({
+          model,
+          tokens: res.usageMetadata?.totalTokenCount ?? null,
+        });
+        return { text: text.trim(), model };
+      } catch (err) {
+        const kind = classifyError(err);
+        const msg = String((err as Error)?.message ?? err);
+        console.error(
+          `[gemini] ${model} try ${attempt} failed (${kind}): ${msg.slice(0, 300)}`
         );
+        if (kind === "fatal") {
+          if (
+            videoMode &&
+            /INVALID_ARGUMENT|FAILED_PRECONDITION|not supported|unavailable|PERMISSION_DENIED/i.test(
+              msg
+            )
+          ) {
+            throw new Error(
+              "Gemini couldn't access this video. It may be age-restricted, " +
+                "private, members-only or region-locked. The YouTube player " +
+                "may still play it."
+            );
+          }
+          throw new Error(FAILED_MESSAGE);
+        }
+        if (kind === "skip") {
+          const status = (err as { status?: unknown })?.status;
+          if (status === 429 || /\b429\b|RESOURCE_EXHAUSTED|quota/i.test(msg))
+            sawQuota = true;
+          break; // next model
+        }
+        sawBusy = true;
+        if (attempt === 1) {
+          await new Promise((r) => setTimeout(r, BUSY_RETRY_DELAY_MS));
+        }
       }
-      throw err;
     }
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Every Gemini model failed. Please try again later.");
+  throw new Error(
+    sawBusy ? BUSY_MESSAGE : sawQuota ? QUOTA_MESSAGE : FAILED_MESSAGE
+  );
 }
 
 /**
@@ -300,4 +355,77 @@ export async function transcribeVideo(
   if (cached) return { transcript: cached, source: "captions" };
   const transcript = await watchAndTranscribe(db, video);
   return { transcript, source: "video" };
+}
+
+const CHEAT_SHEET_SCHEMA: Schema = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      question: { type: Type.STRING },
+      answer: { type: Type.STRING },
+      sources: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+    },
+    required: ["question", "sources"],
+  },
+};
+
+/**
+ * Cheat sheets (FEAT-15), part 2: one Gemini call turns the excerpts about
+ * a topic (lib/cheatSheetLines.ts) into its unique questions. Videos are
+ * numbered 1…n in the prompt (shorter than ids, and Gemini can't invent an
+ * id that exists); the reply is JSON, checked here, so a garbled or made-up
+ * source never reaches the screen. Most-asked questions come first.
+ */
+export async function buildCheatSheet(
+  db: Db,
+  topic: string,
+  lines: CheatSheetLine[]
+): Promise<{ questions: CheatSheetQuestion[]; model: string }> {
+  const videoIds = [...new Set(lines.flatMap((l) => l.videoIds))];
+  const number = new Map(videoIds.map((id, i) => [id, i + 1]));
+  const excerpts = lines
+    .map((l) => `[${l.videoIds.map((id) => number.get(id)).join(",")}] ${l.text}`)
+    .join("\n\n");
+
+  const prompt =
+    `You are making a revision cheat sheet about "${topic}" from someone's notes on ` +
+    `${videoIds.length} YouTube videos. Below are excerpts from those notes. Each ` +
+    `excerpt starts with the number(s) of the video(s) it came from, like [3] or [3,7].\n\n` +
+    `List every distinct question about "${topic}" in the excerpts. Write each as one ` +
+    `clear question, even if the notes phrase it as a statement or a topic. When ` +
+    `several excerpts ask the same thing, merge them into ONE question and include ` +
+    `every video number it came from. Include questions under a heading about ` +
+    `"${topic}" even if they don't name it; skip anything else unrelated. For each ` +
+    `question, give a short answer (one or two sentences) only if the excerpts ` +
+    `contain one, such as a "Solution:" line; otherwise leave "answer" empty. Never ` +
+    `add questions or answers that aren't in the excerpts.\n\nExcerpts:\n\n${excerpts}`;
+
+  const result = await runChain(db, [{ text: prompt }], false, CHEAT_SHEET_SCHEMA);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(result.text);
+  } catch {
+    throw new Error("Gemini's reply couldn't be read. Please try again.");
+  }
+  const questions: CheatSheetQuestion[] = [];
+  for (const q of Array.isArray(raw) ? raw : []) {
+    const question = typeof q?.question === "string" ? q.question.trim() : "";
+    const ids = [
+      ...new Set(
+        (Array.isArray(q?.sources) ? q.sources : [])
+          .map((n: unknown) => videoIds[Number(n) - 1])
+          .filter((id: number | undefined): id is number => id !== undefined)
+      ),
+    ] as number[];
+    if (!question || ids.length === 0) continue;
+    const answer = typeof q?.answer === "string" && q.answer.trim() ? q.answer.trim() : null;
+    questions.push({ question, answer, videoIds: ids });
+  }
+  if (questions.length === 0) {
+    throw new Error(`Gemini didn't find any questions about "${topic}" in those notes.`);
+  }
+  // Stable sort: equally common questions keep Gemini's order.
+  questions.sort((a, b) => b.videoIds.length - a.videoIds.length);
+  return { questions, model: result.model };
 }
