@@ -228,7 +228,16 @@ Kept on purpose: the instructions sent *to* Gemini (never shown) and setup error
 
 ## 5. What's left
 
-1. **B1: send the first screen's data with the page.** The biggest remaining win for the "Poor" LCP score. A real rework of each screen; its own session. Add some tests first.
+1. **B1: send the first screen's data with the page.** **Built 2026-10-22 as PERF-07 (Feed and Podcasts), not yet deployed;** measure again after deploying. The biggest remaining win for the "Poor" LCP score. A real rework of each screen; its own session. Add some tests first.
+   **Baseline measured 2026-10-22** (live site, the owner's Chrome in India, a fresh page load each time so no remembered data):
+
+   | Open | Page frame arrives | Data requests start | Videos arrive | First row of thumbnails | Last request done |
+   |---|---|---|---|---|---|
+   | Cold (after idle), 03:43:52 UTC | 4.5 s | 4.6 s | 8.2 s | 8.5 s | 8.4 s |
+   | Warm, 03:44:11 | 0.6 s | 0.6 s | 1.2 s | 1.2 s | 4.2 s |
+   | Warm, 03:44:22 | 0.9 s | 0.9 s | 1.6 s | 1.6 s | 3.9 s |
+
+   Netlify's logs for the cold open: **6 new instances** (the page, then all 5 data requests: videos, nav, channels, genres, ask-suggestions, each its own cold start, 3.3 to 3.6 s server-side). Even warm, one of the 5 requests woke a new instance (3.0 to 3.5 s), so the sidebar's channels or the top bar counts filled in late. B1's target: the cold open's second wave (4.6 → 8.2 s) folded into the page's own cold start.
 2. ~~**B2: move table setup to deploy time.**~~ **Done 2026-10-21 as PERF-05**, a different way: instead of deploy time, the setup list is stamped with a fingerprint of itself in `app_meta`, and a cold start that finds a matching stamp skips the lock, the queue and the 25 statements. Same gain, no build step, local PGlite stays zero-setup. Full write-up in redesign-history.
 3. **B3: make search use its index.** Faster search, same results. Optional: search already feels fast, and the stricter search it was paired with has been dropped by the owner.
 4. **B4: targeted cache clearing** instead of clearing everything after any save.
@@ -245,5 +254,5 @@ Kept on purpose: the instructions sent *to* Gemini (never shown) and setup error
 - [x] Filtering by a channel works as before (the A4 index is created on the first request after deploy). Confirmed by the owner 2026-10-21.
 - [x] Offline test (FEAT-13): in Chrome DevTools → Network, switch to **Offline**, tick ✓ Seen on a card, check the bar says "1 waiting", switch back to **No throttling**, and check "Back online. All changes saved." appears. Confirmed by the owner 2026-10-21.
 - [x] Search "redis": real Redis videos first (FIX-03). Confirmed by the owner 2026-10-21.
-- [ ] **After deploying B2 (PERF-05):** Netlify function logs show `cold init … (skipped, version … is current)` on cold starts. The very first cold instance after the deploy shows `(25 statements, version …)` once, because it writes the stamp.
-- [ ] **FIX-06 (not an audit item, same deploy):** `GEMINI_MODEL` deleted on Netlify before deploying; an Ask answers, and the note's model shows `gemini-3.5-flash-lite`.
+- [x] **After deploying B2 (PERF-05):** Confirmed live 2026-10-21: at 17:26:59 the first cold starts ran the changed list once (30 statements, version 618cc58838cf), then every cold start logged "skipped" at 155 to 222 ms. Originally: Netlify function logs show `cold init … (skipped, version … is current)` on cold starts. The very first cold instance after the deploy shows `(25 statements, version …)` once, because it writes the stamp.
+- [x] **FIX-06 (not an audit item, same deploy):** Confirmed live 2026-10-21: `GEMINI_MODEL` deleted, an Ask was answered by Gemini 3.5 Flash-Lite (AI Studio usage: 2 of 500 that day). Originally: `GEMINI_MODEL` deleted on Netlify before deploying; an Ask answers, and the note's model shows `gemini-3.5-flash-lite`.

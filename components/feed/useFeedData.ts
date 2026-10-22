@@ -33,13 +33,13 @@ function feedParams(f: Filters): URLSearchParams {
 }
 
 /** One page of the feed — also the key that page is remembered under. */
-function feedPath(f: Filters, page: number): string {
+export function feedPath(f: Filters, page: number): string {
   const params = feedParams(f);
   params.set("page", String(page));
   return `/api/videos?${params}`;
 }
 
-interface FeedReply {
+export interface FeedReply {
   videos: FeedVideo[];
   hasMore: boolean;
   laterCounts?: { videos: number; shorts: number };
@@ -69,15 +69,23 @@ export function useFeedData(
   {
     onError,
     onPatched,
+    firstReply,
   }: {
     onError: (message: string) => void;
     onPatched: (id: number, patch: Partial<FeedVideo>) => void;
+    /** The opening view's page, sent inside the page and fresh (audit B1):
+     *  shown at once and not fetched again until a filter changes. */
+    firstReply?: FeedReply | null;
   }
 ) {
   const { section, kind, view, genreId, channelIds, search, lengthFilter } = filters;
   // Coming back to the feed: start from the page remembered for these filters
   // (instant), while the first load below fetches a fresh one.
-  const [initial] = useState(() => rememberedReply<FeedReply>(feedPath(filters, 0)));
+  const [initial] = useState(() => firstReply ?? rememberedReply<FeedReply>(feedPath(filters, 0)));
+  const [firstPath] = useState(() => (firstReply ? feedPath(filters, 0) : null));
+  // Set once the filters leave the opening view; from then on every view
+  // (including a return to the opening one) is fetched as usual.
+  const filtersChanged = useRef(false);
   // Watch Later: total saved per kind (ignores filters → the hint below the
   // title), and how many the current filters show.
   const [laterCounts, setLaterCounts] = useState(initial?.laterCounts ?? { videos: 0, shorts: 0 });
@@ -146,15 +154,18 @@ export function useFeedData(
   );
 
   useEffect(() => {
-    // Async server fetch, not a synchronous state cascade.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadPage(0, true);
+    const path = feedPath({ section, kind, view, genreId, channelIds, search, lengthFilter }, 0);
+    const skip = !filtersChanged.current && path === firstPath;
+    if (!skip) {
+      filtersChanged.current = true;
+      loadPage(0, true);
+    }
     // Changes left waiting from before a reload were just saved: this page
     // loaded without them, so load it again.
     const onRestored = () => loadPage(0, true);
     window.addEventListener(PENDING_RESTORED, onRestored);
     return () => window.removeEventListener(PENDING_RESTORED, onRestored);
-  }, [loadPage]);
+  }, [loadPage, firstPath, section, kind, view, genreId, channelIds, search, lengthFilter]);
 
   // A video entered or left the current view's set: keep the count and the
   // total time in step without refetching.

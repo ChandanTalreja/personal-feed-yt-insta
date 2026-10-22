@@ -3,7 +3,8 @@ import type { StudyTab } from "./StudyPanel";
 import type { FeedVideo } from "@/components/types";
 
 export type Kind = "videos" | "shorts";
-export type LengthFilter = "any" | "short" | "medium" | "long";
+/** Feed: under 10 min / 10–30 min / 30 min+. Podcasts: under 1 h / 1–2 h / 2 h+. */
+export type LengthFilter = "any" | "short" | "medium" | "long" | "under1h" | "1to2h" | "over2h";
 
 export const PAGE_SIZE = 24;
 

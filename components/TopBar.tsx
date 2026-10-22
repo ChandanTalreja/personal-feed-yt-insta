@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Mascot from "./Mascot";
@@ -11,8 +11,9 @@ import { SpinnerBadge } from "./ui/Spinner";
 import GlobalSearch from "./GlobalSearch";
 import { NAV_CHANGED } from "@/lib/nav-events";
 import { api, rememberedReply } from "@/lib/api-client";
+import { getServerSyncState, getSyncState, startSync, subscribeSync, takeSyncResult } from "@/lib/syncStatus";
 
-interface NavSummary {
+export interface NavSummary {
   podcasts: number;
   podcastChannels: number;
   inbox: number;
@@ -113,17 +114,36 @@ function MarkerStroke() {
 export default function TopBar({
   onRefreshed,
   flush = false,
+  initialNav = null,
 }: {
   onRefreshed?: () => void | Promise<void>;
+  /** Counts that came inside the page (audit B1): shown at once, not refetched. */
+  initialNav?: NavSummary | null;
   /** No gap under the bar — for pages whose columns start right below it (the feed). */
   flush?: boolean;
 }) {
   const pathname = usePathname();
   // The counts remembered in this tab show at once on every page; then refresh.
-  const [nav, setNav] = useState<NavSummary | null>(() => rememberedReply<NavSummary>("/api/nav") ?? null);
+  const [nav, setNav] = useState<NavSummary | null>(
+    () => initialNav ?? rememberedReply<NavSummary>("/api/nav") ?? null
+  );
+  // Counts handed over by the page are fresh: skip the first fetch.
+  const [skipFirstLoad] = useState(() => initialNav != null);
   const [now, setNow] = useState(() => Date.now());
-  const [syncing, setSyncing] = useState(false);
+  // Shared across pages (lib/syncStatus.ts): a sync started elsewhere still
+  // shows here as running, and its result lands on this page.
+  const { running: syncing, result: syncResult } = useSyncExternalStore(
+    subscribeSync,
+    getSyncState,
+    getServerSyncState
+  );
   const [toast, setToast] = useState<string | null>(null);
+
+  // The latest page callback, without re-running the result effect.
+  const onRefreshedRef = useRef(onRefreshed);
+  useEffect(() => {
+    onRefreshedRef.current = onRefreshed;
+  });
 
   const loadNav = useCallback(async () => {
     try {
@@ -136,7 +156,7 @@ export default function TopBar({
   useEffect(() => {
     // Async fetch, not a synchronous state cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadNav().catch(() => {});
+    if (!skipFirstLoad) loadNav().catch(() => {});
     // Recount when a page says something changed. Debounced, so a burst of
     // changes (ticking off five videos) costs one recount, not five.
     let pending: ReturnType<typeof setTimeout> | undefined;
@@ -152,7 +172,7 @@ export default function TopBar({
       clearInterval(tick);
       window.removeEventListener(NAV_CHANGED, onChanged);
     };
-  }, [loadNav]);
+  }, [loadNav, skipFirstLoad]);
 
   useEffect(() => {
     if (!toast) return;
@@ -160,19 +180,24 @@ export default function TopBar({
     return () => clearTimeout(t);
   }, [toast]);
 
-  async function sync() {
-    setSyncing(true);
-    try {
-      const data = await api("/api/cron", { fallback: "Couldn't check for new videos. Please try again." });
-      setToast(syncMessage(data));
-      setNow(Date.now());
-      await Promise.all([loadNav(), onRefreshed?.()]);
-    } catch (err) {
-      setToast((err as Error).message);
-    } finally {
-      setSyncing(false);
-    }
+  function sync() {
+    startSync(async () =>
+      syncMessage(await api("/api/cron", { fallback: "Couldn't check for new videos. Please try again." }))
+    );
   }
+
+  // A sync finished (started on this page or another): show its result once,
+  // and refresh the counts and whatever page is on screen now.
+  useEffect(() => {
+    const message = syncResult ? takeSyncResult(syncResult.id) : null;
+    if (message == null) return;
+    // A finished sync is an outside event, not a render cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setToast(message);
+    setNow(Date.now());
+    loadNav().catch(() => {});
+    Promise.resolve(onRefreshedRef.current?.()).catch(() => {});
+  }, [syncResult, loadNav]);
 
   const failedChannels = nav?.lastSyncFailed ?? [];
 

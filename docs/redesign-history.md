@@ -1754,6 +1754,49 @@ query doesn't filter. In the app (real notebook, read-only): "hash map" 3 →
 10 videos, "hashmap" 8 → 10, "concurrent hash map" 0 → 5, with
 "ConcurrentHashMap" highlighted. Typecheck and lint pass.
 
+#### REF-14 · A bigger player that keeps the chapters (Expand, Full screen) — ✅ done · 2026-10-22
+
+**The problem (owner, in use).** On a podcast the player card is a fixed
+size. YouTube's own full-screen button only enlarges YouTube's video (the
+iframe), so the chapter strip under it disappears.
+
+**Also asked: are we allowed to play YouTube this way? Yes.** The player is
+YouTube's own embedded player (the official IFrame Player API, from
+youtube-nocookie.com) with its controls, branding and ads. What YouTube
+forbids is taking the video stream into another player or hiding its
+branding; the chapter strip sits outside the player and only calls the
+API's own `seekTo` / `playVideo`.
+
+**The change.** Two buttons in the player's header, before the ✕, for every
+video except Shorts (they're vertical):
+- **Expand** (arrows out): the card fills the browser window (8 px margin),
+  the video takes all the height it can, the chapter strip stays under it.
+  The button becomes **Shrink**; the first Esc shrinks, the next closes. The
+  choice is remembered for the next video (localStorage,
+  `tubebox:player-expanded`, a per-browser convenience).
+- **Full screen** (corners out): the **whole card** (video and chapters)
+  goes full screen through the browser's Fullscreen API on our own element;
+  Esc leaves it (the browser's own key).
+Feed videos get the bigger player but no chapter strip (owner's choice:
+chapters stay a Podcasts feature).
+
+**How it works.** `PlayerModal` keeps `expanded` and `fullscreen` (the
+latter from `fullscreenchange`, true only when our card is the full-screen
+element). When big, the card is `flex h-full w-full flex-col` and the video
+box `min-h-0 flex-1` instead of `aspect-video`, so YouTube letterboxes inside
+it. New icons from the same Phosphor 2.1.1 set: `expand`, `shrink`,
+`fullscreen`, `exitFullscreen`.
+
+**Files.** `components/PlayerModal.tsx`, `components/ui/iconPaths.ts`.
+
+**Verified** (local, 1400×900). Expand: card 896×631 → 1384×884, video
+1349×737, chapter strip visible with the current chapter highlighted;
+remembered ("1"); Esc shrank it, a second Esc closed the player.
+**Not verified here:** Full screen. The in-app test browser refuses full
+screen (`document.fullscreenElement` stayed null after a real click); it's
+the standard API, for the owner to try in Chrome. The test episode's resume
+point was reset afterwards.
+
 ### FEAT — new features
 
 #### FEAT-01 · Global search — ✅ done · 2026-10-17
@@ -2550,6 +2593,25 @@ owner added "WVFRM Podcast", @waveform, with the new form: 62 episodes,
 `components/GlobalSearch.tsx`, `components/channels/*` (row, page, add
 bar), `components/types.ts`.
 
+**Refined with the owner (2026-10-22), not yet deployed.**
+- **Continue listening is a slim strip**, not a row of full cards (that row
+  was ~300 px and pushed new episodes down): small tiles with the real
+  thumbnail, title, a yellow progress bar and "29:08 left", in one row that
+  scrolls sideways (`components/feed/ContinueStrip.tsx`). ‹ › arrows appear
+  only when there's more that way (no "load more"). Up to 12 episodes
+  (`CONTINUE_LIMIT`). "New episodes" heads the grid under it. Verified with
+  6 test resume points (later reset): strip 94 px with its heading, 6
+  thumbnails; arrows: start ›, middle ‹ ›, end ‹.
+- **Length by the hour on Podcasts:** "Any length · Under 1h · 1–2h · 2h+"
+  (`under1h`, `1to2h`, `over2h` in `/api/videos`), since almost every
+  episode is over 30 min. The Feed keeps <10m / 10–30m / 30m+. Local
+  Waveform: 1 / 58 / 3 of 62.
+
+**Fixed after deploying (owner).** Adding a podcast channel said "See its
+videos →" but linked to the Feed (`/?channel=…`), where podcast channels no
+longer show. The link now follows the channel's home
+(`/podcasts?channel=…` for podcasts), in `AddChannelBar.tsx`.
+
 **Verified** (local, real data). Chapter parser: "0:00 Intro",
 "(00:00)", "[05:10]", "Intro 0:00", "1:02:33" all read; lists not starting
 at 0:00, with fewer than three, out of order or past the end rejected.
@@ -3247,6 +3309,87 @@ logs should show `skipped` on cold starts, once the first instance has
 written the stamp.
 
 
+#### PERF-07 · The first screen comes with the page (audit B1) — ✅ built · 2026-10-22, not yet deployed
+
+**The problem (measured 2026-10-22 on the live site, the owner's Chrome in
+India, fresh loads).** Opening the Feed was two waves: the page arrived
+empty (cold: 4.5 s), then the screen made 5 requests (videos, top bar
+counts, channels, genres, Ask suggestions). After idle each of them woke
+its own Netlify instance: Netlify's logs showed **6 cold starts for one
+open**, 3.3 to 3.6 s each. Cards appeared at **8.2 s**, the first row of
+thumbnails at 8.5 s. Warm: cards at 1.2 to 1.6 s, but one of the 5 still
+woke a new instance, so the sidebar or counts filled in at ~4 s. Netlify's
+LCP was rated "Poor" (§4 · P1 of the audit).
+
+**The change.** The Feed and Podcasts pages gather their first screen on
+the server, inside the page's own request, and hand it to the screen. The
+HTML now contains the 24 cards and their thumbnail links, so the browser
+starts loading thumbnails before any JavaScript runs, and opening the page
+makes **no** data requests.
+
+**How it works.**
+- The logic moved out of the API routes into shared functions, so the page
+  and the API run the same code: `lib/feedVideos.ts` (`listFeedVideos`,
+  `parseFeedQuery`), `lib/channels.ts` (`listChannels`), `lib/genres.ts`
+  (`listGenres`); the routes now just parse and call them.
+- `lib/firstScreen.ts` (`loadFirstScreen`) runs the opening view (Inbox,
+  videos, no filters) plus nav counts, channels, genres and suggestions
+  (and Continue listening on Podcasts) in parallel, JSON-round-trips the
+  result so it's shaped exactly like the API replies, and stamps
+  `renderedAt`. `app/page.tsx` and `app/podcasts/page.tsx` pass it as
+  `first`; if gathering fails, the page opens as before.
+- The screen trusts it only while it's **fresh**
+  (`components/feed/firstScreen.ts`: made in the last minute and not shown
+  before). PERF-03 reuses visited pages for 5 minutes, and a reused page
+  carries old data, so those mounts show their remembered data and fetch,
+  exactly as before. Fresh: states start from it, it's stored as this
+  tab's remembered copy, and the first fetches are skipped
+  (`useFeedData`'s `firstReply`, `TopBar`'s `initialNav`, FeedClient's
+  genres / channels / suggestions / Continue listening). The feed's skip is
+  only for the opening view: once a filter changes, every view (including
+  a return to the opening one) is fetched as usual.
+- Same initial data on the server and in the browser, so hydration matches
+  (no warnings).
+
+**Key code.**
+```ts
+// app/page.tsx
+const first = await getDb().then((db) => loadFirstScreen(db, "feed")).catch(() => null);
+return <FeedClient first={first} />;
+
+// components/feed/firstScreen.ts
+export function isFreshFirstScreen(first) {
+  return !!first && !used.has(first.renderedAt) && Date.now() - first.renderedAt < FRESH_MS;
+}
+```
+
+**Alternatives considered.** *Streaming with Suspense*: the frame first,
+cards streamed in the same response. Nicer on paper, but a cold start
+dominates anyway and it splits the screen into server and client parts; the
+one-request version gets the main win with far less change. *Dropping
+PERF-03's page reuse*: would make every page fresh but cost ~0.8 s per tab
+switch again; the freshness check keeps both. *Notebook and Tracks*: not
+yet; measure the Feed first.
+
+**Files.** New: `lib/feedVideos.ts`, `lib/channels.ts`, `lib/genres.ts`,
+`lib/firstScreen.ts`, `components/feed/firstScreen.ts`. Changed:
+`app/page.tsx`, `app/podcasts/page.tsx`, `app/api/videos/route.ts`,
+`app/api/channels/route.ts`, `app/api/genres/route.ts`,
+`components/feed/FeedClient.tsx`, `components/feed/useFeedData.ts`,
+`components/TopBar.tsx`, `next.config.ts` (comment).
+
+**Verified** (local). A before/after snapshot of 30 API answers (feed and
+podcasts, every view, kind, length bucket, genre, channel, search, page 2,
+ids, continue, plus nav, channels, genres, suggestions) stayed
+byte-identical after each step. The Feed's and Podcasts' HTML contain 24
+cards and 24 thumbnail links. A fresh tab: **0 data requests** on open, no
+console errors or hydration warnings. Afterwards: Shorts, back to Videos
+and Load more each fetched as before; Notebook → Feed (a reused page)
+fetched as before. **To measure after deploying**, the same way as the
+baseline: cold and warm opens, and Netlify's cold starts per open (target:
+one).
+
+
 ### FIX — problems found in use
 
 #### FIX-01 · Channels with "bold" names can't be filtered — ✅ done · 2026-10-18
@@ -3745,6 +3888,40 @@ localhost with the paste logger: ⌘K 5 of 5 (before: 2 of 11 on the live
 site). The owner tested the other boxes: "Perfect works!". The note box
 wasn't simulated (it autosaves into real notes); same code path. Typecheck
 and lint pass.
+
+#### FIX-09 · A sync no longer "stops" when you switch pages — ✅ done · 2026-10-22
+
+**The problem (owner, in use).** Press sync on Podcasts, switch to the Feed,
+and the sync seemed cancelled: the "Syncing" badge vanished and no result
+showed.
+
+**What the logs said.** It never was cancelled. Every sync finished on the
+server (local: two `200`s in 3.1 s and 1.7 s; live: 03:24:03 in 7.5 s and
+03:24:11 in 6.3 s, both `200`, the second a re-press 8 s after the first,
+and the same pair the day before at 20:49 / 20:50). Each page draws its own
+top bar; the new page's copy started with `syncing = false`, so the badge,
+the result message and the page refresh were lost, which invited a second
+(harmless but wasted) sync.
+
+**The change.** The sync's state lives in a small module for the life of
+the browser tab (`lib/syncStatus.ts`), not in the top bar. Whichever top
+bar is on screen reads it (`useSyncExternalStore`): the badge stays
+"Syncing" across pages, the button stays disabled (a second press starts
+nothing), and when it finishes the message shows on the page you're on,
+which reloads its data (`onRefreshed`). Each result is shown once
+(`takeSyncResult`), so moving to another page doesn't repeat it. Still
+asynchronous as before: the request runs in the background while you
+browse; a full reload mid-sync loses the badge but the server still
+finishes.
+
+**Files.** `lib/syncStatus.ts` (new), `components/TopBar.tsx`.
+
+**Verified** (local; the reply was held back 5 s in the page so the switch
+happened mid-sync, the sync itself was real). Started on Podcasts:
+"Syncing"; switched to the Feed: still "Syncing", button disabled; pressed
+again: still one `/api/cron` request; finished: "You're up to date. Checked
+16 channels, nothing new." on the Feed, which then refetched its videos,
+channels and counts; back on Podcasts: no repeat. Typecheck and lint pass.
 
 ---
 

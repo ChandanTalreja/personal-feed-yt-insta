@@ -5,9 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import TopBar from "@/components/TopBar";
 import FeedEmptyState from "./FeedEmptyState";
 import { PAGE_SIZE, VIEW_NOTES, VIEW_TITLES, type FeedChannel, type Kind, type LengthFilter, type Study } from "./model";
-import { useFeedData } from "./useFeedData";
+import { feedPath, useFeedData } from "./useFeedData";
+import { isFreshFirstScreen, markFirstScreenUsed, type FirstScreen } from "./firstScreen";
 import VideoCard, { VideoCardSkeleton, type StudyTool } from "./VideoCard";
 import StudyPanel from "./StudyPanel";
+import ContinueStrip from "./ContinueStrip";
 import FeedSidebar, { type View } from "./FeedSidebar";
 import PlayerModal from "@/components/PlayerModal";
 import TrackMenu from "./TrackMenu";
@@ -19,8 +21,21 @@ import SearchField from "@/components/ui/SearchField";
 import SegmentedControl from "@/components/ui/SegmentedControl";
 import type { FeedVideo, GenreItem } from "@/components/types";
 import { formatWatchTime } from "@/lib/format";
-import { api, rememberedReply } from "@/lib/api-client";
+import { api, remember, rememberedReply } from "@/lib/api-client";
 import { notifyNavChanged } from "@/lib/nav-events";
+
+/** Podcasts' "Continue listening" list. */
+const CONTINUE_PATH = "/api/videos?section=podcasts&continue=1";
+
+/** The view every page opens on, matching lib/firstScreen.ts's openingQuery. */
+const OPENING_FILTERS = {
+  kind: "videos" as Kind,
+  view: "unwatched" as View,
+  genreId: null,
+  channelIds: [],
+  search: "",
+  lengthFilter: "any" as LengthFilter,
+};
 
 /** The channels reply, as the sidebar's channel list (with per-kind counts). */
 function toFeedChannels(reply: { channels?: { channel: FeedChannel; videoCount: number; shortCount: number }[] } | undefined): FeedChannel[] {
@@ -36,12 +51,27 @@ function toFeedChannels(reply: { channels?: { channel: FeedChannel; videoCount: 
  * different set of channels. Podcasts drops genres and adds "Continue
  * listening" and chapters.
  */
-export default function FeedClient({ section = "feed" }: { section?: "feed" | "podcasts" }) {
+export default function FeedClient({
+  section = "feed",
+  first = null,
+}: {
+  section?: "feed" | "podcasts";
+  /** The first screen, sent inside the page (audit B1). */
+  first?: FirstScreen | null;
+}) {
   const podcasts = section === "podcasts";
+  // Fresh first screen: shown at once and not fetched again. A page reused
+  // from the router cache carries old data, so it fetches as before.
+  const [fresh] = useState(() => isFreshFirstScreen(first));
+  const seed = fresh ? first : null;
   // Each starts from the copy remembered in this tab (instant when coming
   // back), then refreshes (see lib/api-client.ts).
-  const [genres, setGenres] = useState<GenreItem[]>(() => rememberedReply("/api/genres")?.genres ?? []);
-  const [channels, setChannels] = useState<FeedChannel[]>(() => toFeedChannels(rememberedReply("/api/channels")));
+  const [genres, setGenres] = useState<GenreItem[]>(
+    () => seed?.genres.genres ?? rememberedReply("/api/genres")?.genres ?? []
+  );
+  const [channels, setChannels] = useState<FeedChannel[]>(() =>
+    toFeedChannels(seed?.channels ?? rememberedReply("/api/channels"))
+  );
   const [genreId, setGenreId] = useState<number | null>(null);
   const [channelIds, setChannelIds] = useState<number[]>([]);
   const [kind, setKind] = useState<Kind>("videos");
@@ -55,7 +85,9 @@ export default function FeedClient({ section = "feed" }: { section?: "feed" | "p
   // "Play unseen in a row" (Shorts): the shorts lined up, and which is on.
   const [queue, setQueue] = useState<{ items: FeedVideo[]; index: number } | null>(null);
   const [study, setStudy] = useState<Study | null>(null);
-  const [everyday, setEveryday] = useState<string[]>(() => rememberedReply("/api/ask-suggestions")?.suggestions ?? []);
+  const [everyday, setEveryday] = useState<string[]>(
+    () => seed?.suggestions.suggestions ?? rememberedReply("/api/ask-suggestions")?.suggestions ?? []
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -63,7 +95,7 @@ export default function FeedClient({ section = "feed" }: { section?: "feed" | "p
   const [playFrom, setPlayFrom] = useState<number | undefined>(undefined);
   // Podcasts: episodes started and not finished.
   const [continueList, setContinueList] = useState<FeedVideo[]>(() =>
-    podcasts ? (rememberedReply("/api/videos?section=podcasts&continue=1")?.videos ?? []) : []
+    podcasts ? (seed?.continued?.videos ?? rememberedReply(CONTINUE_PATH)?.videos ?? []) : []
   );
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -87,6 +119,7 @@ export default function FeedClient({ section = "feed" }: { section?: "feed" | "p
   } = useFeedData(
     { section, kind, view, genreId, channelIds, search: debouncedSearch, lengthFilter },
     {
+      firstReply: seed?.feed ?? null,
       onError: setToast,
       // The study panel holds its own copy of the video: keep it in step.
       onPatched: (id, patch) =>
@@ -102,16 +135,30 @@ export default function FeedClient({ section = "feed" }: { section?: "feed" | "p
 
   const loadContinue = useCallback(() => {
     if (!podcasts) return;
-    api("/api/videos?section=podcasts&continue=1")
+    api(CONTINUE_PATH)
       .then((d) => setContinueList(d.videos ?? []))
       .catch(() => {});
   }, [podcasts]);
 
+  // The first screen came inside the page: keep it as this tab's remembered
+  // copy (instant revisits), and don't fetch any of it again.
   useEffect(() => {
-    loadContinue();
-  }, [loadContinue]);
+    if (!seed) return;
+    remember(feedPath({ ...OPENING_FILTERS, section }, 0), seed.feed);
+    remember("/api/nav", seed.nav);
+    remember("/api/channels", seed.channels);
+    remember("/api/genres", seed.genres);
+    remember("/api/ask-suggestions", seed.suggestions);
+    if (seed.continued) remember(CONTINUE_PATH, seed.continued);
+    markFirstScreenUsed(seed);
+  }, [seed, section]);
 
   useEffect(() => {
+    if (!seed) loadContinue();
+  }, [loadContinue, seed]);
+
+  useEffect(() => {
+    if (seed) return;
     api("/api/genres")
       .then((d) => setGenres(d.genres ?? []))
       .catch(() => {});
@@ -120,7 +167,7 @@ export default function FeedClient({ section = "feed" }: { section?: "feed" | "p
       .catch(() => {});
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadChannels();
-  }, [loadChannels]);
+  }, [loadChannels, seed]);
 
   useEffect(() => {
     if (!toast) return;
@@ -382,7 +429,7 @@ export default function FeedClient({ section = "feed" }: { section?: "feed" | "p
 
   return (
     <>
-      <TopBar onRefreshed={reloadAfterSync} flush />
+      <TopBar onRefreshed={reloadAfterSync} initialNav={seed?.nav ?? null} flush />
       <div className="flex items-start">
         {/* Sidebar — wide screens: a fixed column with its own scroll. */}
         <aside className="sticky top-[65px] hidden h-[calc(100vh-65px)] w-[236px] shrink-0 overflow-y-auto border-r border-line py-5 lg:block">
@@ -429,12 +476,21 @@ export default function FeedClient({ section = "feed" }: { section?: "feed" | "p
                 label="Video length"
                 value={lengthFilter}
                 onChange={setLengthFilter}
-                options={[
-                  { value: "any", label: "Any length" },
-                  { value: "short", label: "<10m" },
-                  { value: "medium", label: "10–30m" },
-                  { value: "long", label: "30m+" },
-                ]}
+                options={
+                  podcasts
+                    ? [
+                        { value: "any", label: "Any length" },
+                        { value: "under1h", label: "Under 1h" },
+                        { value: "1to2h", label: "1–2h" },
+                        { value: "over2h", label: "2h+" },
+                      ]
+                    : [
+                        { value: "any", label: "Any length" },
+                        { value: "short", label: "<10m" },
+                        { value: "medium", label: "10–30m" },
+                        { value: "long", label: "30m+" },
+                      ]
+                }
               />
             )}
             {/* Shorts: watch the unseen ones back to back. */}
@@ -506,31 +562,13 @@ export default function FeedClient({ section = "feed" }: { section?: "feed" | "p
             </div>
           )}
 
-          {/* Podcasts: where you left off, above the new episodes. */}
+          {/* Podcasts: where you left off, a slim sideways row above the new episodes. */}
           {podcasts && kind === "videos" && view === "unwatched" && !debouncedSearch &&
             channelIds.length === 0 && continueList.length > 0 && (
-              <section className="mb-8">
-                <h2 className="label-caps mb-3 text-muted">Continue listening</h2>
-                <div className={gridClass}>
-                  {continueList.map((video) => (
-                    <VideoCard
-                      key={`continue-${video.id}`}
-                      video={video}
-                      genreColor={genreFor(video)?.color ?? "var(--color-line)"}
-                      dimSeen={false}
-                      activeTool={study?.video.id === video.id ? (study.track ? "track" : study.tab) : null}
-                      onPlay={handlePlay}
-                      onToggleWatched={async (v) => {
-                        await toggleWatched(v);
-                        loadContinue();
-                      }}
-                      onToggleLater={toggleLater}
-                      onOpenTool={openTool}
-                    />
-                  ))}
-                </div>
-                <h2 className="label-caps mb-3 mt-8 text-muted">New episodes</h2>
-              </section>
+              <>
+                <ContinueStrip videos={continueList} onPlay={handlePlay} />
+                <h2 className="label-caps mb-3 text-muted">New episodes</h2>
+              </>
             )}
 
           {/* Grid — placeholders while a new set loads, so the page doesn't jump. */}

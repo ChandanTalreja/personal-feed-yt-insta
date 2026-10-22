@@ -104,9 +104,10 @@ export default function AddChannelBar({
         <>
           Added {data.channel.title}, with {added} video{added === 1 ? "" : "s"} from the last{" "}
           {y === 1 ? "year" : `${y} years`}.{" "}
-          {/* The one moment you'd want to jump: the feed, filtered to the new channel. */}
+          {/* The one moment you'd want to jump: its page (Feed or Podcasts),
+              filtered to the new channel. */}
           <Link
-            href={`/?channel=${data.channel.id}`}
+            href={`${data.channel.section === "podcasts" ? "/podcasts" : "/"}?channel=${data.channel.id}`}
             className="whitespace-nowrap underline decoration-primary decoration-2 underline-offset-2 hover:decoration-ink"
           >
             See its videos →

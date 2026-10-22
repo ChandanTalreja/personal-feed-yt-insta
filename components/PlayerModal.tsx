@@ -36,6 +36,16 @@ interface Props {
 }
 
 const TICK_MS = 1000;
+/** Remembers Expand between videos (per browser, a convenience only). */
+const EXPANDED_KEY = "tubebox:player-expanded";
+
+function readExpanded(): boolean {
+  try {
+    return localStorage.getItem(EXPANDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 const SAVE_EVERY_MS = 15_000;
 
 /** Resume only if it's worth it: not the first few seconds, not the end. */
@@ -69,6 +79,19 @@ export default function PlayerModal({
   const [firstSecond] = useState(() => (startAt != null ? Math.floor(startAt) : resumedAt));
   const [startedOver, setStartedOver] = useState(false);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  // Bigger player, chapters included (not for Shorts: they're vertical).
+  // Expand fills the browser window; Full screen puts this whole card on
+  // the screen. YouTube's own full-screen button only enlarges its video,
+  // which hides our chapter strip.
+  const canResize = !video.isShort;
+  const [expanded, setExpanded] = useState(readExpanded);
+  const [fullscreen, setFullscreen] = useState(false);
+  const big = canResize && (expanded || fullscreen);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const expandedRef = useRef(expanded);
+  useEffect(() => {
+    expandedRef.current = canResize && expanded;
+  });
   // Where playback is (updated every second while playing): the current chapter.
   const [position, setPosition] = useState(firstSecond);
   const currentChip = useRef<HTMLButtonElement>(null);
@@ -82,7 +105,12 @@ export default function PlayerModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Full screen: the browser's own Esc leaves it.
+      if (document.fullscreenElement) return;
+      // Expanded: the first Esc shrinks, the next one closes.
+      if (expandedRef.current) toggleExpanded();
+      else onClose();
     }
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
@@ -229,6 +257,26 @@ export default function PlayerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [video.id]);
 
+  function toggleExpanded() {
+    setExpanded((on) => {
+      try {
+        localStorage.setItem(EXPANDED_KEY, on ? "0" : "1");
+      } catch {}
+      return !on;
+    });
+  }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else cardRef.current?.requestFullscreen().catch(() => {});
+  }
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === cardRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
   function startOver() {
     playerRef.current?.seekTo(0, true);
     setStartedOver(true);
@@ -250,11 +298,18 @@ export default function PlayerModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-4"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-ink/70 ${big ? "p-2" : "p-4"}`}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-4xl rounded-lg border-[1.5px] border-ink bg-surface p-4 shadow-lift"
+        ref={cardRef}
+        className={`bg-surface p-4 ${
+          fullscreen
+            ? "flex h-full w-full flex-col"
+            : big
+              ? "flex h-full w-full flex-col rounded-lg border-[1.5px] border-ink shadow-lift"
+              : "w-full max-w-4xl rounded-lg border-[1.5px] border-ink shadow-lift"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-start justify-between gap-3">
@@ -281,6 +336,21 @@ export default function PlayerModal({
                 <Icon name="chev" size={13} className="-rotate-90" />
               </Button>
             )}
+            {canResize && !fullscreen && (
+              <IconButton label={expanded ? "Shrink (Esc)" : "Expand"} tipBelow onClick={toggleExpanded} active={expanded}>
+                <Icon name={expanded ? "shrink" : "expand"} size={16} />
+              </IconButton>
+            )}
+            {canResize && (
+              <IconButton
+                label={fullscreen ? "Leave full screen (Esc)" : "Full screen"}
+                tipBelow
+                onClick={toggleFullscreen}
+                active={fullscreen}
+              >
+                <Icon name={fullscreen ? "exitFullscreen" : "fullscreen"} size={16} />
+              </IconButton>
+            )}
             <IconButton label="Close (Esc)" align="right" tipBelow onClick={onClose}>
               <Icon name="x" size={16} />
             </IconButton>
@@ -288,7 +358,7 @@ export default function PlayerModal({
         </div>
         <div
           className={`relative w-full overflow-hidden rounded-md bg-ink ${
-            video.isShort ? "mx-auto aspect-[9/16] max-w-sm" : "aspect-video"
+            video.isShort ? "mx-auto aspect-[9/16] max-w-sm" : big ? "min-h-0 flex-1" : "aspect-video"
           }`}
         >
           {fallback ? (

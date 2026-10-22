@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { asc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { denyUnlessAuthed } from "@/lib/auth";
 import { genres } from "@/lib/schema";
 import { isHexColor } from "@/lib/color";
+import { listGenres } from "@/lib/genres";
 
 export async function GET() {
   const denied = await denyUnlessAuthed();
   if (denied) return denied;
   const db = await getDb();
-  const rows = await db.select().from(genres).orderBy(asc(genres.name));
-  return NextResponse.json({ genres: rows });
+  return NextResponse.json({ genres: await listGenres(db) });
 }
 
 export async function POST(req: NextRequest) {
