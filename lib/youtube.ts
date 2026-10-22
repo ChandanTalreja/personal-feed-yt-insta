@@ -20,11 +20,24 @@ async function yt(path: string, params: Record<string, string>): Promise<any> {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(
-      `YouTube API ${path} failed (${res.status}): ${body.slice(0, 300)}`
+    throw new YouTubeApiError(
+      `YouTube API ${path} failed (${res.status}): ${body.slice(0, 300)}`,
+      res.status
     );
   }
   return res.json();
+}
+
+/** A failed YouTube API call, with its HTTP status. */
+class YouTubeApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+/** YouTube answered 404: e.g. a channel with no live streams has no live list. */
+export function isNotFound(err: unknown): boolean {
+  return err instanceof YouTubeApiError && err.status === 404;
 }
 
 /**
@@ -102,6 +115,20 @@ export async function resolveChannel(input: string): Promise<ResolvedChannel> {
       null,
     uploadsPlaylistId: item.contentDetails.relatedPlaylists.uploads,
   };
+}
+
+/**
+ * Beside its uploads list (UU…), every channel has lists YouTube keeps for
+ * its own channel tabs, named by swapping the prefix: UULF… holds only the
+ * long videos, UULV… only past live streams (Shorts are in neither). Not in
+ * the official docs, so callers fall back to the uploads list on a 404.
+ */
+export function longVideosList(uploadsPlaylistId: string): string {
+  return `UULF${uploadsPlaylistId.slice(2)}`;
+}
+
+export function liveStreamsList(uploadsPlaylistId: string): string {
+  return `UULV${uploadsPlaylistId.slice(2)}`;
 }
 
 /**

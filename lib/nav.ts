@@ -1,4 +1,4 @@
-import { count, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, or } from "drizzle-orm";
 import type { Db } from "./db";
 import { appMeta, channels, tracks, videoNotes, videos } from "./schema";
 import { LAST_SYNC_FAILED_KEY, LAST_SYNC_KEY } from "./ingest";
@@ -6,7 +6,7 @@ import { LAST_SYNC_FAILED_KEY, LAST_SYNC_KEY } from "./ingest";
 export interface NavSummary {
   /** Unwatched videos and shorts from feed channels — the Feed tab's count. */
   inbox: number;
-  /** Unwatched episodes and shorts from podcast channels (FEAT-14). */
+  /** Unwatched episodes from podcast channels (FEAT-14); never Shorts. */
   podcasts: number;
   /** Channels whose home is Podcasts; the tab shows once there's one. */
   podcastChannels: number;
@@ -36,7 +36,8 @@ export async function navSummary(db: Db): Promise<NavSummary> {
       .select({ section: channels.section, n: count() })
       .from(videos)
       .innerJoin(channels, eq(videos.channelId, channels.id))
-      .where(eq(videos.watched, false))
+      // Podcasts never count Shorts (see lib/feedVideos.ts).
+      .where(and(eq(videos.watched, false), or(eq(channels.section, "feed"), eq(videos.isShort, false))))
       .groupBy(channels.section),
     db.select({ n: count() }).from(channels).where(eq(channels.section, "podcasts")),
     db.select({ n: count() }).from(videoNotes),

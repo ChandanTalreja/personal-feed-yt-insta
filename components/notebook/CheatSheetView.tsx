@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import Markdown from "@/components/Markdown";
-import Button from "@/components/ui/Button";
+import Button, { buttonClass } from "@/components/ui/Button";
 import GeminiMark from "@/components/ui/GeminiMark";
 import Icon from "@/components/ui/Icon";
 import Spinner from "@/components/ui/Spinner";
@@ -60,6 +61,11 @@ export default function CheatSheetView({
         </div>
         <div className="flex gap-2">
           <CopyMarkdownButton text={() => sheetMarkdown(sheet, title, genre)} />
+          {/* Its own page (FEAT-16): this sheet written out by hand, for a PDF. */}
+          <Link href={`/notebook/handwritten?sheets=${sheet.id}`} className={buttonClass("secondary", "sm", "h-9")}>
+            <Icon name="pencil" size={14} />
+            Write it by hand
+          </Link>
           {/* The bin asks first, right here: a filled red Delete and a
               green Keep take its place. Red on hover, never yellow. */}
           {confirmDelete ? (

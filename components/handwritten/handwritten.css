@@ -1,0 +1,370 @@
+/* Handwritten cheat sheets (FEAT-16): the paper and its print rules.
+   The paper's colours, the ink and the hand arrive as CSS variables from
+   lib/handwritten/themes.ts (set by Paper.tsx); this file owns the geometry.
+   One rule holds it together: every line of writing is exactly --hw-gap
+   tall, so the words always sit on the printed lines. */
+
+.hw-paper {
+  --hw-gap: 34px;
+  --hw-pad-top: calc(var(--hw-gap) * 2);
+  --hw-scale: 1;
+  position: relative;
+  width: 100%;
+  max-width: 700px;
+  min-height: 920px;
+  margin: 0 auto;
+  padding: var(--hw-pad-top) 40px calc(var(--hw-gap) * 2) 96px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-sticker);
+  background-color: var(--hw-bg);
+  color: var(--hw-ink);
+  font-family: var(--hw-font), cursive;
+  font-size: calc(var(--hw-size) * var(--hw-scale));
+  line-height: var(--hw-gap);
+  /* Printed across several pages, each page gets its own padding and lines. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.hw-paper[data-pattern="lines"] {
+  background-image: linear-gradient(to bottom, transparent calc(var(--hw-gap) - 1px), var(--hw-rule) calc(var(--hw-gap) - 1px));
+  background-size: 100% var(--hw-gap);
+  background-position: 0 var(--hw-pad-top);
+}
+
+.hw-paper[data-pattern="lines"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 72px;
+  width: 1px;
+  background: var(--hw-margin);
+}
+
+.hw-paper[data-pattern="grid"] {
+  background-image:
+    linear-gradient(to bottom, transparent calc(var(--hw-gap) / 2 - 1px), var(--hw-rule) calc(var(--hw-gap) / 2 - 1px)),
+    linear-gradient(to right, transparent calc(var(--hw-gap) / 2 - 1px), var(--hw-rule) calc(var(--hw-gap) / 2 - 1px));
+  background-size: calc(var(--hw-gap) / 2) calc(var(--hw-gap) / 2);
+  background-position: 0 var(--hw-pad-top);
+}
+
+.hw-paper[data-pattern="dots"] {
+  background-image: radial-gradient(circle, var(--hw-rule) 1.3px, transparent 1.6px);
+  background-size: calc(var(--hw-gap) / 2) calc(var(--hw-gap) / 2);
+  background-position: calc(var(--hw-gap) / -4) calc(var(--hw-pad-top) - var(--hw-gap) / 4);
+}
+
+/* Index cards: no sheet, one card per question. */
+.hw-paper[data-pattern="cards"] {
+  max-width: 640px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: none;
+}
+
+.hw-card {
+  position: relative;
+  margin: 0 0 26px;
+  padding: 30px 28px 26px 30px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-sticker);
+  background-color: var(--hw-bg);
+  background-image: linear-gradient(to bottom, transparent calc(var(--hw-gap) - 1px), var(--hw-rule) calc(var(--hw-gap) - 1px));
+  background-size: 100% var(--hw-gap);
+  background-position: 0 30px;
+  break-inside: avoid;
+}
+
+.hw-card:nth-child(odd) {
+  transform: rotate(-0.5deg);
+}
+
+.hw-card:nth-child(even) {
+  transform: rotate(0.45deg);
+}
+
+/* The card's red line, under its question (or heading). */
+.hw-card .hw-q,
+.hw-card .hw-heading {
+  box-shadow: inset 0 -2px 0 var(--hw-margin);
+}
+
+/* --- The writing --- */
+
+.hw-sheet {
+  position: relative;
+  top: var(--hw-nudge);
+}
+
+.hw-heading {
+  min-height: calc(var(--hw-gap) * 2);
+  margin: 0 0 var(--hw-gap);
+  font-size: 1.55em;
+  font-weight: var(--hw-bold);
+  line-height: calc(var(--hw-gap) * 2);
+}
+
+.hw-card .hw-heading {
+  min-height: 0;
+  margin: 0;
+  font-size: 1.3em;
+  line-height: var(--hw-gap);
+}
+
+.hw-heading-text {
+  margin-left: -4px;
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+  outline: none;
+  cursor: text;
+}
+
+.hw-heading-text:hover {
+  background: rgb(255 208 43 / 0.25);
+}
+
+.hw-heading-text:focus {
+  background: rgb(255 208 43 / 0.4);
+}
+
+.hw-count {
+  font-size: 0.6em;
+  line-height: 0;
+  opacity: 0.7;
+}
+
+.hw-item {
+  margin: 0 0 var(--hw-gap);
+  break-inside: avoid;
+}
+
+.hw-q {
+  margin: 0;
+  font-weight: var(--hw-bold);
+}
+
+.hw-ans {
+  margin: 0;
+  padding-left: 1.3em;
+  text-indent: -0.75em;
+  font-weight: 400;
+}
+
+/* Every word is its own box, exactly one line tall and pinned to the line's
+   top, so no hand's tall letters can make a line taller than the paper's. */
+.hw-w,
+.hw-num {
+  display: inline-block;
+  vertical-align: top;
+  text-indent: 0;
+}
+
+.hw-num {
+  margin-right: 0.25em;
+}
+
+.hw-paper[data-marks="circle"] .hw-num {
+  margin: 0 0.55em 0 0.2em;
+}
+
+/* Above the marks Rough Notation draws, so a highlight sits behind the words. */
+.hw-qtext {
+  position: relative;
+  z-index: 1;
+}
+
+/* Upright and steady, so code reads clearly. */
+.hw-code {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+
+/* Smaller, but in a slot of exactly one line. */
+.hw-asked {
+  position: relative;
+  top: 0.35em;
+  display: inline-block;
+  vertical-align: top;
+  font-size: 0.7em;
+  font-weight: 400;
+  line-height: var(--hw-gap);
+  opacity: 0.62;
+  white-space: nowrap;
+}
+
+/* Rough Notation's drawing box is small; its strokes reach past it. */
+.hw-paper svg.rough-annotation {
+  overflow: visible;
+}
+
+/* --- Picker thumbnails: the same papers, small --- */
+
+.hw-thumb {
+  position: relative;
+  height: 46px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xs);
+  background-color: var(--hw-bg);
+}
+
+.hw-thumb-tall {
+  height: 58px;
+}
+
+.hw-thumb[data-pattern="lines"] {
+  background-image: linear-gradient(to bottom, transparent 8px, var(--hw-rule) 8px);
+  background-size: 100% 9px;
+  background-position: 0 4px;
+}
+
+.hw-thumb[data-pattern="lines"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 12px;
+  width: 1px;
+  background: var(--hw-margin);
+}
+
+.hw-thumb[data-pattern="grid"] {
+  background-image:
+    linear-gradient(to bottom, transparent 6px, var(--hw-rule) 6px),
+    linear-gradient(to right, transparent 6px, var(--hw-rule) 6px);
+  background-size: 7px 7px;
+}
+
+.hw-thumb[data-pattern="dots"] {
+  background-image: radial-gradient(circle, var(--hw-rule) 1px, transparent 1.3px);
+  background-size: 7px 7px;
+}
+
+.hw-thumb[data-pattern="cards"] {
+  background: var(--color-cream);
+}
+
+.hw-thumb[data-pattern="cards"]::before {
+  content: "";
+  position: absolute;
+  inset: 7px 9px 9px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  background-color: var(--hw-bg);
+  background-image: linear-gradient(to bottom, transparent 8px, var(--hw-rule) 8px);
+  background-size: 100% 9px;
+  background-position: 0 14px;
+  box-shadow: 2px 2px 0 var(--color-ink);
+  transform: rotate(-2deg);
+}
+
+@media (max-width: 600px) {
+  .hw-paper {
+    --hw-gap: 30px;
+    --hw-scale: 0.84;
+    min-height: 0;
+    padding: var(--hw-pad-top) 16px calc(var(--hw-gap) * 2) 52px;
+  }
+
+  .hw-paper[data-pattern="lines"]::before {
+    left: 36px;
+  }
+
+  .hw-card {
+    padding: 24px 18px 20px 20px;
+    background-position: 0 24px;
+  }
+}
+
+/* --- Save as PDF: only the paper, each sheet from a new A4 page --- */
+
+@media print {
+  @page {
+    size: A4;
+    /* No page margin: the paper is the whole page, and the browser has no
+       room for its date-and-address header. The paper's own padding (cloned
+       onto every page) gives the white space instead. */
+    margin: 0;
+  }
+
+  .hw-paper {
+    max-width: none;
+    min-height: 297mm;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .hw-paper[data-pattern="cards"] {
+    min-height: 0;
+    padding: 14mm 16mm;
+  }
+
+  .hw-card {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .hw-new-page {
+    break-before: page;
+  }
+
+  /* Rough Notation's strokes sit at fixed spots measured on screen; printed,
+     the words move, so the marks come from the words themselves instead
+     (printMarks.ts). `clone` gives every wrapped line its own stroke. */
+  .hw-paper svg.rough-annotation {
+    display: none;
+  }
+
+  .hw-paper[data-marks="highlight"] .hw-qtext,
+  .hw-paper[data-marks="underline"] .hw-qtext {
+    padding: 0 3px;
+    background-repeat: no-repeat;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  .hw-paper[data-marks="highlight"] .hw-qtext {
+    background-image: var(--hw-print-highlight);
+    background-size: 100% 0.95em;
+    background-position: 0 60%;
+  }
+
+  .hw-paper[data-marks="underline"] .hw-qtext {
+    background-image: var(--hw-print-underline);
+    background-size: 100% 6px;
+    background-position: 0 100%;
+  }
+
+  .hw-paper[data-marks="circle"] .hw-num {
+    position: relative;
+  }
+
+  .hw-paper[data-marks="circle"] .hw-num::after {
+    content: "";
+    position: absolute;
+    inset: 2px -8px -2px -8px;
+    background: var(--hw-print-circle) no-repeat center / 100% 100%;
+  }
+
+  /* After the last line of a sheet, the page is plain white, not the site's cream. */
+  body {
+    background: #fff;
+  }
+
+  .hw-heading-text:hover,
+  .hw-heading-text:focus {
+    background: none;
+  }
+}

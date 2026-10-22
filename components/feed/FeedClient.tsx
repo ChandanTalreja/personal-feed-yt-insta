@@ -441,7 +441,7 @@ export default function FeedClient({
           <PageTitle
             title={
               kind === "shorts"
-                ? podcasts ? "Podcast shorts" : "Shorts"
+                ? "Shorts"
                 : podcasts && view === "unwatched" ? "Podcasts" : VIEW_TITLES[view]
             }
             note={
@@ -462,15 +462,18 @@ export default function FeedClient({
               clearLabel="Clear filter"
               className="w-full sm:w-56"
             />
-            <SegmentedControl
-              label="Type"
-              value={kind}
-              onChange={setKind}
-              options={[
-                { value: "videos", label: "Videos" },
-                { value: "shorts", label: "Shorts" },
-              ]}
-            />
+            {/* Podcasts never bring Shorts, so it's always Videos there. */}
+            {!podcasts && (
+              <SegmentedControl
+                label="Type"
+                value={kind}
+                onChange={setKind}
+                options={[
+                  { value: "videos", label: "Videos" },
+                  { value: "shorts", label: "Shorts" },
+                ]}
+              />
+            )}
             {kind === "videos" && (
               <SegmentedControl
                 label="Video length"

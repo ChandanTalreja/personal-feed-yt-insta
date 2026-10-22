@@ -34,6 +34,7 @@ export function openingQuery(section: "feed" | "podcasts"): FeedQuery {
  * it was made, so the browser only trusts it while it's fresh.
  */
 export async function loadFirstScreen(db: Db, section: "feed" | "podcasts") {
+  const started = performance.now();
   const [feed, nav, channels, genres, suggestions, continued] = await Promise.all([
     listFeedVideos(db, openingQuery(section)),
     navSummary(db),
@@ -44,6 +45,9 @@ export async function loadFirstScreen(db: Db, section: "feed" | "podcasts") {
       ? listFeedVideos(db, { ...openingQuery(section), continueListening: true })
       : null,
   ]);
+  // One line per gathered first screen: how long the page's own data took
+  // (and proof of when it runs: on open and on navigation, not on prefetch).
+  console.log(`[first-screen] ${section} in ${Math.round(performance.now() - started)}ms`);
   return JSON.parse(
     JSON.stringify({
       renderedAt: Date.now(),

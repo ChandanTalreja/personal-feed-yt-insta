@@ -121,6 +121,8 @@ const DDL = [
   `ALTER TABLE channels ADD COLUMN IF NOT EXISTS section text NOT NULL DEFAULT 'feed'`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS chapters jsonb`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS chapters_source text`,
+  // Handwritten cheat sheets (FEAT-16): the heading you gave a sheet's page.
+  `ALTER TABLE cheat_sheets ADD COLUMN IF NOT EXISTS handwritten_title text`,
 ];
 
 // Short random tag for this server process. On Netlify the app runs on AWS

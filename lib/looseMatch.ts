@@ -14,6 +14,17 @@ export function loosePattern(term: string, flags = "gi"): RegExp | null {
   return new RegExp(escaped.join("[\\s\\-_]*"), flags);
 }
 
+/**
+ * The same loose pattern for Postgres (`column ~* pattern`), used by ⌘K
+ * (lib/search.ts). Every character that isn't a letter or digit is escaped,
+ * which Postgres reads as that character itself.
+ */
+export function looseSqlPattern(term: string): string | null {
+  const chars = [...looseKey(term)];
+  if (chars.length === 0) return null;
+  return chars.map((c) => c.replace(/[^\p{L}\p{N}]/u, "\\$&")).join("[[:space:]_-]*");
+}
+
 /** A test for loose matches of `term`; null when the term is empty. */
 export function looseMatcher(term: string): ((text: string) => boolean) | null {
   const pattern = loosePattern(term, "i"); // no "g": test() stays stateless

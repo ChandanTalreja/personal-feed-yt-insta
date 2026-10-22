@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import GeminiMark from "./ui/GeminiMark";
 import { Avatar, Thumb } from "./ui/Media";
-import { highlight } from "./ui/highlight";
+import { highlightLoose } from "./ui/highlight";
 import SearchField from "./ui/SearchField";
 import Spinner from "./ui/Spinner";
 import { formatDuration, timeAgo } from "@/lib/format";
@@ -145,9 +145,9 @@ export default function GlobalSearch() {
             <>
               <Avatar src={c.thumbnail} name={c.title} size={30} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{highlight(c.title, term)}</span>
+                <span className="block truncate text-sm font-semibold">{highlightLoose(c.title, term)}</span>
                 <span className="block truncate text-meta text-muted">
-                  {c.handle ? highlight(c.handle, term) : null}
+                  {c.handle ? highlightLoose(c.handle, term) : null}
                   {c.handle ? " · " : ""}
                   {c.videoCount} videos
                 </span>
@@ -173,7 +173,7 @@ export default function GlobalSearch() {
             <>
               <Thumb src={v.thumbnail} className="w-16 shrink-0 rounded-xs" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{highlight(v.title, term)}</span>
+                <span className="block truncate text-sm font-semibold">{highlightLoose(v.title, term)}</span>
                 <span className="block truncate text-meta text-muted">
                   {v.channelTitle} · {timeAgo(v.publishedAt)}
                   {v.durationSeconds > 0 && <> · <span className="font-mono">{formatDuration(v.durationSeconds)}</span></>}
@@ -203,7 +203,7 @@ export default function GlobalSearch() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">
-                  {highlight(`${c.query.charAt(0).toUpperCase()}${c.query.slice(1)}`, term)} cheat sheet
+                  {highlightLoose(`${c.query.charAt(0).toUpperCase()}${c.query.slice(1)}`, term)} cheat sheet
                 </span>
                 <span className="block truncate text-meta text-muted">
                   Notebook · {c.genreKey === "all" ? "All genres" : c.genreKey === "none" ? "No genre" : (c.genreName ?? "A removed genre")} ·{" "}
@@ -232,7 +232,7 @@ export default function GlobalSearch() {
                 {a.kind === "note" ? "NOTE" : <><GeminiMark size={11} />GEMINI</>}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="line-clamp-2 text-sm">{highlight(a.snippet, term)}</span>
+                <span className="line-clamp-2 text-sm">{highlightLoose(a.snippet, term)}</span>
                 <span className="mt-0.5 block truncate text-meta text-muted">
                   {a.prompt ? `Q: ${a.prompt}` : "My note"} · {a.videoTitle}
                 </span>

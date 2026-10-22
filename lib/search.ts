@@ -1,6 +1,6 @@
-import { and, desc, eq, ilike, isNotNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, isNotNull, or, sql, type SQLWrapper } from "drizzle-orm";
 import type { Db } from "./db";
-import { looseKey } from "./looseMatch";
+import { looseKey, looseMatcher, loosePattern, looseSqlPattern } from "./looseMatch";
 import { channels, cheatSheets, genres, videoNotes, videos } from "./schema";
 
 // Global search (the top bar's box): channels, videos, and your answers and
@@ -74,10 +74,10 @@ function likePattern(term: string): string {
  */
 function snippetAround(text: string, term: string): string {
   const flat = text.replace(/[#*`>_]+/g, "").replace(/\s+/g, " ").trim();
-  const at = flat.toLowerCase().indexOf(term.toLowerCase());
-  if (at === -1) return flat.slice(0, BEFORE + AFTER) + (flat.length > BEFORE + AFTER ? "…" : "");
-  const start = Math.max(0, at - BEFORE);
-  const end = Math.min(flat.length, at + term.length + AFTER);
+  const found = loosePattern(term, "i")?.exec(flat);
+  if (!found) return flat.slice(0, BEFORE + AFTER) + (flat.length > BEFORE + AFTER ? "…" : "");
+  const start = Math.max(0, found.index - BEFORE);
+  const end = Math.min(flat.length, found.index + found[0].length + AFTER);
   return (start > 0 ? "…" : "") + flat.slice(start, end) + (end < flat.length ? "…" : "");
 }
 
@@ -97,15 +97,20 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
 
   const like = likePattern(term);
   const lower = term.toLowerCase();
+  // "Contains", loosely: spaces, hyphens and underscores between letters
+  // don't matter, as in the Notebook ("hash map" finds "HashMap").
+  const loose = looseSqlPattern(term);
+  if (!loose) return empty;
+  const contains = (column: SQLWrapper) => sql`${column} ~* ${loose}`;
 
   // Channels: name or @handle contains it, or the name is close (typos).
   const channelMatch = or(
-    ilike(channels.title, like),
-    ilike(channels.handle, like),
+    contains(channels.title),
+    contains(channels.handle),
     sql`word_similarity(${lower}::text, lower(${channels.title})) > 0.4`
   );
   // Videos: the same fuzzy title match the feed's search box uses.
-  const videoMatch = sql`(${videos.title} ILIKE ${like} OR word_similarity(${lower}::text, lower(${videos.title})) > 0.4)`;
+  const videoMatch = sql`(${contains(videos.title)} OR word_similarity(${lower}::text, lower(${videos.title})) > 0.4)`;
 
   const channelQuery = db
     .select({
@@ -116,12 +121,12 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
       section: channels.section,
       videoCount: sql<number>`(SELECT count(*)::int FROM videos WHERE videos.channel_id = ${channels.id})`,
       // Exact containment beats a fuzzy match; then alphabetical.
-      exact: sql<boolean>`(${channels.title} ILIKE ${like} OR coalesce(${channels.handle}, '') ILIKE ${like})`,
+      exact: sql<boolean>`(${contains(channels.title)} OR coalesce(${contains(channels.handle)}, false))`,
     })
     .from(channels)
     .where(channelMatch)
     .orderBy(
-      sql`(${channels.title} ILIKE ${like} OR coalesce(${channels.handle}, '') ILIKE ${like}) DESC`,
+      sql`(${contains(channels.title)} OR coalesce(${contains(channels.handle)}, false)) DESC`,
       channels.title
     );
 
@@ -134,8 +139,8 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
     };
   }
 
-  const answerMatch = or(ilike(videoNotes.prompt, like), ilike(videoNotes.answer, like));
-  const noteMatch = and(isNotNull(videos.personalNote), ilike(videos.personalNote, like));
+  const answerMatch = or(contains(videoNotes.prompt), contains(videoNotes.answer));
+  const noteMatch = and(isNotNull(videos.personalNote), contains(videos.personalNote));
   // Cheat sheets: the topic as typed, or its loose form ("hashmap" finds
   // the "hash map" sheet).
   const sheetMatch = or(
@@ -163,7 +168,7 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
         .innerJoin(channels, eq(videos.channelId, channels.id))
         .where(videoMatch)
         // Titles that actually contain the words first, then the newest.
-        .orderBy(sql`(${videos.title} ILIKE ${like}) DESC`, desc(videos.publishedAt))
+        .orderBy(sql`${contains(videos.title)} DESC`, desc(videos.publishedAt))
         .limit(LIMIT.videos),
       db.select({ n: sql<number>`count(*)::int` }).from(videos).where(videoMatch),
       db
@@ -209,6 +214,7 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
         .limit(LIMIT.sheets),
     ]);
 
+  const matches = looseMatcher(term) ?? (() => false);
   const answers: SearchResults["answers"] = [
     ...answerRows.map((a) => ({
       kind: "answer" as const,
@@ -217,7 +223,7 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
       videoTitle: a.videoTitle,
       prompt: a.prompt,
       // A question that matches is the snippet; otherwise the answer's line.
-      snippet: a.answer.toLowerCase().includes(lower) ? snippetAround(a.answer, term) : snippetAround(a.prompt, term),
+      snippet: matches(a.answer) ? snippetAround(a.answer, term) : snippetAround(a.prompt, term),
       at: a.createdAt,
     })),
     ...noteRows.map((n) => ({

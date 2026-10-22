@@ -12,6 +12,9 @@ export default async function Podcasts() {
   // Audit B1: the first screen comes inside the page (see app/page.tsx).
   const first = await getDb()
     .then((db) => loadFirstScreen(db, "podcasts"))
-    .catch(() => null);
+    .catch((err) => {
+      console.error(`[first-screen] podcasts failed, the screen will fetch it: ${(err as Error).message.split("\n")[0]}`);
+      return null;
+    });
   return <FeedClient section="podcasts" first={first} />;
 }

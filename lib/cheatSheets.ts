@@ -91,6 +91,24 @@ export async function makeCheatSheet(db: Db, rawQuery: string, genreKey: string)
   return row;
 }
 
+const MAX_HANDWRITTEN_TITLE = 80;
+
+/**
+ * The heading on a sheet's handwritten page (FEAT-16). Empty clears it, so
+ * the page goes back to "<Topic> questions". Returns false if the sheet is gone.
+ */
+export async function setHandwrittenTitle(db: Db, id: number, raw: unknown): Promise<boolean> {
+  if (raw != null && typeof raw !== "string") throw new CheatSheetError("The heading must be text.");
+  const title = (raw ?? "").trim().replace(/\s+/g, " ");
+  if (title.length > MAX_HANDWRITTEN_TITLE) throw new CheatSheetError("That heading is too long.");
+  const rows = await db
+    .update(cheatSheets)
+    .set({ handwrittenTitle: title || null })
+    .where(eq(cheatSheets.id, id))
+    .returning({ id: cheatSheets.id });
+  return rows.length > 0;
+}
+
 export async function deleteCheatSheet(db: Db, id: number): Promise<boolean> {
   const rows = await db.delete(cheatSheets).where(eq(cheatSheets.id, id)).returning({ id: cheatSheets.id });
   return rows.length > 0;

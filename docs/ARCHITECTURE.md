@@ -89,8 +89,10 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
   `components/feed/` (feed, sidebar, card, study panel, track menu, and
   `useFeedData` — the loaded pages plus the counts kept in step by ✓,
   bookmark and progress), `components/notebook/`, `components/tracks/`,
-  `components/channels/`. A folder's `model.ts` holds its types and pure
-  rules (e.g. a channel's "quiet" status, a track's summary line).
+  `components/channels/`, `components/handwritten/` (FEAT-16; its pure
+  parts are in `lib/handwritten/`, since the server page uses them too). A
+  folder's `model.ts` holds its types and pure rules (e.g. a channel's
+  "quiet" status, a track's summary line).
 - **Shared** at the top of `components/`: `TopBar` (with `GlobalSearch`),
   `PlayerModal`, `NoteEditor`, `CopyButton`, `Markdown`, `types.ts` and
   `useAsk` (the Ask flow used by the study panel and the Notebook).
@@ -203,6 +205,15 @@ restart to apply.
 3. **Shorts detection**: for videos ≤ ~3 min, one HEAD request to
    `youtube.com/shorts/<id>` — 200 = Short, redirect = regular. Stored once
    in `is_short`.
+   **Podcast channels never bring Shorts** (PERF-08): instead of the uploads
+   list they read YouTube's unofficial `UULF…` (long videos only) then
+   `UULV…` (past live streams; 404 when the channel has none) lists, so
+   Shorts are never listed or checked. A new Short can sit in `UULF` for a
+   day, so the check still runs on anything ≤ ~3 min there and Shorts are
+   dropped, not stored. If `UULF` ever 404s, the channel falls back to the
+   uploads list (dropping Shorts). The backfill cursor then names its list
+   (`LF:` / `LV:` / `UU:` + YouTube's bookmark). Podcasts queries also hide
+   stored Shorts (a channel moved over from the Feed).
 4. Live streams: upcoming/in-progress broadcasts are skipped (picked up as
    VODs on a later run); finished streams get `is_live=true` and a STREAM
    badge.
@@ -300,6 +311,16 @@ questions with their source videos (numbered 1…n in the prompt, checked on
 return). Saved in `cheat_sheets` (unique per loose topic + genre choice);
 reopening costs nothing. Only lines are sent, never whole notes, so a sheet
 is ~1–3k tokens at any notebook size (capped at 400 lines / 40k chars).
+
+**Handwritten cheat sheets (FEAT-16, 2026-10-22):** no Gemini, no new data
+beyond one column (`cheat_sheets.handwritten_title`, the page's heading).
+`/notebook/handwritten?sheets=7,3,1|all` writes the picked sheets out on
+paper and prints them to PDF with the browser's own Save as PDF. Its own
+module: `lib/handwritten/document.ts` (what's written, pure),
+`lib/handwritten/themes.ts` (papers, inks, hands, marks, presets as data),
+`components/handwritten/` (Studio page, Paper, Tray, the marks: Rough
+Notation on screen, CSS strokes in print, and the A4 print rules). Fonts load
+on that page only.
 
 **Free-tier facts learned the hard way:** TPM (250K) is a per-minute *speed
 limit*, not a budget — the AI Studio dashboard shows the 28-day *peak*, not

@@ -70,6 +70,8 @@ export interface CheatSheetItem {
   videoCount: number;
   linesHash: string;
   model: string | null;
+  /** The heading on its handwritten page (FEAT-16), when renamed. */
+  handwrittenTitle: string | null;
   createdAt: string;
   updatedAt: string;
 }

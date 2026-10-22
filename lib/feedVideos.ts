@@ -65,7 +65,12 @@ export function parseFeedQuery(q: URLSearchParams): FeedQuery {
 
 export async function listFeedVideos(db: Db, query: FeedQuery) {
   const { kind, watched, genreId, channelIds, page, search, length } = query;
-  const sectionC = eq(channels.section, query.section);
+  // Podcasts never show Shorts, not even those of a channel moved over from
+  // the Feed (they come back if it moves back).
+  const sectionC =
+    query.section === "podcasts"
+      ? and(eq(channels.section, "podcasts"), eq(videos.isShort, false))
+      : eq(channels.section, "feed");
 
   // Each filter is kept as its own piece, so the sidebar counts can drop
   // exactly one of them (see `facets` below).

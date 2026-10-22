@@ -170,6 +170,8 @@ export const cheatSheets = pgTable(
     /** Fingerprint of the excerpts used, to notice new ones later. */
     linesHash: text("lines_hash").notNull(),
     model: text("model"),
+    /** The heading on its handwritten page (FEAT-16); null = "<Topic> questions". */
+    handwrittenTitle: text("handwritten_title"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

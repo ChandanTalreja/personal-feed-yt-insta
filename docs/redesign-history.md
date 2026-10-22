@@ -1797,6 +1797,52 @@ screen (`document.fullscreenElement` stayed null after a real click); it's
 the standard API, for the owner to try in Chrome. The test episode's resume
 point was reset afterwards.
 
+#### REF-15 · ⌘K search ignores spaces and hyphens too — ✅ done · 2026-10-22, not yet deployed
+
+**The problem.** REF-13 made the Notebook's search loose ("hash map" finds
+"HashMap"), but ⌘K still matched exactly. Measured on the local database:
+"hash map" found 4 answers and notes, "hashmap" 10, "hash-map" 1. Same
+notes, three different answers depending on how you typed it.
+
+**The change.** ⌘K uses the Notebook's rule for channel names and handles,
+video titles, Ask answers and personal notes (cheat sheets were already
+loose): spaces, hyphens and underscores between letters don't matter.
+Results light up the loose match ("hashmap" marks "Hash Map").
+
+**How it works.** `looseSqlPattern` in `lib/looseMatch.ts` builds the same
+pattern as the browser's `loosePattern`, for Postgres:
+`h[[:space:]_-]*a[[:space:]_-]*s…`, every non-letter escaped. `lib/search.ts`
+matches with `column ~* pattern` where it used `ILIKE '%term%'`; the loose
+form contains every exact match, so the "contains it first" ranking just
+uses it too. The snippet around a match finds it with the same loose
+pattern, and `GlobalSearch` highlights with `highlightLoose` (REF-11).
+
+**Key code.**
+```ts
+// lib/looseMatch.ts
+export function looseSqlPattern(term: string): string | null {
+  const chars = [...looseKey(term)];
+  if (chars.length === 0) return null;
+  return chars.map((c) => c.replace(/[^\p{L}\p{N}]/u, "\\$&")).join("[[:space:]_-]*");
+}
+// lib/search.ts
+const contains = (column: SQLWrapper) => sql`${column} ~* ${loose}`;
+```
+
+**Alternatives considered.** *Compare squashed text* (`replace(title, ' ',
+'')`): needs the same squash on every column and loses where the match is,
+for the snippet. *Leave the typo-tolerant title match out*: unchanged; it's
+why video counts still differ a little ("hash map" also fuzzily matches
+titles with "map"), but every loose match is in all three.
+
+**Files.** `lib/looseMatch.ts`, `lib/search.ts`, `components/GlobalSearch.tsx`.
+
+**Verified** (local). Answers and notes: "hash map" / "hashmap" / "hash-map"
+4 / 10 / 1 → **12 / 12 / 12**. "linkedlist" now lists "Detect a Loop in
+Linked List" first. Unchanged: "react", "50%" (the % is still literal),
+"c++". ⌘K showed marks on "HashMap", "Hash Map" and "hash map" for
+"hashmap"; no console errors. Typecheck and lint clean.
+
 ### FEAT — new features
 
 #### FEAT-01 · Global search — ✅ done · 2026-10-17
@@ -2802,6 +2848,120 @@ exercised yet:** the "new matching lines since → Update" path (needs a note
 to change) and deleting a real sheet from the screen; the "hash map" sheet
 was kept for the owner.
 
+#### FEAT-16 · Write it by hand: cheat sheets as a handwritten PDF — ✅ built · 2026-10-22, not yet deployed
+
+**The problem.** A cheat sheet could only be copied as Markdown. The owner
+wanted to revise from paper: the questions written out by hand on ruled
+paper, blue or black ink, each question's answer when Gemini gave one,
+"(asked in 3 videos)" instead of video names, a heading of their own, and a
+PDF. Later in the design: several or **all** sheets in one PDF, each with its
+own heading. First mock-ups were rejected as "functional but cheap" (browser
+dropdowns, a checkbox, a plain text underline) and the owner asked for real
+research, a separate maintainable module, and the site's own look.
+
+**The change.** A **Write it by hand** button on every cheat sheet opens its
+own page, `/notebook/handwritten?sheets=…`: a desk with the paper on it and a
+tray of choices beside it, nothing squeezed into the Notebook.
+- **Start from** three presets: School notebook (the default: ruled, blue
+  pen, yellow highlighter), Engineer's pad (grid, black ink, circled
+  numbers), Revision cards (one index card per question).
+- **Sheets:** "All sheets" or any mix; each sheet is its own page, numbering
+  restarts at 1. The pick lives in the address (`?sheets=7,3,1`, `?sheets=all`).
+- **Paper** (ruled, grid, dotted, index cards), **Ink** (blue pen, black
+  ink, pencil), **Hand** (Caveat, Kalam, Architect, Nanum Pen), **Marks**
+  (highlighter, underline, circle, none), all as tiles you can see.
+- **The heading:** click it and type ("HashMap questions"); saved with the
+  sheet. Emptied, it goes back to "<Topic> questions" (short topics in
+  capitals: "SQL questions").
+- **Save as PDF** (the yellow sticker button) prints only the paper, every
+  sheet from a new A4 page.
+
+**How it works.** Its own module, in four parts that change for different
+reasons:
+
+| Part | File | Changes when… |
+|---|---|---|
+| What gets written | `lib/handwritten/document.ts` (pure) | the content rules change |
+| How it looks, as data | `lib/handwritten/themes.ts` | a paper, ink, hand or preset is added |
+| The paper | `components/handwritten/Paper.tsx` + `handwritten.css` | the layout changes |
+| Marks | `useRoughMarks.ts` (screen), `printMarks.ts` (print) | the marks are drawn differently |
+
+`Studio.tsx` is the page (desk, tray, rename, Save as PDF), `Tray.tsx` the
+pickers, `useHandwrittenStyle.ts` remembers your choices in the browser
+(useSyncExternalStore, so the server's default never mismatches),
+`fonts.ts` loads the four hands with next/font, on this page only.
+- **The lines always line up.** Every written line is exactly one ruled line
+  tall (`--hw-gap`, 34px; 30px on phones): each word is its own box pinned to
+  the top of its line, and the small "(asked in …)" gets a slot of exactly
+  one line. Without that, a smaller font or a hand with tall letters made a
+  line a few pixels taller and everything below drifted off the paper's lines.
+- **The hand pass.** Each word gets a slight tilt, bounce and ink weight,
+  computed from the word itself (the same on every render and in the PDF).
+  Code-ish words (`@EnableAutoConfiguration`, `application.properties`,
+  `ConcurrentHashMap`) stay upright and steady.
+- **Marks, twice.** On screen, Rough Notation (MIT, ~4 KB, loaded only on this
+  page) draws them with a short draw-in animation. It places strokes at
+  fixed positions measured once, and the first PDF showed them in the wrong
+  places: printed, the page is a different width and breaks into A4 pages,
+  so the words move. For print, each mark is a hand-drawn SVG stroke in the
+  words' own background (`box-decoration-break: clone`, so every wrapped line
+  gets its own), built from the ink colour in `printMarks.ts`.
+- **Print.** `@page { size: A4; margin: 0 }` (no room for the browser's
+  date-and-address header), the paper's padding cloned onto every page so a
+  long sheet's second page starts with the same margin and lines,
+  `break-before: page` per sheet, `break-inside: avoid` per question.
+- **The heading** is a new column, `cheat_sheets.handwritten_title`
+  (PATCH `/api/cheat-sheets/:id`), added on the next cold start by the
+  schema list (PERF-05). After saving, the page refreshes its cached copy
+  (PERF-03 keeps visited pages 5 minutes).
+
+**Key code.**
+```ts
+// lib/handwritten/themes.ts: a new paper is one entry.
+export const PAPERS: Paper[] = [
+  { id: "ruled", name: "Ruled", pattern: "lines", background: "#fffef8", rule: "#c9d6ec", margin: "#e7a7b0" },
+  ...
+];
+```
+```css
+/* handwritten.css: no hand can make a line taller than the paper's line. */
+.hw-w, .hw-num { display: inline-block; vertical-align: top; text-indent: 0; }
+```
+
+**Alternatives considered.** *Drawing boards (tldraw, Excalidraw, draw.io,
+js-draw)*: for drawing by hand, not writing text for you. *@react-pdf/renderer*
+(one-click download): its own layout engine, so every page would be drawn
+twice (screen and PDF) and drift apart. *Paged.js*: real A4 pages in the
+preview; heavier, a possible later upgrade. *Neural handwriting
+(calligrapher.ai's model)*: megabytes and slow for a whole sheet.
+*Excalifont* and *the owner's own handwriting (Calligraphr)*: offered,
+declined for now; either is one more entry in `HANDS`. *Tegaki (the page
+writing itself)*: possible later.
+
+**Files.** New: `lib/handwritten/document.ts`, `lib/handwritten/themes.ts`,
+`components/handwritten/` (`Studio.tsx`, `Paper.tsx`, `Tray.tsx`,
+`useRoughMarks.ts`, `printMarks.ts`, `useHandwrittenStyle.ts`, `fonts.ts`,
+`handwritten.css`), `app/notebook/handwritten/page.tsx`. Changed:
+`lib/db.ts`, `lib/schema.ts`, `lib/cheatSheets.ts`,
+`app/api/cheat-sheets/[id]/route.ts`, `components/types.ts`,
+`components/notebook/CheatSheetView.tsx`, `package.json` (rough-notation 0.5.1).
+
+**Verified** (local, the 7 real cheat sheets). Designed first as a preview
+page with the real sheets (Handwritten Sheet Studio, an artifact), approved
+by the owner. In the app: the button opens `?sheets=3`; picking Garbage and
+SQL gave 3 pages and `?sheets=7,3,2`; All gave 7 pages, 47 questions, 47
+marks and `?sheets=all`; a sheet after All started a fresh pick. Every
+paper × hand (16 combinations): **0 of 55 lines** off the printed lines.
+Renaming "Hashmap questions" → "HashMap questions" saved and survived a
+reload; emptying it went back to the default and stored nothing (the owner's
+data as before). **Printed with Chrome** (`--print-to-pdf`, its header
+left on): 9 A4 pages, each sheet from a new page, Parallel and HashMap
+running onto a second page with the same margin and lines, the hand font
+embedded, no header or footer, highlights on every question including
+wrapped lines and across the page break. Circles and underlines checked with
+the print rules applied on screen. Phone (375px): no sideways scroll, lines
+aligned. Typecheck and lint pass.
+
 ### CLEAN — code cleanup (Phase 10)
 
 The rule for all of Phase 10: reorganise, don't change behaviour. Two
@@ -3385,9 +3545,123 @@ byte-identical after each step. The Feed's and Podcasts' HTML contain 24
 cards and 24 thumbnail links. A fresh tab: **0 data requests** on open, no
 console errors or hydration warnings. Afterwards: Shorts, back to Videos
 and Load more each fetched as before; Notebook → Feed (a reused page)
-fetched as before. **To measure after deploying**, the same way as the
-baseline: cold and warm opens, and Netlify's cold starts per open (target:
-one).
+fetched as before.
+
+**Measured live after deploying (2026-10-22, warm, same method as the
+baseline).** Feed: page with its data at 0.9 to 1.1 s, cards on screen at
+1.1 to 1.2 s, **0 data requests** (before: videos at 1.2 to 1.6 s, and the
+sidebar or counts at 3.9 to 4.2 s after 5 requests). Podcasts: 0.75 s.
+Everything (cards, sidebar, counts) now arrives together. **Cold (13:35 UTC,
+a fresh tab after 2+ hours idle):** the page took 6.9 s server-side with the
+cards inside, then 0 data requests: **1 cold start instead of 6**, cards at
+about 7 s instead of 8.2 s. Of the 6.9 s, ~3.3 s is the function booting,
+~1.3 s loading the page code, ~1.0 s Neon waking up, ~1.3 s the first screen
+and render. B1 removed the second wave; what's left is one boot plus Neon's
+wake-up (details in AuditFollowUp §5).
+**Prefetch researched (2026-10-22): no double work.** Each open also makes
+Next.js request the other top-bar pages in the background (`/?_rsc=…`,
+`/podcasts?_rsc=…`, `/notebook`, `/tracks`, `/channels`; two small requests
+each). The owner asked whether B1 now does the same work twice. Findings:
+- Next.js 16's docs: without Cache Components, a **dynamic** page is not
+  prefetched unless it has a `loading.js`; only its route "map" is. Every
+  TUBEBOX page is dynamic and has none.
+- The background replies, read in the browser: ~0.5 to 1 KB each, holding
+  only the page's title, meta tags and its place in the route tree, no
+  videos.
+- Counted on a local production build with a `[first-screen]` log line per
+  gathered first screen: opening Channels caused 9 background requests
+  (the Feed and Podcasts twice each) and **0** first-screen runs. Clicking
+  Podcasts: 1 run (25 ms), 0 data requests. Clicking Feed: 1 run, 0
+  requests. Podcasts again within 5 min: the page reused from memory (0
+  runs), and the screen refreshed its data (6 requests), as it did before
+  B1.
+So the queries run once per page you actually open, never in the
+background. The `[first-screen]` line stays (one line per gather, with its
+time; a failure logs its first line and the screen fetches instead), so
+Netlify's logs show B1's cost and cold timing.
+
+#### PERF-08 · Podcasts never bring Shorts — ✅ built · 2026-10-22, not yet deployed
+
+**The problem.** A podcast channel's Shorts are clips of its episodes: the
+owner doesn't want them on Podcasts, and they made adding a channel slow.
+On 2026-10-22 the owner added six podcast channels live. Alex Hormozi took
+**20 requests and 2 min 45 s** (each request 6.5 to 11.7 s): his channel has
+5,813 uploads and **5,256 of them are Shorts**, all read page by page only
+to be set aside. Timed per page of 50: listing 0.4 s, details 0.2 s, the
+Shorts check (one request to `youtube.com/shorts/<id>` per video under
+~3 min) **2 to 2.4 s**. On a Shorts-heavy channel that's 50 checks a page.
+
+**The change.** Podcast channels read two other lists instead of the full
+uploads list, so their Shorts are never listed, checked or stored: when
+adding, backfilling, and in the 6-hourly sync. The Podcasts page lost its
+Videos / Shorts switch. The Feed is unchanged, Shorts and all (the owner's
+call: "only podcasts").
+
+**How it works.** Beside its uploads list (`UU…`), every channel has lists
+YouTube keeps for its own channel tabs, named by swapping the prefix:
+`UULF…` holds only the long videos and `UULV…` only past live streams.
+Tested live before building:
+
+| Channel | All uploads (`UU`) | Long (`UULF`) | Shorts (`UUSH`) | Live (`UULV`) |
+|---|---|---|---|---|
+| Alex Hormozi | 5,813 | 526 | 5,256 | 32 |
+| Andrew Huberman | 541 | 451 | 90 | none (404) |
+
+Both lists are newest first, like the uploads list, so the "stop at the
+backfill window" rule still works. A podcast channel reads its long list,
+then its live list. The backfill cursor names the list (`LF:<bookmark>`,
+`LV:` to start the live list), so a request cut short by the time budget
+carries on in the right list; a feed channel's cursor stays YouTube's
+bookmark alone. Edge cases:
+- *No live list* (most channels): YouTube answers 404, read as "nothing
+  more".
+- *A brand-new Short in the long list*: a 45 s Short posted the day before
+  was still there, so YouTube files new uploads late. Anything under ~3 min
+  in the long list still gets the Shorts check and is left out if it is one
+  (about 1 check a page instead of 50).
+- *The lists are unofficial*: if the long list ever 404s, the channel reads
+  its uploads list instead and leaves out the Shorts it finds (today's
+  speed, same result).
+- *A channel moved from the Feed to Podcasts* keeps its stored Shorts, but
+  Podcasts hides them (list, counts, Watch later, the top bar's number);
+  they show again if it moves back.
+
+**Key code.**
+```ts
+// lib/ingest.ts, backfillChannel: a podcast channel walks LF, then LV.
+reply = await listUploadsPage(playlistOf(channel.uploadsPlaylistId, list), since, token);
+...
+added += await storePage(db, channel.id, reply.ids, podcasts); // drops Shorts
+if (reply.next) token = reply.next;
+else if (list === "LF") { list = "LV"; token = undefined; }
+else break;
+
+// lib/feedVideos.ts: Podcasts never show Shorts.
+const sectionC = query.section === "podcasts"
+  ? and(eq(channels.section, "podcasts"), eq(videos.isShort, false))
+  : eq(channels.section, "feed");
+```
+
+**Alternatives considered.** *Drop anything under 3 min without checking*:
+still lists every Short (Hormozi: ~117 pages for 5,813 uploads), and some
+real episodes are short. *Skip Shorts in the Feed too, or a per-channel
+switch*: offered; the owner keeps the Feed as it is. *Delete the podcast
+Shorts already stored*: not needed, the owner deletes and re-adds the six
+podcast channels after deploying (deleting a channel deletes its videos).
+
+**Files.** `lib/youtube.ts` (`longVideosList`, `liveStreamsList`,
+`isNotFound`), `lib/ingest.ts` (`backfillChannel` lists and cursor,
+`storePage` drops Shorts), `lib/feedVideos.ts`, `lib/nav.ts`,
+`components/feed/FeedClient.tsx`.
+
+**Verified** (local, real YouTube). Alex Hormozi as a podcast, 5 years:
+**8.7 s in 2 requests** (live: 2 min 45 s in 20), 414 episodes including 35
+live streams or premieres, **0 Shorts**. Huberman, 1 year: no live list
+(404 handled), 104 episodes in 1 request, 2.3 s, 0 Shorts. A feed channel's
+backfill still read its uploads list and kept its 85 Shorts. Podcasts page:
+no Shorts switch; Feed: switch still there. Typecheck and lint clean. Test
+channels deleted afterwards. **After deploying:** the owner deletes and
+re-adds the six podcast channels.
 
 
 ### FIX — problems found in use

@@ -12,6 +12,9 @@ export default async function Home() {
   // the page still opens and the screen fetches its data as before.
   const first = await getDb()
     .then((db) => loadFirstScreen(db, "feed"))
-    .catch(() => null);
+    .catch((err) => {
+      console.error(`[first-screen] feed failed, the screen will fetch it: ${(err as Error).message.split("\n")[0]}`);
+      return null;
+    });
   return <FeedClient first={first} />;
 }

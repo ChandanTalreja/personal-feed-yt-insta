@@ -1,7 +1,14 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./db";
 import { appMeta, channels, videos, type Channel } from "./schema";
-import { getVideoDetails, isShortVideo, listUploadsPage } from "./youtube";
+import {
+  getVideoDetails,
+  isNotFound,
+  isShortVideo,
+  listUploadsPage,
+  liveStreamsList,
+  longVideosList,
+} from "./youtube";
 
 /** Deepest window the add-channel picker offers: 5 years. A caller-supplied
  *  window is clamped to this so a backfill can't walk a channel's entire
@@ -32,13 +39,14 @@ const MAX_PAGES_UNBUDGETED = 20;
 
 /**
  * Stores one page of upload ids: skips the ones we already have, fetches
- * details for the rest, works out which are shorts, and inserts them.
- * Returns how many were added.
+ * details for the rest, works out which are shorts, and inserts them
+ * (leaving the shorts out with `dropShorts`). Returns how many were added.
  */
 async function storePage(
   db: Db,
   channelId: number,
-  ids: string[]
+  ids: string[],
+  dropShorts: boolean
 ): Promise<number> {
   if (ids.length === 0) return 0;
   const existing = await db
@@ -53,7 +61,7 @@ async function storePage(
   const shortFlags = await Promise.all(
     details.map((d) => isShortVideo(d.ytVideoId, d.durationSeconds, d.isLive))
   );
-  const rows = details.map((d, i) => ({
+  const all = details.map((d, i) => ({
     ytVideoId: d.ytVideoId,
     channelId,
     title: d.title,
@@ -65,6 +73,7 @@ async function storePage(
     chapters: d.chapters,
     chaptersSource: d.chapters.length ? "youtube" : null,
   }));
+  const rows = dropShorts ? all.filter((r) => !r.isShort) : all;
   if (rows.length > 0) {
     await db.insert(videos).values(rows).onConflictDoNothing();
   }
@@ -76,6 +85,33 @@ interface BackfillStep {
   added: number;
   /** Where to carry on (YouTube's page bookmark), or null when finished. */
   cursor: string | null;
+}
+
+/**
+ * The lists a channel is read from. A feed channel: its uploads ("UU").
+ * Podcasts never bring Shorts: a podcast channel reads its long videos
+ * ("LF"), then its past live streams ("LV"), so its Shorts are never
+ * listed, checked or stored. Alex Hormozi: 5,813 uploads, 5,256 of them
+ * Shorts; adding him took 20 requests and 2 min 45 s.
+ */
+type UploadList = "UU" | "LF" | "LV";
+
+function playlistOf(uploadsPlaylistId: string, list: UploadList): string {
+  if (list === "LF") return longVideosList(uploadsPlaylistId);
+  if (list === "LV") return liveStreamsList(uploadsPlaylistId);
+  return uploadsPlaylistId;
+}
+
+/** A podcast channel's cursor names its list too ("LV:<bookmark>"); a feed
+ *  channel's is YouTube's bookmark alone, as before. */
+function readCursor(cursor: string | null | undefined, podcasts: boolean) {
+  if (!podcasts) return { list: "UU" as UploadList, token: cursor ?? undefined };
+  const m = cursor?.match(/^(UU|LF|LV):(.*)$/);
+  // No cursor (or one from before the channel moved to Podcasts): start at
+  // the top. Already-stored videos are skipped, so that's harmless.
+  return m
+    ? { list: m[1] as UploadList, token: m[2] || undefined }
+    : { list: "LF" as UploadList, token: undefined };
 }
 
 /**
@@ -92,21 +128,41 @@ interface BackfillStep {
  */
 export async function backfillChannel(
   db: Db,
-  channel: Pick<Channel, "id" | "uploadsPlaylistId">,
+  channel: Pick<Channel, "id" | "uploadsPlaylistId" | "section">,
   since: Date,
   opts: { cursor?: string | null; deadline?: number } = {}
 ): Promise<BackfillStep> {
-  let cursor: string | undefined = opts.cursor ?? undefined;
+  const podcasts = channel.section === "podcasts";
+  let { list, token } = readCursor(opts.cursor, podcasts);
   let added = 0;
   for (let page = 0; ; page++) {
     if (opts.deadline == null && page >= MAX_PAGES_UNBUDGETED) break;
     if (opts.deadline != null && page > 0 && Date.now() > opts.deadline) {
-      return { added, cursor: cursor ?? null };
+      return { added, cursor: podcasts ? `${list}:${token ?? ""}` : (token ?? null) };
     }
-    const { ids, next } = await listUploadsPage(channel.uploadsPlaylistId, since, cursor);
-    added += await storePage(db, channel.id, ids);
-    if (!next) break;
-    cursor = next;
+    let reply: { ids: string[]; next: string | null };
+    try {
+      reply = await listUploadsPage(playlistOf(channel.uploadsPlaylistId, list), since, token);
+    } catch (err) {
+      if (!podcasts || list === "UU" || !isNotFound(err)) throw err;
+      // No live streams: nothing more to read. No long list: YouTube has
+      // dropped these lists, so read the uploads list and leave the Shorts.
+      if (list === "LV") break;
+      list = "UU";
+      token = undefined;
+      continue;
+    }
+    // A brand-new Short can sit in the long list for a day: still checked
+    // (only the few under ~3 min are) and left out.
+    added += await storePage(db, channel.id, reply.ids, podcasts);
+    if (reply.next) {
+      token = reply.next;
+    } else if (list === "LF") {
+      list = "LV";
+      token = undefined;
+    } else {
+      break;
+    }
   }
   return { added, cursor: null };
 }
@@ -118,7 +174,7 @@ export async function backfillChannel(
  */
 async function ingestChannel(
   db: Db,
-  channel: Pick<Channel, "id" | "uploadsPlaylistId">,
+  channel: Pick<Channel, "id" | "uploadsPlaylistId" | "section">,
   since: Date
 ): Promise<number> {
   return (await backfillChannel(db, channel, since)).added;
