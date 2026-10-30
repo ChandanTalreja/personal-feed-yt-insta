@@ -123,6 +123,16 @@ const DDL = [
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS chapters_source text`,
   // Handwritten cheat sheets (FEAT-16): the heading you gave a sheet's page.
   `ALTER TABLE cheat_sheets ADD COLUMN IF NOT EXISTS handwritten_title text`,
+  // Sticky notes (FEAT-17): notes that belong to no video.
+  `CREATE TABLE IF NOT EXISTS sticky_notes (
+    id serial PRIMARY KEY,
+    body text NOT NULL DEFAULT '',
+    color text NOT NULL DEFAULT 'yellow',
+    handwritten boolean NOT NULL DEFAULT false,
+    pinned boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
 ];
 
 // Short random tag for this server process. On Netlify the app runs on AWS

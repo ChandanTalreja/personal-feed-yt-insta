@@ -122,6 +122,52 @@ export async function listTracks(
   });
 }
 
+/**
+ * The Feed's "Pick up where you left off" (FEAT-12): the next unwatched
+ * video of the track you played most recently (if none has been played
+ * yet, the newest track), and its place in the track. Null when there are
+ * no tracks or every one is finished. One query; the choosing is in JS,
+ * as in listTracks.
+ */
+export async function nextTrackStep(db: Db) {
+  const rows = await db
+    .select({
+      ...feedVideoColumns,
+      trackId: tracks.id,
+      trackName: tracks.name,
+      trackCreatedAt: tracks.createdAt,
+      playedAt: videos.lastPlayedAt,
+    })
+    .from(trackVideos)
+    .innerJoin(tracks, eq(trackVideos.trackId, tracks.id))
+    .innerJoin(videos, eq(trackVideos.videoId, videos.id))
+    .innerJoin(channels, eq(videos.channelId, channels.id))
+    .orderBy(asc(trackVideos.position));
+
+  const byTrack = new Map<number, typeof rows>();
+  for (const row of rows) {
+    const items = byTrack.get(row.trackId) ?? [];
+    items.push(row);
+    byTrack.set(row.trackId, items);
+  }
+
+  let best: { items: typeof rows; index: number; played: number; created: number } | null = null;
+  for (const items of byTrack.values()) {
+    const index = items.findIndex((v) => !v.watched);
+    if (index < 0) continue;
+    const played = Math.max(0, ...items.map((v) => v.playedAt?.getTime() ?? 0));
+    const created = items[0].trackCreatedAt.getTime();
+    if (!best || played > best.played || (played === best.played && created > best.created)) {
+      best = { items, index, played, created };
+    }
+  }
+  if (!best) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { trackId, trackName, trackCreatedAt, playedAt, ...video } = best.items[best.index];
+  return { trackId, trackName, step: best.index + 1, count: best.items.length, video };
+}
+
 /** One track with its videos in order (FeedVideo shape + position). */
 export async function getTrack(db: Db, trackId: number) {
   const [track] = await db.select().from(tracks).where(eq(tracks.id, trackId));

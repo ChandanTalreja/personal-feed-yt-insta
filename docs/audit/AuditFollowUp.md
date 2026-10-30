@@ -21,7 +21,9 @@
 | FIX-05 | 43 on-screen messages reworded: no em dashes, plain sentences | Not in the audit. The owner's request | Done |
 | B2 | Cold starts skip the table setup when its version stamp matches | §4 **P1**, Remove production schema setup | Done 2026-10-21 (PERF-05 in redesign-history) |
 | B5 (step 1) | Skip the YouTube captions try on Netlify (always refused there) | §4 **P1** for AI reliability | Done 2026-10-21 (PERF-06). The whole-request time limit was declined |
-| B1, B3, B4 | Bigger performance items | §4 P1/P2 | **Not started** (see section 5) |
+| B1 | The first screen's data comes with the page | §4 **P1**, Deliver initial feed data before client effects | Done 2026-10-22 (PERF-07), deployed in `59cc887` |
+| B4 | A save forgets only the remembered screens it changed | §4 P2, Improve cache lifetime and consistency | Done 2026-10-30 (PERF-09 in redesign-history) |
+| B3 | Make search use its index | §4 P2 | **Not started**, optional (see section 5) |
 
 Everything was tested locally in the running app, and none of it used YouTube API quota, Gemini calls or Apify/Firecrawl credits. Typecheck and lint pass for the whole project.
 
@@ -242,7 +244,7 @@ Kept on purpose: the instructions sent *to* Gemini (never shown) and setup error
    **Cold after B1, measured 2026-10-22 13:35:22 UTC** (Netlify's logs; a fresh tab after 2+ hours idle): the page request took **6.9 s** server-side and carried the cards, followed by **0 data requests**, so **1 cold start** on the way to the cards instead of 6. With the trip to India, cards at about 7 s, against 8.2 s before. Inside the 6.9 s: ~3.3 s booting the function, ~1.3 s loading the page code, ~1.0 s Neon waking up (the schema check took 999 ms; 120 to 220 ms when Neon is awake), ~1.3 s gathering the first screen and rendering. After the page, Next.js's background prefetch woke 3 more instances (3.2 to 3.5 s each). They don't delay the screen, but they count as invocations. The rest of a cold open is the free stack's floor: one function boot plus Neon's wake-up.
 2. ~~**B2: move table setup to deploy time.**~~ **Done 2026-10-21 as PERF-05**, a different way: instead of deploy time, the setup list is stamped with a fingerprint of itself in `app_meta`, and a cold start that finds a matching stamp skips the lock, the queue and the 25 statements. Same gain, no build step, local PGlite stays zero-setup. Full write-up in redesign-history.
 3. **B3: make search use its index.** Faster search, same results. Optional: search already feels fast, and the stricter search it was paired with has been dropped by the owner.
-4. **B4: targeted cache clearing** instead of clearing everything after any save.
+4. ~~**B4: targeted cache clearing**~~ **Done 2026-10-30 as PERF-09**: each save forgets only the remembered screens it can make stale (one rule table, `staleAfter` in `lib/api-client.ts`); channels, genres, login, a sync and anything unlisted still forget everything. Writing a sticky note or a video note no longer turns the other screens into placeholders.
 5. **B5:** ~~skip YouTube captions on Netlify~~ **done 2026-10-21 (PERF-06)**. The other half, one overall time limit for transcript + Gemini, was **declined by the owner**: it only turns a rare bare 502 into a friendly message while touching the timing of every step. Revisit only if bare 502s show up in real use.
 
 ---

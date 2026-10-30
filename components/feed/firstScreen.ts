@@ -1,4 +1,4 @@
-import type { FeedVideo, GenreItem } from "@/components/types";
+import type { ContinueReply, GenreItem } from "@/components/types";
 import type { NavSummary } from "@/components/TopBar";
 import type { FeedChannel } from "./model";
 import type { FeedReply } from "./useFeedData";
@@ -12,7 +12,7 @@ export interface FirstScreen {
   channels: { channels: { channel: FeedChannel; videoCount: number; shortCount: number }[] };
   genres: { genres: GenreItem[] };
   suggestions: { suggestions: string[] };
-  continued: { videos: FeedVideo[] } | null;
+  continued: ContinueReply | null;
 }
 
 /** Older than this, it's a page reused from the router's 5-minute cache. */

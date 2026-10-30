@@ -58,9 +58,16 @@ export default function FeedSidebar({
   onClearChannels,
   facets,
   podcasts = false,
+  notesOpen = false,
+  onNotes,
+  loading = false,
 }: {
   view: View;
   onView: (v: View) => void;
+  /** The Sticky notes board is showing instead of the videos (FEAT-17). */
+  notesOpen?: boolean;
+  /** Opens it; the Feed only (Podcasts has no notes row). */
+  onNotes?: () => void;
   genres: GenreItem[];
   genreId: number | null;
   onGenre: (id: number | null) => void;
@@ -72,6 +79,8 @@ export default function FeedSidebar({
   /** The Podcasts page: its own heading, and no genres (FEAT-14). */
   podcasts?: boolean;
   facets: Facets | null;
+  /** The loading screen (PERF-10): placeholder rows, not "No channels". */
+  loading?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -108,11 +117,24 @@ export default function FeedSidebar({
                 <Icon name={icon} size={15} duotone={false} />
               </SidebarTile>
             }
-            active={view === value}
+            active={!notesOpen && view === value}
             count={facets ? short(facets.views[value]) : undefined}
             onClick={() => onView(value)}
           />
         ))}
+        {/* Not a view of the videos: notes that belong to none (FEAT-17). */}
+        {onNotes && (
+          <SidebarItem
+            label="Sticky notes"
+            leading={
+              <SidebarTile className="bg-tile-peach">
+                <Icon name="sticky" size={15} duotone={false} />
+              </SidebarTile>
+            }
+            active={notesOpen}
+            onClick={onNotes}
+          />
+        )}
       </SidebarSection>
 
       {!podcasts && (
@@ -172,11 +194,19 @@ export default function FeedSidebar({
             </p>
           )}
         </li>
-        {limited.length === 0 && (
-          <li className="px-2.5 py-2 text-meta text-muted">
-            {q ? "No channels match." : "No channels in this genre yet."}
-          </li>
-        )}
+        {limited.length === 0 &&
+          (loading ? (
+            Array.from({ length: 6 }, (_, i) => (
+              <li key={i} aria-hidden="true" className="flex items-center gap-2.5 px-2.5 py-1.5">
+                <span className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-line" />
+                <span className="h-3 flex-1 animate-pulse rounded-xs bg-line" />
+              </li>
+            ))
+          ) : (
+            <li className="px-2.5 py-2 text-meta text-muted">
+              {q ? "No channels match." : "No channels in this genre yet."}
+            </li>
+          ))}
         {limited.map((c) => (
           <SidebarItem
             key={c.id}

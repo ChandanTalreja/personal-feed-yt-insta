@@ -6,7 +6,9 @@ import { coveredRatio } from "@/lib/progress";
 import { textColorFor } from "@/lib/color";
 import { Thumb } from "@/components/ui/Media";
 import Icon, { type IconName } from "@/components/ui/Icon";
+import { useCopy } from "@/components/ui/useCopy";
 import type { FeedVideo } from "@/components/types";
+import { youtubeLink } from "./model";
 
 /** The study panel's tabs; "track" opens the Add-to-track chooser. */
 export type StudyTool = "ask" | "summary" | "transcript" | "chapters" | "note" | "track";
@@ -30,7 +32,8 @@ interface Props {
  * One video in the feed. Flat at rest; it lifts when you hover it, and gets a
  * yellow edge while its tool is open in the study panel. Triage lives on the
  * thumbnail (✓ seen top-left, bookmark top-right — shown on hover, and kept
- * once set); studying lives in the tool row under the title, and every tool
+ * once set — and Copy link bottom-left); studying lives in the tool row under
+ * the title, and every tool
  * opens the study panel rather than a popup inside the card.
  */
 export default function VideoCard({
@@ -50,6 +53,7 @@ export default function VideoCard({
   const dimmed = video.watched && dimSeen;
   const saved = video.laterAt != null;
   const selected = activeTool != null;
+  const { copied, copy } = useCopy(1500);
 
   return (
     <article
@@ -61,6 +65,9 @@ export default function VideoCard({
           : "lift border-line"
       }`}
     >
+      {/* The thumbnail's frame: the corner buttons are placed against it
+          (bottom-left must be the thumbnail's corner, not the card's). */}
+      <div className="relative">
       <button
         type="button"
         className={`relative block w-full cursor-pointer overflow-hidden rounded-t-[9px] bg-ink text-left ${
@@ -76,7 +83,8 @@ export default function VideoCard({
           </span>
         )}
         {(video.isShort || video.isLive) && (
-          <span className="absolute bottom-2 left-2 rounded-xs bg-ink/85 px-1.5 text-xs font-semibold leading-5 text-white">
+          // Makes way for Copy link while you hover the card.
+          <span className="absolute bottom-2 left-2 rounded-xs bg-ink/85 px-1.5 text-xs font-semibold leading-5 text-white transition-opacity group-hover/card:opacity-0">
             {video.isLive ? "Stream" : "Short"}
           </span>
         )}
@@ -110,6 +118,20 @@ export default function VideoCard({
         {/* Saved = yellow inside the bookmark, not a yellow box. */}
         <Icon name="bookmark" size={16} lit={saved} />
       </CornerToggle>
+      {/* Bottom-left: the YouTube link, to send to someone. Not a toggle:
+          it shows "Link copied" for a moment, then goes back. */}
+      <CornerToggle
+        className="bottom-2 left-2"
+        on={copied}
+        toggle={false}
+        label={copied ? "Link copied" : "Copy link"}
+        align="left"
+        labelBelow={false}
+        onClick={() => copy(youtubeLink(video))}
+      >
+        <Icon name={copied ? "check" : "link"} size={16} />
+      </CornerToggle>
+      </div>
 
       {/* Seen in place, with a way back — a misclick costs nothing. */}
       {dimmed && (
@@ -219,6 +241,8 @@ function CornerToggle({
   label,
   align,
   onClick,
+  toggle = true,
+  labelBelow = true,
   children,
 }: {
   className: string;
@@ -226,13 +250,17 @@ function CornerToggle({
   label: string;
   align: "left" | "right";
   onClick: () => void;
+  /** A switch (seen, saved) rather than a one-off action (copy). */
+  toggle?: boolean;
+  /** Top corners show their label below; bottom ones above. */
+  labelBelow?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
-      aria-pressed={on}
+      aria-pressed={toggle ? on : undefined}
       onClick={onClick}
       className={`icon-hover group/tip absolute z-10 flex h-[30px] w-[30px] items-center justify-center rounded-[7px] bg-surface/90 text-ink transition-opacity focus-visible:opacity-100 ${className} ${
         on
@@ -241,7 +269,7 @@ function CornerToggle({
       }`}
     >
       {children}
-      <HoverLabel text={label} align={align} below />
+      <HoverLabel text={label} align={align} below={labelBelow} />
     </button>
   );
 }

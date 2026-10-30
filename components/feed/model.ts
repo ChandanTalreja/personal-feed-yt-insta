@@ -8,6 +8,14 @@ export type LengthFilter = "any" | "short" | "medium" | "long" | "under1h" | "1t
 
 export const PAGE_SIZE = 24;
 
+/**
+ * The videos grid. Columns follow the space the grid actually has (it
+ * shrinks when the study panel opens), not the window size; its parent
+ * needs `@container`. Shared with the loading screen (PERF-10).
+ */
+export const VIDEO_GRID =
+  "grid grid-cols-1 gap-6 @min-[460px]:grid-cols-2 @min-[680px]:grid-cols-3 @min-[920px]:grid-cols-4 @min-[1240px]:grid-cols-5 @min-[1500px]:grid-cols-6";
+
 export const VIEW_TITLES: Record<View, string> = {
   unwatched: "Inbox",
   later: "Watch later",
@@ -35,6 +43,13 @@ export interface FeedChannel {
   section: string;
   videoCount: number;
   shortCount: number;
+}
+
+/** The video's own YouTube link (a Short's opens as a Short), for Copy link. */
+export function youtubeLink(video: Pick<FeedVideo, "ytVideoId" | "isShort">): string {
+  return video.isShort
+    ? `https://www.youtube.com/shorts/${video.ytVideoId}`
+    : `https://www.youtube.com/watch?v=${video.ytVideoId}`;
 }
 
 /** What the study panel is showing: which video, which tab, track chooser open? */

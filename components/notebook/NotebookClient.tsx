@@ -27,6 +27,7 @@ import {
   type LineSource,
 } from "@/lib/cheatSheetLines";
 import { looseKey } from "@/lib/looseMatch";
+import { patchRememberedFeed } from "@/components/feed/useFeedData";
 import CheatSheetView, { CheatSheetMaking } from "./CheatSheetView";
 import { CopyAllItem, Dropdown } from "./ListControls";
 import { genreLabel, sheetTitle, videoMarkdown, type Entry } from "./model";
@@ -305,13 +306,18 @@ export default function NotebookClient() {
 
   // ---------- Changes from the reader ----------
 
+  // Each also updates the Feed's remembered cards, which a change here no
+  // longer forgets (audit B4).
   function patchVideo(id: number, patch: Partial<FeedVideo>) {
     setVideos((list) => list.map((v) => (v.id === id ? { ...v, ...patch } : v)));
+    patchRememberedFeed(id, patch);
   }
 
   function addAnswer(a: Answer) {
     // Asking the same thing twice returns the saved answer: don't list it twice.
+    const others = answers.filter((x) => x.videoId === a.videoId && x.id !== a.id);
     setAnswers((list) => [...list.filter((x) => x.id !== a.id), a]);
+    patchRememberedFeed(a.videoId, { answerCount: others.length + 1 });
   }
 
   const closePlayer = useCallback(() => setPlaying(null), []);

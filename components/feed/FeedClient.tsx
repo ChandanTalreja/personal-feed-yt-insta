@@ -4,12 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import TopBar from "@/components/TopBar";
 import FeedEmptyState from "./FeedEmptyState";
-import { PAGE_SIZE, VIEW_NOTES, VIEW_TITLES, type FeedChannel, type Kind, type LengthFilter, type Study } from "./model";
+import { PAGE_SIZE, VIDEO_GRID, VIEW_NOTES, VIEW_TITLES, type FeedChannel, type Kind, type LengthFilter, type Study } from "./model";
 import { feedPath, useFeedData } from "./useFeedData";
 import { isFreshFirstScreen, markFirstScreenUsed, type FirstScreen } from "./firstScreen";
 import VideoCard, { VideoCardSkeleton, type StudyTool } from "./VideoCard";
 import StudyPanel from "./StudyPanel";
 import ContinueStrip from "./ContinueStrip";
+import Greeting from "./Greeting";
 import FeedSidebar, { type View } from "./FeedSidebar";
 import PlayerModal from "@/components/PlayerModal";
 import TrackMenu from "./TrackMenu";
@@ -19,13 +20,16 @@ import Spinner from "@/components/ui/Spinner";
 import PageTitle from "@/components/ui/PageTitle";
 import SearchField from "@/components/ui/SearchField";
 import SegmentedControl from "@/components/ui/SegmentedControl";
-import type { FeedVideo, GenreItem } from "@/components/types";
+import StickyBoard from "@/components/stickyNotes/StickyBoard";
+import type { ContinueReply, FeedVideo, GenreItem } from "@/components/types";
 import { formatWatchTime } from "@/lib/format";
 import { api, remember, rememberedReply } from "@/lib/api-client";
 import { notifyNavChanged } from "@/lib/nav-events";
 
-/** Podcasts' "Continue listening" list. */
-const CONTINUE_PATH = "/api/videos?section=podcasts&continue=1";
+/** Podcasts' "Continue listening", the Feed's "Pick up where you left off". */
+function continuePath(section: "feed" | "podcasts"): string {
+  return section === "podcasts" ? "/api/videos?section=podcasts&continue=1" : "/api/videos?continue=1";
+}
 
 /** The view every page opens on, matching lib/firstScreen.ts's openingQuery. */
 const OPENING_FILTERS = {
@@ -54,10 +58,13 @@ function toFeedChannels(reply: { channels?: { channel: FeedChannel; videoCount: 
 export default function FeedClient({
   section = "feed",
   first = null,
+  ownerName,
 }: {
   section?: "feed" | "podcasts";
   /** The first screen, sent inside the page (audit B1). */
   first?: FirstScreen | null;
+  /** The name the Feed's greeting uses (OWNER_NAME). */
+  ownerName?: string;
 }) {
   const podcasts = section === "podcasts";
   // Fresh first screen: shown at once and not fetched again. A page reused
@@ -76,6 +83,8 @@ export default function FeedClient({
   const [channelIds, setChannelIds] = useState<number[]>([]);
   const [kind, setKind] = useState<Kind>("videos");
   const [view, setView] = useState<View>("unwatched");
+  // The Sticky notes board instead of the videos (Feed only, FEAT-17).
+  const [notesOpen, setNotesOpen] = useState(false);
   const [lengthFilter, setLengthFilter] = useState<LengthFilter>("any");
   // "Add these search results to a track" panel.
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -93,9 +102,9 @@ export default function FeedClient({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   // Where the player starts: a chapter's second, or the resume point.
   const [playFrom, setPlayFrom] = useState<number | undefined>(undefined);
-  // Podcasts: episodes started and not finished.
-  const [continueList, setContinueList] = useState<FeedVideo[]>(() =>
-    podcasts ? (seed?.continued?.videos ?? rememberedReply(CONTINUE_PATH)?.videos ?? []) : []
+  // Videos started and not finished (+ the Feed's latest track step).
+  const [continued, setContinued] = useState<ContinueReply>(
+    () => seed?.continued ?? rememberedReply(continuePath(section)) ?? { videos: [] }
   );
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -121,9 +130,16 @@ export default function FeedClient({
     {
       firstReply: seed?.feed ?? null,
       onError: setToast,
-      // The study panel holds its own copy of the video: keep it in step.
-      onPatched: (id, patch) =>
-        setStudy((s) => (s && s.video.id === id ? { ...s, video: { ...s.video, ...patch } } : s)),
+      onPatched: (id, patch) => {
+        // The study panel holds its own copy of the video: keep it in step.
+        setStudy((s) => (s && s.video.id === id ? { ...s, video: { ...s.video, ...patch } } : s));
+        // Marked seen: it's no longer something to pick up. If it was the
+        // track's next step, ask for the step after it.
+        if (patch.watched) {
+          setContinued((c) => ({ ...c, videos: c.videos.filter((v) => v.id !== id) }));
+          if (continued.track?.video.id === id) loadContinue();
+        }
+      },
     }
   );
 
@@ -134,11 +150,10 @@ export default function FeedClient({
   }, []);
 
   const loadContinue = useCallback(() => {
-    if (!podcasts) return;
-    api(CONTINUE_PATH)
-      .then((d) => setContinueList(d.videos ?? []))
+    api(continuePath(section))
+      .then((d) => setContinued({ videos: d.videos ?? [], track: d.track ?? null }))
       .catch(() => {});
-  }, [podcasts]);
+  }, [section]);
 
   // The first screen came inside the page: keep it as this tab's remembered
   // copy (instant revisits), and don't fetch any of it again.
@@ -149,7 +164,7 @@ export default function FeedClient({
     remember("/api/channels", seed.channels);
     remember("/api/genres", seed.genres);
     remember("/api/ask-suggestions", seed.suggestions);
-    if (seed.continued) remember(CONTINUE_PATH, seed.continued);
+    if (seed.continued) remember(continuePath(section), seed.continued);
     markFirstScreenUsed(seed);
   }, [seed, section]);
 
@@ -203,8 +218,9 @@ export default function FeedClient({
     const q = searchParams.get("q");
     const video = Number(searchParams.get("video"));
     if (!channel && !q && !video) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (channel || q) setNotesOpen(false);
     if (channel) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setGenreId(null);
       setChannelIds([channel]);
       setSearch("");
@@ -264,7 +280,7 @@ export default function FeedClient({
     setPlaying(null);
     setQueue(null);
     setPlayFrom(undefined);
-    // Where you stopped changed: refresh "Continue listening".
+    // Where you stopped changed: refresh "Continue listening" / "Pick up".
     loadContinue();
   }, [loadContinue]);
 
@@ -341,11 +357,13 @@ export default function FeedClient({
     // the feed never silently empties.
     setGenreId(id);
     setChannelIds([]);
+    setNotesOpen(false);
     setFiltersOpen(false);
   }
 
   function toggleChannel(id: number) {
     setChannelIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setNotesOpen(false);
   }
 
   function clearFilters() {
@@ -365,9 +383,14 @@ export default function FeedClient({
     view === "later" && totals != null ? Math.max(0, laterCounts[kind] - totals.count) : 0;
   const laterInOtherKind = view === "later" ? laterCounts[otherKind] : 0;
 
-  // "124 to watch in DSA · about 38 hours"
+  // "124 to watch in DSA · about 38 hours". The Feed's Inbox starts with
+  // what came out in the last day: "6 new since yesterday · …" (FEAT-11).
   function subtitle(): string {
     if (!totals) return "";
+    const fresh =
+      !podcasts && view === "unwatched" && !debouncedSearch && totals.fresh
+        ? `${totals.fresh.toLocaleString()} new since yesterday · `
+        : "";
     const noun =
       view === "unwatched"
         ? "to watch"
@@ -388,7 +411,7 @@ export default function FeedClient({
             ? ` in ${genre.name}`
             : "";
     const matching = debouncedSearch ? ` matching “${debouncedSearch}”` : "";
-    return `${totals.count.toLocaleString()} ${noun}${scope}${matching} · ${formatWatchTime(totals.seconds)}`;
+    return `${fresh}${totals.count.toLocaleString()} ${noun}${scope}${matching} · ${formatWatchTime(totals.seconds)}`;
   }
 
   const gridClass =
@@ -396,9 +419,7 @@ export default function FeedClient({
       ? // Shorts: column counts (2/3/4/6) that all divide the 24-per-page
         // batch, so every page fills complete rows.
         "grid grid-cols-2 gap-5 @min-[560px]:grid-cols-3 @min-[760px]:grid-cols-4 @min-[1100px]:grid-cols-6"
-      : // Columns follow the space the grid actually has (it shrinks when
-        // the study panel opens), not the window size.
-        "grid grid-cols-1 gap-6 @min-[460px]:grid-cols-2 @min-[680px]:grid-cols-3 @min-[920px]:grid-cols-4 @min-[1240px]:grid-cols-5 @min-[1500px]:grid-cols-6";
+      : VIDEO_GRID;
 
   const studyVideo = study ? (videos.find((v) => v.id === study.video.id) ?? study.video) : null;
 
@@ -407,6 +428,7 @@ export default function FeedClient({
       view={view}
       onView={(v) => {
         setView(v);
+        setNotesOpen(false);
         setFiltersOpen(false);
       }}
       genres={genres}
@@ -424,6 +446,16 @@ export default function FeedClient({
       onClearChannels={() => setChannelIds([])}
       facets={facets}
       podcasts={podcasts}
+      notesOpen={notesOpen}
+      onNotes={
+        podcasts
+          ? undefined
+          : () => {
+              setNotesOpen(true);
+              setStudy(null);
+              setFiltersOpen(false);
+            }
+      }
     />
   );
 
@@ -437,6 +469,20 @@ export default function FeedClient({
         </aside>
 
         <main className="@container min-w-0 flex-1 px-4 pb-16 pt-8 sm:px-8 xl:px-10">
+          {/* Sticky notes (FEAT-17) take the videos' place; the sidebar stays. */}
+          {notesOpen ? (
+            <StickyBoard
+              onFilters={() => setFiltersOpen((o) => !o)}
+              below={
+                filtersOpen && (
+                  <div className="mb-5 rounded-lg border border-line bg-surface py-4 lg:hidden">{sidebar}</div>
+                )
+              }
+            />
+          ) : (
+          <>
+          {/* The Feed's handwritten hello, on every view so the title never jumps. */}
+          {!podcasts && <Greeting name={ownerName} />}
           {/* Title row: where you are, its pen note, and the shape-of-feed controls. */}
           <PageTitle
             title={
@@ -565,12 +611,18 @@ export default function FeedClient({
             </div>
           )}
 
-          {/* Podcasts: where you left off, a slim sideways row above the new episodes. */}
-          {podcasts && kind === "videos" && view === "unwatched" && !debouncedSearch &&
-            channelIds.length === 0 && continueList.length > 0 && (
+          {/* Where you left off, a slim sideways row above the Inbox: only
+              unfiltered, and only when there's something to pick up. */}
+          {kind === "videos" && view === "unwatched" && !debouncedSearch && channelIds.length === 0 &&
+            genreId == null && (continued.videos.length > 0 || continued.track) && (
               <>
-                <ContinueStrip videos={continueList} onPlay={handlePlay} />
-                <h2 className="label-caps mb-3 text-muted">New episodes</h2>
+                <ContinueStrip
+                  title={podcasts ? "Continue listening" : "Pick up where you left off"}
+                  videos={continued.videos}
+                  track={podcasts ? null : continued.track}
+                  onPlay={handlePlay}
+                />
+                {podcasts && <h2 className="label-caps mb-3 text-muted">New episodes</h2>}
               </>
             )}
 
@@ -627,6 +679,8 @@ export default function FeedClient({
                 <Icon name="chev" size={16} />
               </Button>
             </div>
+          )}
+          </>
           )}
         </main>
 

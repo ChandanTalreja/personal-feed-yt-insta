@@ -19,12 +19,12 @@ for the rules and where each idea came from.
 
 | | |
 |---|---|
-| **Status** | **Redesign complete: Phases 1–10 built**, plus PERF-03 to PERF-08, REF-09 to REF-14, FIX-01 to FIX-09, FEAT-13 (offline), FEAT-14 v1 (Podcasts), FEAT-15 (cheat sheets), FEAT-16 (handwritten cheat sheets). Committed and deployed up to `59cc887` (2026-10-22). **Not yet committed:** FEAT-16 (Write it by hand: new module `lib/handwritten/`, `components/handwritten/`, page `app/notebook/handwritten/`, column `cheat_sheets.handwritten_title` added automatically, new dependency rough-notation 0.5.1), PERF-08 (Podcasts never bring Shorts: `lib/youtube.ts`, `lib/ingest.ts`, `lib/feedVideos.ts`, `lib/nav.ts`, `components/feed/FeedClient.tsx`), REF-15 (⌘K loose matching: `lib/looseMatch.ts`, `lib/search.ts`, `components/GlobalSearch.tsx`), the `[first-screen]` log lines (`lib/firstScreen.ts`, `app/page.tsx`, `app/podcasts/page.tsx`) and doc updates. On 2026-10-19 an external audit was triaged and its quick wins built: see [audit/AuditFollowUp.md](audit/AuditFollowUp.md) (what was done, why, which audit finding, the code changes, what's left). |
+| **Status** | **Redesign complete: Phases 1–10 built**, plus PERF-03 to PERF-10, REF-09 to REF-16, FIX-01 to FIX-09, FEAT-13 (offline), FEAT-14 v1 (Podcasts), FEAT-15 (cheat sheets), FEAT-16 (handwritten cheat sheets), FEAT-17 (sticky notes), FEAT-11 (greeting), FEAT-12 (pick up where you left off). Committed up to `80fee9a` (2026-10-22: FEAT-16, PERF-08, REF-15, `[first-screen]` logs). **Not yet committed:** REF-16 (Copy link on cards: `components/feed/VideoCard.tsx`, `model.ts`, `iconPaths.ts`) and FEAT-17 (Sticky notes: new `lib/stickyNotes.ts`, `lib/stickyColors.ts`, `app/api/sticky-notes/`, `components/stickyNotes/`; table `sticky_notes` added automatically; two colour tokens; Feed sidebar row) and PERF-09 (audit B4, a save forgets only what it changed: `lib/api-client.ts`, `useFeedData.ts`, `NotebookClient.tsx`) and FEAT-11 (greeting: new `components/feed/Greeting.tsx`, `FeedClient.tsx`, `useFeedData.ts`, `lib/feedVideos.ts`, `app/page.tsx`, `globals.css`, `.env.example`) and FEAT-12 (pick up where you left off: `lib/tracks.ts`, `lib/feedVideos.ts`, `lib/firstScreen.ts`, `ContinueStrip.tsx`, `FeedClient.tsx`, `components/feed/firstScreen.ts`, `components/types.ts`) and PERF-10 (loading screen: `app/page.tsx`, `app/podcasts/page.tsx`, new `components/feed/FeedSkeleton.tsx`, `FeedSidebar.tsx`, `model.ts`, `TopBar.tsx`), plus doc updates. On 2026-10-19 an external audit was triaged and its quick wins built: see [audit/AuditFollowUp.md](audit/AuditFollowUp.md) (what was done, why, which audit finding, the code changes, what's left). |
 | **Phases done** | 10 of 10 (plus 4.1) |
-| **Next step** | **Deployed 2026-10-22** (`59cc887`: PERF-07 = B1, REF-14, FIX-09, Podcasts refinements). B1 measured live warm: cards at 1.1 to 1.2 s, 0 data requests; prefetch researched, no double work. B1 cold measured 13:35 UTC: page 6.9 s server-side with the cards, 0 data requests, 1 cold start instead of 6, cards at ~7 s instead of 8.2 s; the rest is one function boot (~3.3 s) plus Neon waking (~1 s). Options for that floor (warm-up ping, a loading screen) not yet discussed. **Waiting for the next deploy:** PERF-08, then the owner deletes and re-adds the six podcast channels so their Shorts go. **Next, this phase:** B4 (targeted cache clearing), B3 (optional), FEAT-14 v2 (Gemini chapters behind a "Make chapters ✦" button, tested against an episode with YouTube chapters first). **After the next deploy, try:** a cheat sheet → Write it by hand → Save as PDF in Chrome (choose "Save as PDF" in the print window). |
+| **Next step** | **Deployed 2026-10-22** (`59cc887`: PERF-07 = B1, REF-14, FIX-09, Podcasts refinements). B1 measured live warm: cards at 1.1 to 1.2 s, 0 data requests; prefetch researched, no double work. B1 cold measured 13:35 UTC: page 6.9 s server-side with the cards, 0 data requests, 1 cold start instead of 6, cards at ~7 s instead of 8.2 s; the rest is one function boot (~3.3 s) plus Neon waking (~1 s). Options for that floor (warm-up ping, a loading screen) not yet discussed. **After deploying `80fee9a` (if not done yet):** delete and re-add the six podcast channels so their Shorts go; try one Engineer's pad PDF in Chrome (circles were checked on screen only). **Next, this phase:** B3 (optional), FEAT-14 v2 (Gemini chapters behind a "Make chapters ✦" button, tested against an episode with YouTube chapters first). **After the next deploy, try:** a cheat sheet → Write it by hand → Save as PDF in Chrome (choose "Save as PDF" in the print window). |
 | **Where things are** | Current design: §2. Every change, one line each: §4; full write-ups: [redesign-history.md](redesign-history.md). Audit and its follow-up: [audit/AuditFollowUp.md](audit/AuditFollowUp.md) (the ChatGPT report itself, `audit/AuditReport.md`, is kept locally, not committed). Code layout: [ARCHITECTURE.md](ARCHITECTURE.md) "UI layer". Architecture diagram: [diagrams/](diagrams/). |
-| **Open questions** | Parked ideas waiting for a yes: FEAT-11 greeting, FEAT-12 "Pick up where you left off", **FEAT-14 v2** (Gemini's own chapters, a "Make chapters ✦" button; test against an episode that has YouTube chapters first). Handwritten notes became FEAT-16 (cheat sheets written out by hand); later options there: Excalifont, the owner's own handwriting, the page writing itself (Tegaki), real A4 pages in the preview (Paged.js). Dropped: the stricter search (owner decided against it). Undecided: whether AuditFollowUp.md should stop linking to the uncommitted AuditReport.md. Still unanswered: turning off Next's Turbopack build cache (`experimental.turbopackFileSystemCacheForBuild: false`). |
-| **Last updated** | 2026-10-22 |
+| **Open questions** | After deploying FEAT-11, add `OWNER_NAME` in Netlify's environment variables (and in `.env.local`) so the greeting says the name. After deploying PERF-10, measure a real cold open (open the site after an hour or more idle, read the Netlify logs). Not built, on the owner's call (2026-10-31): a better message than "Couldn't answer that" when Netlify cuts a request off at its time limit, and `watchLimitMinutes` in `lib/gemini.ts` checking `process.env.NETLIFY` (only set while building) instead of `onNetlify()`. Parked ideas waiting for a yes: **FEAT-18** (topics by Gemini for long lists; revisit when Watch later passes ~50 or the Inbox gets hard to search by topic; leaning: tag each video on sync). **FEAT-14 v2** (Gemini's own chapters, a "Make chapters ✦" button; test against an episode that has YouTube chapters first). Handwritten notes became FEAT-16 (cheat sheets written out by hand); later options there: Excalifont, the owner's own handwriting, the page writing itself (Tegaki), real A4 pages in the preview (Paged.js). Parked, not dropped: the warm-up ping for cold opens (keeps an instance and Neon awake; costs Netlify credits around the clock, so not while credits are tight). Dropped: the stricter search (owner decided against it); turning off the top bar's prefetch (2026-10-31, the owner decided against it; it wakes a few extra instances in the background); fixing AuditFollowUp.md's links to the uncommitted AuditReport.md (the repo is private); turning off Next's Turbopack build cache (builds are fast; revisit only if a deploy ships stale styles again). |
+| **Last updated** | 2026-10-31 |
 
 *Update this block at the end of every session.*
 
@@ -133,8 +133,10 @@ logos, zinc greys + one blue accent, the system font + mono.
 
 Also allowed, each for one job: genre colours (user-defined, unchanged); four
 soft tints for the sidebar view tiles (Inbox `#ffe9a3`, Watch later
-`#ffd6ec`, Watched `#cdeed8`, Everything `#d6e4ff`); a green "synced" dot;
-the brown warning text for quiet channels.
+`#ffd6ec`, Watched `#cdeed8`, Everything `#d6e4ff`), which with peach
+`#ffdcc2` (the Sticky notes tile) and lilac `#e6dcff` are also the six
+sticky-note papers (FEAT-17); a green "synced" dot; the brown warning text
+for quiet channels.
 Gone: `panel`, `tint`, `tint-2`, `line-2`, `faint`, `muted-2`, `pink`, the
 `ink/NN` text shades, and the page's dot grid.
 
@@ -265,6 +267,8 @@ and a yellow count.
 | Notebook | every answer you kept |
 | Notebook, when empty | every answer you keep lands here |
 | Tracks | one step at a time |
+| Sticky notes | for the thoughts in between |
+| Sticky notes, when empty | go on, stick one |
 | Channels | only the ones you chose |
 | Empty inbox ("You're all caught up") | nothing new. go outside? |
 | Style guide | calm base, retro accents |
@@ -367,8 +371,8 @@ sidebar views; mono caps for small labels ("YOUR FEED", "GENRES").
 | "Has a note" | The note icon stays lit; the red dot is dropped | One signal per state |
 | Active tab | Hand-drawn yellow marker stroke; faint on hover | The owner's idea: a slanted stroke like Dan's, but in yellow and with a job ("you are here") |
 | Handwriting | Blue pen (Caveat), at most one note per screen, beside the page title | Personality that stays special; blue is reserved for words |
-| Greeting ("Good morning, Chandan.") | **Parked** (FEAT-11) | Needs the owner's name stored somewhere; and the first try copied Dan's swoosh too literally |
-| "Pick up where you left off" | **Parked** (FEAT-12) | A new feature, not a look change; needs no new tracking when it's wanted |
+| Greeting ("Good morning, Chandan.") | **Built** (FEAT-11): handwritten, greeting in black, message in red, above the Feed's title | Bold greeting plus plain message didn't work; icons turned down; the pen font in two inks won. Name from `OWNER_NAME`; time from the browser (the server is on UTC) |
+| "Pick up where you left off" | **Built** (FEAT-12): the Podcasts row reused above the Inbox, with a last tile for the latest track's next step | No new tracking; one reply, sent inside the page on first open |
 | Podcasts section | **v1 built** (FEAT-14) | Own section and Shorts; Ask and Summary kept (one call per Ask even for 2 h); no Transcript tab, no genres in v1; chapters from the description first, Gemini's own later |
 | Cheat sheets (was "Ask across notes") | **Built** (FEAT-15) | Send only the matching lines (headings bring the items under them), not whole notes: ~1–2k tokens per sheet at any notebook size. Saved in the Notebook and shown in ⌘K |
 | Top search text | "Search everything" | It covers channels, videos, answers and notes; listing three of four was wrong |
@@ -436,7 +440,8 @@ in Phase 10. New items are written there in the same seven-part format.
 | REF-12 | Notebook search opens a video at its first match | ✅ 2026-10-21 |
 | REF-13 | Notebook search ignores spaces and hyphens: "hash map" finds "HashMap" | ✅ 2026-10-21 |
 | REF-14 | Player: Expand (fills the window) and Full screen (the whole card), keeping the chapter strip; not on Shorts | ✅ 2026-10-22 |
-| REF-15 | ⌘K search ignores spaces and hyphens too: "hash map", "hashmap" and "hash-map" find the same 12 notes | ✅ 2026-10-22 (not yet deployed) |
+| REF-15 | ⌘K search ignores spaces and hyphens too: "hash map", "hashmap" and "hash-map" find the same 12 notes | ✅ 2026-10-22 |
+| REF-16 | Copy link on every card: the thumbnail's bottom-left corner copies the YouTube link | ✅ built 2026-10-30 (not yet deployed) |
 | FEAT-01 | Global search | ✅ 2026-10-17 |
 | FEAT-02 | Sidebar and nav counts | ✅ 2026-10-16 |
 | FEAT-03 | Seen with Undo | ✅ 2026-10-16 |
@@ -447,12 +452,14 @@ in Phase 10. New items are written there in the same seven-part format.
 | FEAT-08 | Bulk channel actions | ✅ 2026-10-17 |
 | FEAT-09 | Everyday Ask suggestions | ✅ 2026-10-16 |
 | FEAT-10 | Backfill 1Y–5Y replaces Re-sync (Phase 4.1) | ✅ 2026-10-17 |
-| FEAT-11 | Greeting | ⏸ parked |
-| FEAT-12 | Pick up where you left off | ⏸ parked |
+| FEAT-11 | Greeting: one handwritten line above the Feed's title in two inks, by the browser's time of day; "N new since yesterday" on the Inbox | ✅ built 2026-10-31 (not yet deployed) |
+| FEAT-12 | Pick up where you left off: half-watched videos and your latest track's next step, one row above the Inbox | ✅ built 2026-10-31 (not yet deployed) |
 | FEAT-14 | Podcasts: their own section and Shorts, Continue listening, chapters (YouTube's, then Gemini's) with jumping | ✅ v1 2026-10-21 (v2: Gemini chapters) |
 | FEAT-13 | Offline: changes wait and save when you're back online | ✅ 2026-10-19 |
 | FEAT-15 | Cheat sheets: unique questions on a topic across your notes, saved in the Notebook, in ⌘K | ✅ 2026-10-21 |
-| FEAT-16 | Write it by hand: one, several or all cheat sheets on ruled, grid, dotted or card paper, in a handwriting, saved as a PDF | ✅ built 2026-10-22 (not yet deployed) |
+| FEAT-16 | Write it by hand: one, several or all cheat sheets on ruled, grid, dotted or card paper, in a handwriting, saved as a PDF | ✅ 2026-10-22 |
+| FEAT-17 | Sticky notes: a board in the Feed's sidebar for anything that isn't a video; six papers, bullets and tick boxes as you type, plain or handwritten, pin | ✅ built 2026-10-30 (not yet deployed) |
+| FEAT-18 | Topics by Gemini: topic chips to filter long lists (Watch later, the Inbox); on demand, or tagged on each sync | ⏸ parked 2026-10-31 |
 | CLEAN-01 | Names that say what they are | ✅ 2026-10-17 |
 | CLEAN-02 | Shared building blocks instead of copies | ✅ 2026-10-17 |
 | CLEAN-03 | API routes: one login check, safe ids | ✅ 2026-10-17 |
@@ -464,6 +471,8 @@ in Phase 10. New items are written there in the same seven-part format.
 | PERF-06 | No YouTube captions try on Netlify (always refused there); 5 s limit on it locally; `onNetlify()` runtime check (audit B5, step 1) | ✅ 2026-10-21 |
 | PERF-07 | The Feed and Podcasts pages send their first screen inside the page (audit B1): 0 data requests on open | ✅ built 2026-10-22 (deploy and measure) |
 | PERF-08 | Podcasts never bring Shorts: podcast channels read YouTube's long-videos and live lists (adding Alex Hormozi: 2 min 45 s → 8.7 s); the Feed is unchanged | ✅ built 2026-10-22 (deploy, then re-add the podcast channels) |
+| PERF-09 | A save forgets only the remembered screens it changed (audit B4): writing a sticky note or a video note no longer turns the other screens into placeholders | ✅ built 2026-10-30 (not yet deployed) |
+| PERF-10 | A loading screen for cold opens: Feed and Podcasts send their frame (top bar, sidebar, greeting, title, grey cards) at once and stream the cards in when ready | ✅ built 2026-10-31 (not yet deployed) |
 | FIX-01 | Channels with "bold" names can't be filtered (handle match + plain letters on save) | ✅ 2026-10-18 |
 | FIX-02 | Dictated questions vanished from the Ask box (cursor now kept in it) | ✅ 2026-10-19 |
 | FIX-03 | Search: titles containing the words before look-alikes | ✅ 2026-10-19 |
@@ -490,7 +499,7 @@ in Phase 10. New items are written there in the same seven-part format.
 | Search | FEAT-01 |
 | All screens | UI-01, UI-02, UI-03, UI-04, UI-05, REF-02, REF-03 |
 | All screens (Phase 9) | UI-07, UI-08, REF-07, REF-08 (finishes UI-03, UI-04, REF-02, REF-06) |
-| Feed (parked) | FEAT-11, FEAT-12 |
+| Feed | FEAT-11, FEAT-12 |
 
 ---
 
@@ -628,3 +637,5 @@ flowchart LR
 | 2026-10-22 | PERF-07 (audit B1): baseline measured live (cold open: 6 cold starts, cards at 8.2 s); the Feed and Podcasts pages now gather their first screen on the server (shared `listFeedVideos` / `listChannels` / `listGenres`) and the screen trusts it only while fresh, so a fresh open makes no data requests and the HTML carries the cards. 30 API answers byte-identical before and after. |
 | 2026-10-22 | PERF-07 deployed and measured warm (cards at 1.1 to 1.2 s, 0 data requests); prefetch researched, no double work; `[first-screen]` log line added. PERF-08: Podcasts never bring Shorts (podcast channels read the `UULF` long-videos and `UULV` live lists; Hormozi's add went from 2 min 45 s in 20 requests to 8.7 s in 2); the Podcasts page lost its Shorts switch; the Feed unchanged. |
 | 2026-10-22 | REF-15: ⌘K matches loosely ("hash map" = "hashmap" = "hash-map", 12 notes each). B1 cold measured live: 1 cold start instead of 6, cards at ~7 s (was 8.2 s); the rest is one function boot plus Neon waking. FEAT-16 designed with the owner (research, a preview page with the real sheets, several rounds) and built as its own module: Write it by hand, one/several/all cheat sheets as a handwritten PDF; marks by Rough Notation on screen and by the words' own backgrounds in print. |
+| 2026-10-30 | REF-16: Copy link in every card's bottom-left thumbnail corner (the YouTube link; a Short's is its /shorts/ link). FEAT-17 Sticky notes designed with the owner (a mock-up of three placements: Feed sidebar chosen, no floating button, not in ⌘K, six papers) and built: a board in the Feed's sidebar, bullets and tick boxes as you type, plain or handwritten, pin, delete; table `sticky_notes`. PERF-09 (audit B4): a save forgets only the remembered screens it changed (`staleAfter`); the Notebook writes its notes and answers into the remembered feed cards. The audit-link fix and turning off the Turbopack build cache were dropped (private repo; builds fast). |
+| 2026-10-31 | FEAT-11 built: the Feed's handwritten greeting (option 4 of the mock-ups: greeting in black ink, message in red), by the browser's time of day, name from `OWNER_NAME`, and "N new since yesterday" on the Inbox. FEAT-12 built: "Pick up where you left off" above the Inbox (half-watched videos, then the latest track's next step), sent inside the page. FEAT-18 (topics by Gemini) written up and parked. The greeting now rotates: four lines per part of the day, one a day. PERF-10 built: a loading screen for Feed and Podcasts (the frame and grey cards stream first). Item 6, turning off the top bar's prefetch, declined by the owner. The "Couldn't answer that" investigation (Netlify's time limit cutting a request off; `watchLimitMinutes` checking a build-time variable) was written up; the owner chose not to fix either for now. |

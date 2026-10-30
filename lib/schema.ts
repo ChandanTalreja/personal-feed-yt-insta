@@ -178,7 +178,23 @@ export const cheatSheets = pgTable(
   (t) => [uniqueIndex("cheat_sheets_key_idx").on(t.queryKey, t.genreKey)]
 );
 
+// Sticky notes (FEAT-17): small notes that belong to no video, on their own
+// board in the Feed's sidebar. `body` is plain text: "- " lines are bullets,
+// "[ ] " / "[x] " lines tick boxes (components/stickyNotes/lines.ts).
+export const stickyNotes = pgTable("sticky_notes", {
+  id: serial("id").primaryKey(),
+  body: text("body").notNull().default(""),
+  /** One of lib/stickyColors.ts STICKY_COLORS. */
+  color: text("color").notNull().default("yellow"),
+  /** Written in the pen's hand instead of the body font. */
+  handwritten: boolean("handwritten").notNull().default(false),
+  pinned: boolean("pinned").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Genre = typeof genres.$inferSelect;
 export type Channel = typeof channels.$inferSelect;
 export type Video = typeof videos.$inferSelect;
 export type CheatSheet = typeof cheatSheets.$inferSelect;
+export type StickyNote = typeof stickyNotes.$inferSelect;

@@ -15,6 +15,7 @@
   --color-primary: #ffd02b;    /* yellow: selected, "on", the main button, marker */
   --color-danger: #e5484d;     /* errors, destructive actions */
   --color-pen: #2c55c7;        /* handwriting only */
+  --color-pen-red: #c8372d;    /* handwriting only: the greeting's message */
   /* One job each: */
   --color-warn: #9a5800;       /* "No uploads in 4 months" */
   --color-ok: #2fb36b;         /* the "synced" dot */
@@ -22,11 +23,14 @@
   --color-black: #000000;
   --color-transparent: transparent;
   --color-current: currentColor;
-  /* Soft tiles behind the four feed views. */
+  /* Soft tiles behind the four feed views; with peach and lilac, the six
+     sticky-note papers (FEAT-17). */
   --color-tile-yellow: #ffe9a3;
   --color-tile-pink: #ffd6ec;
   --color-tile-green: #cdeed8;
   --color-tile-blue: #d6e4ff;
+  --color-tile-peach: #ffdcc2;
+  --color-tile-lilac: #e6dcff;
 
   /* Six text sizes, no one-offs. */
   --text-*: initial;
@@ -84,6 +88,17 @@ body {
   display: inline-block;
   transform: rotate(-2.5deg);
   white-space: nowrap;
+}
+
+/* The Feed's greeting (FEAT-11): the same pen, a size up and a gentler
+   tilt; its two inks are set on the spans inside. It may wrap on a phone. */
+.pen-greeting {
+  font-family: var(--font-pen);
+  font-weight: 700;
+  font-size: 1.625rem;
+  line-height: 1.1;
+  transform: rotate(-1deg);
+  transform-origin: left center;
 }
 
 /* Icons (UI-08): the inner layer is a faint tint at rest and turns solid

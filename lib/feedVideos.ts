@@ -15,6 +15,7 @@ import {
 import type { Db } from "./db";
 import { channels, videos } from "./schema";
 import { feedVideoColumns } from "./videoColumns";
+import { nextTrackStep } from "./tracks";
 
 // The Feed's and Podcasts' video list: one function behind both
 // `GET /api/videos` and the pages that send their first screen with the
@@ -39,7 +40,7 @@ export interface FeedQuery {
   length: string;
   /** Every matching id instead of a page ("Add these N to a track"). */
   ids: boolean;
-  /** Podcasts' "Continue listening" list instead of a page. */
+  /** Started, unfinished videos instead of a page (Podcasts' "Continue listening", the Feed's "Pick up where you left off"). */
   continueListening: boolean;
 }
 
@@ -127,10 +128,12 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   ];
   const where = conditions.length ? and(...conditions) : undefined;
 
-  // continue=1 (Podcasts): episodes you started and didn't finish, the most
-  // recently played first, for "Continue listening".
+  // continue=1: videos you started and didn't finish, the most recently
+  // played first, for Podcasts' "Continue listening" and the Feed's "Pick
+  // up where you left off" (FEAT-12). The Feed's also brings your latest
+  // track's next step, which then isn't listed twice.
   if (query.continueListening) {
-    const rows = await db
+    const rowsQuery = db
       .select(feedVideoColumns)
       .from(videos)
       .innerJoin(channels, eq(videos.channelId, channels.id))
@@ -145,7 +148,11 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
       )
       .orderBy(desc(videos.lastPlayedAt))
       .limit(CONTINUE_LIMIT);
-    return { videos: rows };
+    const [rows, track] = await Promise.all([
+      rowsQuery,
+      query.section === "feed" ? nextTrackStep(db) : null,
+    ]);
+    return { videos: track ? rows.filter((v) => v.id !== track.video.id) : rows, track };
   }
 
   // ids=1: every matching video id, oldest upload first (capped) — used by
@@ -212,9 +219,15 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
       .groupBy(videos.isShort),
     // Count and total length of everything the current filters match — not
     // just the loaded page. On LATER, the count is also how many saved
-    // videos are visible, which drives the "N more saved" hint.
+    // videos are visible, which drives the "N more saved" hint. `fresh`:
+    // how many of them came out in the last 24 hours (the Feed's "6 new
+    // since yesterday", FEAT-11).
     db
-      .select({ n: count(), seconds: sum(videos.durationSeconds) })
+      .select({
+        n: count(),
+        seconds: sum(videos.durationSeconds),
+        fresh: sql<number>`count(*) FILTER (WHERE ${videos.publishedAt} > now() - interval '24 hours')::int`,
+      })
       .from(videos)
       .innerJoin(channels, eq(videos.channelId, channels.id))
       .where(where),
@@ -223,6 +236,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   const totals = {
     count: Number(totalsRow[0]?.n ?? 0),
     seconds: Number(totalsRow[0]?.seconds ?? 0),
+    fresh: Number(totalsRow[0]?.fresh ?? 0),
   };
 
   const laterCounts = { videos: 0, shorts: 0 };

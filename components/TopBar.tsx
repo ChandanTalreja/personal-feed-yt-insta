@@ -115,10 +115,17 @@ export default function TopBar({
   onRefreshed,
   flush = false,
   initialNav = null,
+  quiet = false,
 }: {
   onRefreshed?: () => void | Promise<void>;
   /** Counts that came inside the page (audit B1): shown at once, not refetched. */
   initialNav?: NavSummary | null;
+  /**
+   * The loading screen's bar (PERF-10): remembered counts only, never a
+   * fetch. On a cold open that fetch would wake a second Netlify instance;
+   * the page arrives with the counts a moment later anyway.
+   */
+  quiet?: boolean;
   /** No gap under the bar — for pages whose columns start right below it (the feed). */
   flush?: boolean;
 }) {
@@ -128,7 +135,7 @@ export default function TopBar({
     () => initialNav ?? rememberedReply<NavSummary>("/api/nav") ?? null
   );
   // Counts handed over by the page are fresh: skip the first fetch.
-  const [skipFirstLoad] = useState(() => initialNav != null);
+  const [skipFirstLoad] = useState(() => initialNav != null || quiet);
   const [now, setNow] = useState(() => Date.now());
   // Shared across pages (lib/syncStatus.ts): a sync started elsewhere still
   // shows here as running, and its result lands on this page.
@@ -235,7 +242,8 @@ export default function TopBar({
         <div className="order-2 -mx-2 flex w-[calc(100%+1rem)] items-center gap-0.5 overflow-x-auto pb-2.5 [scrollbar-width:none] md:order-none md:gap-1 md:mx-0 md:w-auto md:overflow-visible md:pb-0">
           {TABS.filter(
             // Podcasts shows once a channel lives there (or you're on it).
-            (tab) => tab.href !== "/podcasts" || (nav?.podcastChannels ?? 0) > 0 || isActive(tab.href)
+            // Counts not known yet: show it, so the tabs don't shift when they come.
+            (tab) => tab.href !== "/podcasts" || !nav || nav.podcastChannels > 0 || isActive(tab.href)
           ).map((tab) => {
             const active = isActive(tab.href);
             const n = tab.count && nav ? (nav[tab.count] as number) : null;

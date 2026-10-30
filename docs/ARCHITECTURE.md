@@ -89,7 +89,8 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
   `components/feed/` (feed, sidebar, card, study panel, track menu, and
   `useFeedData` — the loaded pages plus the counts kept in step by ✓,
   bookmark and progress), `components/notebook/`, `components/tracks/`,
-  `components/channels/`, `components/handwritten/` (FEAT-16; its pure
+  `components/channels/`, `components/stickyNotes/` (FEAT-17, the board the
+  Feed's sidebar opens), `components/handwritten/` (FEAT-16; its pure
   parts are in `lib/handwritten/`, since the server page uses them too). A
   folder's `model.ts` holds its types and pure rules (e.g. a channel's
   "quiet" status, a track's summary line).
@@ -124,10 +125,20 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
   `?t=`; `/manage` forwards to `/channels` (`next.config.ts`).
 - **Instant revisits** (PERF-03): `api()` remembers each GET reply in the
   tab's memory (capped, browser only); screens start from
-  `rememberedReply(path)` and refresh in the background. Any change through
-  `api()` or a sync clears it; the feed's ✓/bookmark/progress update it in
-  place. `next.config.ts` `staleTimes.dynamic: 300` reuses a visited page for
+  `rememberedReply(path)` and refresh in the background. A change through
+  `api()` forgets only the replies it can make stale (`staleAfter` in
+  `lib/api-client.ts`, PERF-09: a sticky note forgets sticky notes, a
+  video's note or answer forgets that video, the Notebook, the top bar and
+  track lists); channels, genres, login, a sync and anything unlisted
+  forget everything. The feed's ✓/bookmark/progress, and a video's note,
+  answers and summary, update the remembered feed pages in place
+  (`patchRememberedFeed`, also called by the Notebook). `next.config.ts` `staleTimes.dynamic: 300` reuses a visited page for
   5 min instead of re-requesting it.
+- **Cold opens stream** (PERF-10): Feed and Podcasts wrap their data in
+  `<Suspense fallback={<FeedSkeleton />}>` inside the page (after the
+  login check), so the frame and grey cards go out at once and the first
+  screen (B1) streams into the same response. The skeleton's `TopBar` is
+  `quiet` (never fetches counts, which would wake a second instance).
 - **Counts stay fresh** without polling: screens fire the
   `tubebox:nav-changed` event (`lib/nav-events.ts`) after a change, and the
   top bar recounts once (debounced).
@@ -165,6 +176,11 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
 - **tracks** — id, name (unique), created_at. **track_videos** — track_id,
   video_id (both FK, CASCADE), position, added_at; the (track, video) key
   makes adding idempotent.
+- **sticky_notes** (FEAT-17) — id, body, color (one of six papers,
+  `lib/stickyColors.ts`), handwritten, pinned, created_at, updated_at. Notes
+  that belong to no video, on a board in the Feed's sidebar; not in the
+  Notebook or ⌘K. `body` is plain text: `- ` lines are bullets, `[ ] ` /
+  `[x] ` lines tick boxes (`components/stickyNotes/lines.ts`).
 
 Indexes beyond the unique keys: `videos(published_at DESC)`, a trigram index
 on `videos.title` (search), `videos(later_at)` for saved ones,
@@ -433,6 +449,7 @@ window); that's why fps+resolution tuning matters.
 | `FIRECRAWL_API_KEY` | hosted only, optional | Backup transcript source, used only while the breaker is open (Apify failed 3× in a row; 30 min at a time) |
 | `BACKFILL_MONTHS` | no | Default backfill depth (months) when no window is passed (default 12 = 1 year). The add picker and Backfill 1Y–5Y always pass one, clamped to 1–60 months (max 5 years) |
 | `PGLITE_DIR` | no | Local embedded DB location (default `.data/pglite`) |
+| `OWNER_NAME` | no | The name in the Feed's greeting ("Good morning, Chandan."); unset = no name |
 
 ## 11. Deploy checklist (Netlify — done; live at personal-tubebox.netlify.app)
 
@@ -501,7 +518,10 @@ built: §3.1 above.
   `lib/tracks.ts` (routes stay thin; `app/api/tracks/respond.ts` maps
   `TrackError` → HTTP): stats per track ("4 of 9 watched · 2h 10m left",
   remaining time uses honest-watched coverage), CONTINUE = first unwatched
-  in order, append at max(position)+1, move = swap with the neighbour in ONE
+  in order, the Feed's "Pick up where you left off" row (FEAT-12) ends
+  with `nextTrackStep()`: the next step of the most recently played track
+  (else the newest), sent with `/api/videos?continue=1` and inside the
+  Feed's first screen, append at max(position)+1, move = swap with the neighbour in ONE
   `UPDATE … CASE` (`::int` casts — untyped params in a CASE resolve to
   text). Adding: `🎯 TRACK` panel on every card (inline, since cards clip
   pop-ups; tick/untick, or create by name — `components/feed/TrackMenu.tsx`), and

@@ -29,6 +29,22 @@ export interface FeedVideo {
   section: string;
 }
 
+/** Your latest track's next video and its place in the track (FEAT-12). */
+export interface TrackStep {
+  trackId: number;
+  trackName: string;
+  /** 1-based: "step 4 of 9". */
+  step: number;
+  count: number;
+  video: FeedVideo;
+}
+
+/** `/api/videos?continue=1`: started, unfinished videos (+ the Feed's track step). */
+export interface ContinueReply {
+  videos: FeedVideo[];
+  track?: TrackStep | null;
+}
+
 /** A saved Ask answer (a row of video_notes). */
 export interface Answer {
   id: number;
@@ -56,6 +72,18 @@ export interface ChannelItem {
   /** "feed" or "podcasts" (FEAT-14). */
   section: string;
   addedAt: string;
+}
+
+/** A sticky note (FEAT-17), as /api/sticky-notes sends it. */
+export interface StickyNoteItem {
+  id: number;
+  body: string;
+  /** yellow, pink, green, blue, peach or lilac. */
+  color: string;
+  handwritten: boolean;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** A saved cheat sheet (FEAT-15), as the API sends it. */

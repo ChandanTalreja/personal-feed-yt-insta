@@ -39,16 +39,20 @@ export function feedPath(f: Filters, page: number): string {
   return `/api/videos?${params}`;
 }
 
+/** Count and total length of what the filters match; `fresh` = out in the last 24 hours. */
+export type Totals = { count: number; seconds: number; fresh?: number };
+
 export interface FeedReply {
   videos: FeedVideo[];
   hasMore: boolean;
   laterCounts?: { videos: number; shorts: number };
-  totals?: { count: number; seconds: number };
+  totals?: Totals;
   facets?: Facets;
 }
 
-/** Apply a change to a video inside every remembered feed page too. */
-function patchRemembered(id: number, patch: Partial<FeedVideo>) {
+/** Apply a change to a video inside every remembered feed page too (also
+ *  used by the Notebook, so its notes and answers show on the cards). */
+export function patchRememberedFeed(id: number, patch: Partial<FeedVideo>) {
   updateRemembered<FeedReply>("/api/videos?", (reply) =>
     reply.videos ? { ...reply, videos: reply.videos.map((v) => (v.id === id ? { ...v, ...patch } : v)) } : reply
   );
@@ -91,7 +95,7 @@ export function useFeedData(
   const [laterCounts, setLaterCounts] = useState(initial?.laterCounts ?? { videos: 0, shorts: 0 });
   // Count + total duration of everything the current filters match (all
   // pages, not just the loaded ones).
-  const [totals, setTotals] = useState<{ count: number; seconds: number } | null>(initial?.totals ?? null);
+  const [totals, setTotals] = useState<Totals | null>(initial?.totals ?? null);
   // Sidebar counts (views and genres), from the first page's response.
   const [facets, setFacets] = useState<Facets | null>(initial?.facets ?? null);
   const [videos, setVideos] = useState<FeedVideo[]>(initial?.videos ?? []);
@@ -170,11 +174,13 @@ export function useFeedData(
   // A video entered or left the current view's set: keep the count and the
   // total time in step without refetching.
   function adjustTotals(video: FeedVideo, delta: 1 | -1) {
+    const isFresh = Date.now() - new Date(video.publishedAt).getTime() < 24 * 60 * 60 * 1000;
     setTotals((t) =>
       t
         ? {
             count: Math.max(0, t.count + delta),
             seconds: Math.max(0, t.seconds + delta * video.durationSeconds),
+            fresh: Math.max(0, (t.fresh ?? 0) + (isFresh ? delta : 0)),
           }
         : t
     );
@@ -216,7 +222,7 @@ export function useFeedData(
   /** Apply a change to a video everywhere it's shown (grid and panel). */
   const patchVideo = useCallback((id: number, patch: Partial<FeedVideo>) => {
     setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
-    patchRemembered(id, patch);
+    patchRememberedFeed(id, patch);
     onPatchedRef.current(id, patch);
   }, []);
 
@@ -255,7 +261,7 @@ export function useFeedData(
       next.splice(Math.max(0, Math.min(at, next.length)), 0, video);
       return next;
     });
-    patchRemembered(video.id, { watched: video.watched, laterAt: video.laterAt });
+    patchRememberedFeed(video.id, { watched: video.watched, laterAt: video.laterAt });
   }
 
   const NOT_SAVED = "Couldn't save. Please try again.";
@@ -272,7 +278,7 @@ export function useFeedData(
       if (leavesList) {
         if (on) {
           setVideos((prev) => prev.filter((v) => v.id !== video.id));
-          patchRemembered(video.id, { watched: next, laterAt: null });
+          patchRememberedFeed(video.id, { watched: next, laterAt: null });
         } else {
           restoreCard(video, at);
         }
@@ -312,7 +318,7 @@ export function useFeedData(
       if (leavesList) {
         if (on) {
           setVideos((prev) => prev.filter((v) => v.id !== video.id));
-          patchRemembered(video.id, { laterAt: null });
+          patchRememberedFeed(video.id, { laterAt: null });
         } else {
           restoreCard(video, at);
         }
@@ -344,7 +350,7 @@ export function useFeedData(
     }
     if (becameWatched && view === "later") {
       setVideos((list) => list.filter((v) => v.id !== update.id));
-      patchRemembered(update.id, update);
+      patchRememberedFeed(update.id, update);
     } else {
       patchVideo(update.id, update);
     }

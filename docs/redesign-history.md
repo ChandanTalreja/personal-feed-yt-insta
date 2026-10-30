@@ -1843,6 +1843,50 @@ Linked List" first. Unchanged: "react", "50%" (the % is still literal),
 "c++". ⌘K showed marks on "HashMap", "Hash Map" and "hash map" for
 "hashmap"; no console errors. Typecheck and lint clean.
 
+#### REF-16 · Copy link on every card — ✅ built · 2026-10-30, not yet deployed
+
+**The problem.** Sending a video to someone meant opening it on YouTube
+first, just to get its link.
+
+**The change.** Hovering a card shows a link button in the thumbnail's
+**bottom-left** corner, the fourth corner (✓ Mark seen top-left, bookmark
+top-right, the length bottom-right). Clicking it copies the video's YouTube
+link and the corner says "Link copied" for a moment. The owner chose the
+card only, no button in the player.
+
+**How it works.** The same `CornerToggle` as the other corners, marked as
+an action rather than a switch (`toggle={false}`: no `aria-pressed`), with
+its label above it. `youtubeLink()` (`components/feed/model.ts`) gives
+`youtube.com/watch?v=…`, or `youtube.com/shorts/…` for a Short, so the link
+works for anyone. The corner buttons now sit in a frame around the thumbnail
+(the first try placed "bottom" at the bottom of the whole card, under the
+tool row). A Short's or stream's badge, which lives in that corner, fades out
+while you hover the card.
+
+**Key code.**
+```tsx
+<CornerToggle className="bottom-2 left-2" on={copied} toggle={false} labelBelow={false}
+  label={copied ? "Link copied" : "Copy link"} align="left" onClick={() => copy(youtubeLink(video))}>
+  <Icon name={copied ? "check" : "link"} size={16} />
+</CornerToggle>
+```
+
+**Alternatives considered.** *A Copy link button in the player too, at the
+current time* (`&t=754s`): offered; the card is enough for now. *In the tool
+row under the title*: that row is for studying, and it's already full.
+
+**Files.** `components/feed/VideoCard.tsx`, `components/feed/model.ts`,
+`components/ui/iconPaths.ts` (Phosphor `link-simple`, bold: an open shape,
+so no fill).
+
+**Verified** (local). The link button shows in the thumbnail's bottom-left
+on hover, with the other three corners. With the clipboard stood in for (the
+test browser refuses clipboard access): a video copied
+`https://www.youtube.com/watch?v=XHxOA3PvTYQ`, a Short
+`https://www.youtube.com/shorts/yB5gKP4fykU`; the corner read "Link copied",
+stayed visible, and went back to "Copy link" after 1.5 s. The SHORT badge
+fades on hover. Typecheck and lint pass.
+
 ### FEAT — new features
 
 #### FEAT-01 · Global search — ✅ done · 2026-10-17
@@ -2425,7 +2469,7 @@ The page side is `continueBackfill()` in `components/ChannelsClient.tsx`: call
   than one request (it would add a real channel). It shares the carry-on
   code tested above.
 
-#### FEAT-11 · Greeting — ⏸ parked · 2026-10-17
+#### FEAT-11 · Greeting — ✅ built · 2026-10-31 (parked 2026-10-17)
 **The problem**
 The feed opens straight onto a list; there's no sense that it's *your* app.
 
@@ -2441,7 +2485,114 @@ Dan's dashboard too literally.
 **Why parked** — it needs stored data (the name), and the owner wasn't sure
 it's worth it. The pen notes (REF-07) carry the personality for now.
 
-#### FEAT-12 · Pick up where you left off — ⏸ parked · 2026-10-17
+**Picked up 2026-10-30, design agreed (not built yet).** Mocked on the real
+Feed. An icon tile beside a bold greeting was turned down ("the greeting is
+bold and the message is plain, which doesn't work"). Chosen: one handwritten
+line above "Inbox" in the pen font, slightly tilted, in two inks: the
+greeting in black ink, the message in red. The time of day comes from the
+browser's clock (Netlify runs on UTC, so the server can't pick it):
+
+| Time | Greeting (black) | Message (red) |
+|---|---|---|
+| 5 am to 12 pm | Good morning, Chandan. | Coffee first, then the queue. |
+| 12 pm to 5 pm | Good afternoon, Chandan. | A quick one between things? |
+| 5 pm to 10 pm | Good evening, Chandan. | Settle in, it's all here. |
+| 10 pm to 5 am | Still up, Chandan? | One more video, then sleep. |
+
+"6 new since yesterday" (published in the last 24 hours) starts the line
+under the title. The name is an environment variable. Also tried: red
+ink, green ink, black with the name on the yellow marker.
+
+**Built 2026-10-31.**
+
+*The change.* The Feed opens with one handwritten line above the title,
+for example *Good evening, Chandan.* in black ink, then *Settle in, it's
+all here.* in red. The lines are the four in the table above. On the
+Inbox, the line under the title starts with "6 new since yesterday ·" when
+anything came out in the last 24 hours, and leaves it out when nothing
+did. The greeting shows on every Feed view (Inbox, Watch later, Watched,
+Everything, Shorts), so the title doesn't move when you switch. It isn't
+on Podcasts or the Sticky notes board.
+
+*How it works.*
+- **The time of day comes from the browser.** The page is drawn on the
+  server, which runs on UTC on Netlify, so it would greet you with the
+  wrong part of the day. `Greeting.tsx` reads the hour with
+  `useSyncExternalStore`: its server snapshot is `null`, so the server and
+  the first render draw an empty line of the same height. React then
+  switches to the browser's answer, with no hydration mismatch and nothing
+  jumping. The same trick is used by the handwritten style picker
+  (`useHandwrittenStyle.ts`).
+- **It changes by itself.** The store checks the hour once a minute. Its
+  answer is a word ("evening"), so React only redraws when the part of the
+  day changes, for example a tab left open past 10 pm turns to *Still up?*.
+- **The name** is `OWNER_NAME`, read on the server in `app/page.tsx` and
+  passed to the Feed. Unset, the greeting has no name ("Good morning.").
+  An env var, not a database row: it's one value for a single-user app and
+  never changes from the UI, so a setting page would be code for nothing.
+- **"New since yesterday"** is one more number in the totals query the
+  feed already runs (`fresh`: `count(*) FILTER (WHERE published_at > now()
+  - interval '24 hours')`), so it costs no extra round trip. It follows the
+  current filters like the rest of that line ("2 new since yesterday · 124
+  to watch in DSA"). Marking a video seen updates it in place, like the
+  count beside it.
+
+*Key code.*
+
+```tsx
+// components/feed/Greeting.tsx
+const part = useSyncExternalStore(subscribe, partOfDay, () => null);
+```
+
+```ts
+// lib/feedVideos.ts, the totals query
+fresh: sql<number>`count(*) FILTER (WHERE ${videos.publishedAt} > now() - interval '24 hours')::int`,
+```
+
+*Alternatives.* Pick the time on the server: wrong on Netlify (UTC).
+`useEffect` plus state: works, but draws one extra frame and needs an
+eslint exception; the store is the pattern the app already uses. "New
+since your last visit": needs a new "last seen" record, and "since
+yesterday" says the same thing for a daily habit. Show the greeting on
+the Inbox only: the title would jump down and up when switching views.
+
+*Files.* `components/feed/Greeting.tsx` (new), `components/feed/FeedClient.tsx`
+(greeting above the title, "new since yesterday"), `components/feed/useFeedData.ts`
+(`Totals` type, `fresh` kept in step), `lib/feedVideos.ts` (`fresh`),
+`app/page.tsx` (`OWNER_NAME`), `app/globals.css` (`.pen-greeting`,
+`--color-pen-red`), `.env.example`.
+
+*Verified.* In the running app at 1:20 am IST: *Still up? One more video,
+then sleep.* above Inbox (no name, since the local `.env.local` has no
+`OWNER_NAME`), no hydration warning in the console. The videos reply
+carries `fresh` (0 locally: the newest local video is from Oct 22, so the
+line correctly starts with "1,025 to watch"). Typecheck and lint pass.
+*Not seen yet:* the other three times of day switching in, and a non-zero
+"new since yesterday" (needs a sync with fresh uploads). Later the same
+night, after the owner added `OWNER_NAME` and synced: "Still up, Chandan?"
+and "5 new since yesterday · 1,052 to watch".
+
+**Rotating lines (same day, 2026-10-31).** Mocked in the pen font and
+approved by the owner: four lines for each part of the day, one per day,
+taking turns, so none repeats until all four have been seen. The first of
+each four is the original line.
+
+| Part of the day | Lines (greeting · message) |
+|---|---|
+| Morning | Good morning · Coffee first, then the queue. / Morning · Fresh uploads, fresh brain. / Rise and shine · The queue waited up for you. / Good morning · One good video before the day gets loud. |
+| Afternoon | Good afternoon · A quick one between things? / Afternoon · Lunch break? Pick a short one. / Hey · Ten minutes is enough for something good. / Good afternoon · Learn one thing, then back to it. |
+| Evening | Good evening · Settle in, it's all here. / Evening · Day's done. Your turn now. / Welcome back · Feet up, queue on. / Good evening · Something long tonight? |
+| Late night | Still up? · One more video, then sleep. / Late one? · Short ones only after midnight. / Night owl mode · Pick one, then pillow. / Burning the midnight oil? · Save the long ones for tomorrow. |
+
+*How.* `pick()` returns "evening:2": the part of the day, and the day's
+number (days since 1970 in local time) modulo 4. The day is counted from
+5 am, so a late night keeps one line across midnight. One line per day
+rather than a random one per open: the same line all morning reads as
+the app's mood that day; a new one on every reload reads as random.
+Still a plain string from the store, so React only redraws when it
+changes. Typecheck and lint pass.
+
+#### FEAT-12 · Pick up where you left off — ✅ built · 2026-10-31 (parked 2026-10-17)
 **The problem**
 Half-watched videos and a track's next step are only visible if you go
 looking (a thin progress bar on a card, or the Tracks page).
@@ -2457,6 +2608,78 @@ preview (2026-10-17), then taken out.
 
 **Why parked** — it's a new feature, not a look change; Phase 9 stays about
 the look.
+
+**Picked up 2026-10-30, agreed (not built yet).** Mocked on the real Feed as
+the Podcasts "Continue listening" row reused: "Pick up where you left off ·
+N", half-watched videos with the time left, then one tile for the latest
+track's next step ("Up next in AI", step 1 of 3). Only shown when there's
+something to pick up.
+
+**Built 2026-10-31.**
+
+*The change.* The Feed's Inbox shows "Pick up where you left off · N"
+under the title: one slim row of tiles that scrolls sideways. First, the
+videos you started and didn't finish (most recently played first, up to
+12), each with its progress and the time left. Last, one tile for your
+latest track: "Up next in AI: <title>", "Step 2 of 3". A tile plays the
+video from where you stopped. The row shows only on the unfiltered Inbox
+(Videos, no genre, channel or search) and only when there's something in
+it. Podcasts keep their "Continue listening" row as before.
+
+*How it works.*
+- **One reply for the row.** `/api/videos?continue=1` already served
+  Podcasts' row; it now works for the Feed too, and on the Feed it also
+  carries `track`: `nextTrackStep()` in `lib/tracks.ts`. Both queries run
+  in parallel.
+- **Which track.** Among tracks with something left to watch, the one
+  whose videos you played most recently (`last_played_at`); if none has
+  been played yet, the newest track. Its next step is the first unwatched
+  video in track order, the same rule as the Tracks page's Continue. One
+  query over the track rows; the choosing is a few lines of JS.
+- **No duplicates.** If the track's next video is also half-watched, it
+  appears once, as the track tile.
+- **Inside the page.** The first screen (audit B1) now gathers this row for
+  the Feed as well as Podcasts, so opening the Feed makes no extra request.
+- **Kept in step.** Closing the player reloads the row (where you stopped
+  changed). Marking a video ✓ Seen drops it from the row at once; if it was
+  the track's step, the row asks for the next step. Changing a track
+  forgets the remembered row (PERF-09's rule for `/api/tracks` already
+  forgets `/api/videos?`).
+- **No new tracking.** Everything came from columns FEAT-06 already
+  fills: `resume_seconds`, `last_played_at`, and the tracks tables.
+
+*Key code.*
+
+```ts
+// lib/feedVideos.ts, continue=1
+const [rows, track] = await Promise.all([
+  rowsQuery,
+  query.section === "feed" ? nextTrackStep(db) : null,
+]);
+return { videos: track ? rows.filter((v) => v.id !== track.video.id) : rows, track };
+```
+
+*Alternatives.* Fetch `/api/tracks` in the browser and then the next
+video: two requests, and the tracks list only has the video's id. A
+separate "home" endpoint: one more route and one more cold start. Show
+every track's next step: the row is about one thing to pick up, and the
+Tracks page lists them all. Show the row under a genre too: it's about
+everything you started, so it would ignore the genre and confuse.
+
+*Files.* `lib/tracks.ts` (`nextTrackStep`), `lib/feedVideos.ts`,
+`lib/firstScreen.ts`, `components/feed/ContinueStrip.tsx` (title prop, a
+`Tile` shared by both kinds), `components/feed/FeedClient.tsx`,
+`components/feed/firstScreen.ts`, `components/types.ts` (`TrackStep`,
+`ContinueReply`).
+
+*Verified.* Locally: no track had been played, so the row showed the
+newest track, "Up next in Haunted: …", "Step 1 of 1" (no half-watched
+feed videos in the local copy at the time). After a reload the server log
+showed `[first-screen] feed in 37ms` and the browser made no data
+requests. Podcasts still show "Continue listening · 1" then "New
+episodes", with no track tile. Typecheck and lint pass. *Not tried:*
+playing from a tile (it would change where you stopped in real data; it
+uses the same play action as the Podcasts tiles).
 
 ---
 
@@ -2961,6 +3184,127 @@ embedded, no header or footer, highlights on every question including
 wrapped lines and across the page break. Circles and underlines checked with
 the print rules applied on screen. Phone (375px): no sideways scroll, lines
 aligned. Typecheck and lint pass.
+
+#### FEAT-17 · Sticky notes — ✅ built · 2026-10-30, not yet deployed
+
+**The problem.** Some notes belong to no video: a reminder, an idea, a list.
+The Notebook is for answers and notes on videos, so they had nowhere to go.
+
+**The change.** **Sticky notes**, a row in the Feed's sidebar under the four
+views (on its own peach tile). It opens a board in place of the videos, with
+the pen note "for the thoughts in between". The owner's choices, after a
+mock-up of three placements: in the Feed sidebar (no tab of its own), no
+floating quick-note button, not in ⌘K, Feed only (not Podcasts).
+- **Six papers:** the sidebar's four tiles plus peach and lilac (six is
+  enough choice without turning into a rainbow). Pick one for the next note
+  beside **New note**, or change a note's paper later.
+- **Writing:** free text. `- ` at the start of a line makes a bullet, `[] `
+  a tick box you can click while writing; Enter continues the list, Enter on
+  an empty item ends it, Backspace at the start removes the dot or box.
+  Ticked items are crossed out. A plain first line above others reads as the
+  title (bold). Pasting several lines keeps them as lines.
+- **Per note:** plain or handwritten (the pen's Caveat), pin to the top,
+  delete (red Delete / green Keep, as on cheat sheets). Notes tilt slightly
+  and straighten and lift while you write in one.
+- **Saving** is automatic, 0.7 s after you stop typing and at once when you
+  click away. A new note left empty disappears when you click away.
+
+**How it works.**
+- **Table** `sticky_notes` (body, color, handwritten, pinned, times), added
+  by the schema list on the first cold start. `body` is plain text (`- `,
+  `[ ] `, `[x] `), readable anywhere. Routes: `GET`/`POST /api/sticky-notes`,
+  `PATCH`/`DELETE /api/sticky-notes/:id` (`lib/stickyNotes.ts` validates).
+- **The six colours** are design tokens (`--color-tile-peach`,
+  `--color-tile-lilac` joined the four tiles in `globals.css`); their names
+  live in `lib/stickyColors.ts`, a file of its own so the browser can use the
+  list without the server code.
+- **The editor** (`NoteLines.tsx`) is one small text box per line, so a dot
+  or a box can sit beside the text while you type. `lines.ts` turns the
+  stored text into lines and back, and holds the "- " / "[] " rules (pure).
+- **In the Feed:** `notesOpen` is its own switch beside the views, so the
+  video queries and counts are untouched. Picking a view, genre or channel
+  (or a search link) goes back to the videos. Narrow screens get the usual
+  Filters button on the board.
+- **Order:** pinned first, then newest first, so a note doesn't move while
+  you type in it.
+
+**Key code.**
+```ts
+// components/stickyNotes/lines.ts: "- " and "[] " at the start of a line.
+export function applyShortcut(line: Line): Line {
+  if (line.kind !== "text") return line;
+  const bullet = line.text.match(/^[-*] ([\s\S]*)$/);
+  if (bullet) return { kind: "bullet", done: false, text: bullet[1] };
+  const todo = line.text.match(/^\[(x|X| )?\] ([\s\S]*)$/);
+  ...
+}
+```
+
+**Alternatives considered.** *A tab of its own*: not needed, the sidebar is
+one click away. *A quick-note button floating on every page* (option C):
+skipped for now. *One text box with Markdown shown after you click away*:
+the dots and boxes would only appear afterwards; the owner wanted them while
+typing. *A rich-text editor library (Tiptap, Lexical)*: far more than three
+line kinds need. *Italic as a third style*: plain or handwritten is clearer.
+
+**Files.** New: `lib/stickyNotes.ts`, `lib/stickyColors.ts`,
+`app/api/sticky-notes/route.ts`, `app/api/sticky-notes/[id]/route.ts`,
+`components/stickyNotes/` (`StickyBoard.tsx`, `StickyNote.tsx`,
+`NoteLines.tsx`, `lines.ts`). Changed: `lib/db.ts`, `lib/schema.ts`,
+`app/globals.css`, `components/types.ts`, `components/feed/FeedClient.tsx`,
+`components/feed/FeedSidebar.tsx`, `components/ui/iconPaths.ts` (Phosphor
+`note-blank` with its page as the fill, so it lights up; `push-pin`;
+`text-aa`).
+
+**Verified** (local, typed with the real keyboard). Empty board: "Nothing
+stuck here yet". A note typed as "Before Friday", Enter, "[] Finish HashMap
+sheet", Enter, "Print the PDF", Enter, Enter, "- re-add podcasts" became a
+bold title, two tick boxes, the list ended, then a bullet. Ticking the first
+box, lilac paper, handwritten and pin saved as
+`Before Friday\n[x] Finish HashMap sheet\n[ ] Print the PDF\n- re-add podcasts`,
+lilac, handwritten, pinned, and survived a reload ("1 note · 1 pinned"). A
+new note left empty was removed from the board and the database on clicking
+away (with real clicks; a scripted blur doesn't fire in the unfocused test
+browser). The bin's Delete removed the note (the board was left as found:
+empty). Inbox brought the videos back; Podcasts has no Sticky notes row. No
+console errors; typecheck and lint pass.
+
+#### FEAT-18 · Topics by Gemini — ⏸ parked · 2026-10-31
+
+**Where the idea came from.** The owner, thinking out loud: if Watch Later
+grows to 200 videos, going through them one by one is hard; could Gemini
+look at the titles and channels and help sort them? Today production has
+about 9 saved, so it isn't a problem yet.
+
+**The problem (when it becomes one).** A long list needs "which of these
+should I watch now?", not "what's in here?". The filters already narrow by
+genre, channel, length and title. What's missing is **topic**: a genre is
+set per channel, and one channel covers many topics (Mehul Mohan: Kafka,
+Java, interviews). "Show me the Kafka ones" only works when "Kafka" is in
+the title; Gemini knows "Event streaming explained" belongs there too.
+
+**Two ways to build it.**
+
+| | A. Group on demand | B. Tag each video when it arrives |
+|---|---|---|
+| How | A "Group by topic ✦" button. Gemini reads the list's titles and channel names and returns groups ("Kafka & streaming · 12", "Interview prep · 30") as chips to filter by | The daily sync asks Gemini for one or two topics per new video and stores them on the video. Topic chips then work on every view |
+| Cost | One call per press; 200 titles is about 3 to 4 thousand tokens | About one small call per sync (up to 50 titles per call); a one-time pass to tag the ~2,000 existing videos |
+| Good | Nothing new to store; groups fit the list on screen | Stable topics ("Kafka" is always "Kafka"); works in the Inbox (1,000+ to watch), where it helps most; instant, no waiting on Gemini; follows "every AI result cached forever" |
+| Weak | Groups can change each press; a few seconds' wait | More to build: a column (or a small topics table), a sync step, the backfill pass, a fixed topic list or Gemini's own names to keep tidy |
+
+**Leaning, if picked up:** B, starting with the Inbox, since that's the
+list that's already long. A "Make a track from these 12" button on a topic
+chip would connect it to Tracks ("Add these N to a track" already exists).
+
+**Cheaper things first, no Gemini.** If Watch Later itself grows: a
+"saved longest ago" order (old saves are the ones to watch or let go), and
+a gentle "Still want these?" clean-up for videos saved months ago and never
+opened. A big Watch Later is often an unpruned list more than an unsorted
+one.
+
+**Why parked.** At 9 saved videos you can see them all; building for a
+list that doesn't exist yet is the trap. Revisit when Watch Later passes
+roughly 50, or if finding a topic in the Inbox starts to hurt.
 
 ### CLEAN — code cleanup (Phase 10)
 
@@ -3662,6 +4006,163 @@ backfill still read its uploads list and kept its 85 Shorts. Podcasts page:
 no Shorts switch; Feed: switch still there. Typecheck and lint clean. Test
 channels deleted afterwards. **After deploying:** the owner deletes and
 re-adds the six podcast channels.
+
+#### PERF-09 · A save forgets only what it changed (audit B4) — ✅ built · 2026-10-30, not yet deployed
+
+**The problem.** Screens open instantly by showing the last reply they got
+(PERF-03), then refresh in the background. But any save through `api()`
+wiped every remembered reply. Saves happen constantly: a sticky note saves
+0.7 s after you stop typing, a video note as you write, every Ask. So after
+writing one sticky note, going to the Notebook or Tracks showed grey
+placeholders and waited on the server, as if you'd never been there. On
+Netlify after a quiet spell that wait can be several seconds.
+
+**The change.** Each save now forgets only the screens it can make stale.
+Everything else still opens instantly. Saves that could touch almost
+anything (channels, genres, logging in, a sync) still forget everything, and
+so does any save not on the list: forgetting too much is safe, too little
+isn't.
+
+**How it works.** `staleAfter(path)` maps the address a save goes to onto
+the remembered addresses it affects (by prefix):
+
+| A save to | Forgets |
+|---|---|
+| `/api/sticky-notes…` | sticky notes |
+| `/api/cheat-sheets…` | cheat sheets |
+| `/api/ask-suggestions` | Ask suggestions |
+| `/api/videos/:id…` (note, Ask, summary, transcript) | that video's own replies, the Notebook, the top bar's counts, the tracks' video lists |
+| `/api/tracks…` | Tracks, the top bar's counts, the feed pages (their "In N tracks") |
+| anything else, and `/api/cron` | everything |
+
+A video save keeps the feed pages, because a card shows that video's note,
+answer count and summary, and the screen that saved it already writes the
+change into the remembered pages: the Feed's study panel did so before
+(`patchVideo`), and the Notebook now does too (`patchRememberedFeed` on a
+note, a new answer, or watch progress). Every remembered screen still
+refreshes when it opens, so even a miss would only show old data for the
+moment the fresh reply takes.
+
+**Key code.**
+```ts
+// lib/api-client.ts
+function staleAfter(path: string): string[] | "all" {
+  const video = path.match(/^\/api\/videos\/(\d+)(?:[/?]|$)/);
+  if (video) return [`/api/videos/${video[1]}/`, "/api/notebook", "/api/nav", "/api/tracks/"];
+  if (/^\/api\/tracks(?:[/?]|$)/.test(path)) return ["/api/tracks", "/api/nav", "/api/videos?"];
+  if (path.startsWith("/api/cheat-sheets")) return ["/api/cheat-sheets"];
+  if (path.startsWith("/api/sticky-notes")) return ["/api/sticky-notes"];
+  if (path.startsWith("/api/ask-suggestions")) return ["/api/ask-suggestions"];
+  return "all";
+}
+```
+
+**Alternatives considered.** *Each screen says what it changed* (an option
+on `api()`): spreads the knowledge over many files; one table in one place
+is easier to check. *Keep the feed pages on track saves too*: the Tracks
+page's changes (delete a track, remove a video) don't patch the cards, so
+they'd show a wrong "In N tracks"; track saves are rare, so they forget the
+feed pages. *A data library (SWR, TanStack Query)*: does this with tagged
+keys, but it would mean rewriting every screen's loading for one rule table.
+
+**Files.** `lib/api-client.ts` (`staleAfter`, `forgetStartingWith`),
+`components/feed/useFeedData.ts` (`patchRemembered` exported as
+`patchRememberedFeed`), `components/notebook/NotebookClient.tsx`.
+
+**Verified** (local). A script filled twelve remembered screens and made
+each kind of save against a stand-in server: a sticky note forgot only
+sticky notes; a note or Ask on video 12 forgot video 12's replies, the
+Notebook, the top bar and track details, and kept video 123's and the feed
+pages; a track save also forgot the feed pages; a channel save and a sync
+forgot everything. In the browser: opened the Notebook, wrote a sticky
+note in the Feed (saved), then opened the Notebook with its server reply
+held back 4 s: the list was on screen at 0.3 s (before, placeholders).
+Reopening Sticky notes the same way showed placeholders, then the fresh
+note, as it should. Test note deleted. Typecheck and lint clean.
+
+#### PERF-10 · A loading screen for cold opens — ✅ built · 2026-10-31, not yet deployed
+
+**The problem.** After the site has been asleep, opening it takes about 7
+s (measured 2026-10-22, PERF-07): ~3.3 s booting the function, ~1.3 s
+loading the page code, ~1 s waking Neon, ~1.3 s for the queries. The page
+was sent only when all of it was done, so the tab stayed blank for the
+whole 7 s, with no sign anything was happening.
+
+**The change.** Feed and Podcasts now send their frame first: the top bar,
+the real sidebar (views and genres, grey rows for the channels), the
+greeting, the title with its pen note, grey bars where the summary and
+controls go, and 8 grey cards. The real screen replaces it in the same
+response when its data is ready. On a cold open the frame should show
+at about 4.6 s instead of a blank tab until 7 s. The total time is the
+same; you just see it working sooner. Nothing in the page code can shorten
+the first ~4.6 s (the function boot): that's the free-tier floor.
+
+**How it works.**
+- **Streaming with Suspense.** `app/page.tsx` checks the login, then
+  returns `<Suspense fallback={<FeedSkeleton />}>` around an async `Feed`
+  component that gathers the first screen (B1). React sends the fallback's
+  HTML at once, keeps the response open, and streams the real screen into
+  it when `Feed` finishes; a tiny inline script swaps it in. It's still
+  **one request**, and the first screen still arrives inside the page, so
+  B1's "no data requests after the page" holds. `app/podcasts/page.tsx` is
+  the same.
+- **Not a `loading.tsx`.** A `loading.tsx` at `app/` would wrap every page
+  (a feed-shaped skeleton flashing on Tracks), and it starts streaming
+  before the page runs, so a logged-out visit would get the skeleton and
+  then an in-stream redirect. A Suspense inside the page covers exactly
+  these two pages, and the login check before it still answers with a
+  plain redirect. Notebook, Tracks and Channels do no slow server work
+  (only the login check); they load in the browser behind their own
+  spinners, so they don't need one.
+- **The skeleton looks like the page** (`components/feed/FeedSkeleton.tsx`):
+  it reuses the real `TopBar`, `FeedSidebar` (new `loading` prop: grey
+  channel rows instead of "No channels in this genre yet"), `Greeting`,
+  `PageTitle` and `VideoCardSkeleton`, and the grid's classes now live in
+  one place (`VIDEO_GRID` in `model.ts`). Same sizes, so nothing jumps
+  when the cards arrive (only the "Pick up" row, which can't be known
+  ahead).
+- **A quiet top bar.** `TopBar` gets `quiet`: it shows remembered counts but
+  never asks for them. On a cold open that request would wake a second
+  Netlify instance, and the page brings the counts a moment later anyway.
+  The Podcasts tab now also shows while the counts aren't known, so the
+  tabs don't shift when they arrive.
+
+**Key code.**
+
+```tsx
+// app/page.tsx
+if (!(await isAuthed())) redirect("/login");
+return (
+  <Suspense fallback={<FeedSkeleton ownerName={ownerName} />}>
+    <Feed ownerName={ownerName} />
+  </Suspense>
+);
+```
+
+**Alternatives.** `loading.tsx` (above). A spinner instead of a skeleton:
+says "wait" but not what's coming, and the page jumps when it lands. A
+warm-up ping to avoid cold opens altogether: parked, it costs Netlify
+credits around the clock. Turning off the top bar's prefetch (item 6 of
+this release's list): the owner decided against it.
+
+**Files.** `app/page.tsx`, `app/podcasts/page.tsx`,
+`components/feed/FeedSkeleton.tsx` (new), `components/feed/FeedSidebar.tsx`
+(`loading`), `components/feed/model.ts` (`VIDEO_GRID`),
+`components/feed/FeedClient.tsx`, `components/TopBar.tsx` (`quiet`, the
+Podcasts tab rule).
+
+**Verified.** Locally with a temporary 3 s delay in `Feed`: the response
+carried the skeleton at 0.0 s and the real feed at 3.06 s; in the
+browser, first paint at 68 ms and the response finished at 3.1 s. With the
+page temporarily showing only the skeleton: it looks as described at
+phone and 1440 px widths, and it made **no** `/api` requests. Both test
+lines removed. Without the delay: 24 cards, the "Pick up" row, "5 new
+since yesterday" in the summary, 0 data requests after the page (B1
+intact), no console errors. Podcasts: "Continue listening · 1", "New
+episodes", 24 cards, no greeting. Moving Feed → Podcasts → Tracks with the
+top bar works. Typecheck and lint pass. *Not measured yet:* a real cold
+open on Netlify (after deploying, open the site after an hour or more idle
+and read the logs).
 
 
 ### FIX — problems found in use

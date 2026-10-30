@@ -41,9 +41,8 @@ export async function loadFirstScreen(db: Db, section: "feed" | "podcasts") {
     listChannels(db),
     listGenres(db),
     getAskSuggestions(db),
-    section === "podcasts"
-      ? listFeedVideos(db, { ...openingQuery(section), continueListening: true })
-      : null,
+    // Podcasts' "Continue listening", the Feed's "Pick up where you left off".
+    listFeedVideos(db, { ...openingQuery(section), continueListening: true }),
   ]);
   // One line per gathered first screen: how long the page's own data took
   // (and proof of when it runs: on open and on navigation, not on prefetch).
