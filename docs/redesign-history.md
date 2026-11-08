@@ -1887,6 +1887,313 @@ test browser refuses clipboard access): a video copied
 stayed visible, and went back to "Copy link" after 1.5 s. The SHORT badge
 fades on hover. Typecheck and lint pass.
 
+#### REF-17 · Sticky notes show their count — ✅ built · 2026-10-31, not yet deployed
+
+**The problem.** Every row under "Your feed" in the sidebar shows a number
+(Inbox, Watch later, Watched, Everything) except Sticky notes. The notes
+are only fetched when you open the board, so the sidebar didn't know how
+many there were.
+
+**The change.** "Sticky notes" shows how many notes you have, like the rows
+above it (0 included, as the views do). Adding or deleting a note on the
+board changes the number at once. Podcasts has no notes row, so no count.
+
+**How it works.** Three sources, best first:
+1. **The page.** The first screen (audit B1, `lib/firstScreen.ts`) already
+   gathers the Feed's data on the server, in parallel. It now also runs one
+   `count(*)` over `sticky_notes` (`countStickyNotes`, Feed only) and sends
+   it as `stickyCount`. No extra request from the browser.
+2. **The board.** `StickyBoard` reports its list's length through a new
+   `onCount` whenever the list changes: on load, after "New note", after a
+   delete, and when an empty note removes itself on click-away.
+3. **This tab's last count.** A page the router keeps (PERF-03, up to 5
+   minutes) carries an old first screen, so the Feed doesn't trust it
+   (`isFreshFirstScreen`). Its count could be out of date: add a note, go to
+   the Notebook, come back, and the kept page still says the old number. So
+   the last count seen is kept in a small module variable
+   (`components/stickyNotes/noteCount.ts`), which outlives the page, and a
+   kept page starts from that.
+
+If the page's first screen fails, the row stays blank until you open the
+board once. Not worth fetching every note just for a number.
+
+**Key code.**
+```ts
+// FeedClient: from the page, else the last one seen in this tab, else blank.
+const [noteCount, setNoteCount] = useState<number | null>(
+  () => seed?.stickyCount ?? knownNoteCount() ?? first?.stickyCount ?? null
+);
+useEffect(() => {
+  if (noteCount != null) setKnownNoteCount(noteCount);
+}, [noteCount]);
+// …
+<StickyBoard onCount={setNoteCount} … />
+```
+
+**Alternatives considered.** *Fetch `/api/sticky-notes` when the Feed
+opens*: a request (and on Netlify possibly a cold start) for a number, which
+undoes part of B1. *Put the count in the facets reply*: facets are about
+videos and reload on every filter change, so the count would be queried again
+for nothing. *Add it to `/api/nav` (the top bar's counts)*: the top bar has no
+notes tab, and the Feed's sidebar would have to wait for the top bar.
+
+**Files.** `lib/stickyNotes.ts` (`countStickyNotes`), `lib/firstScreen.ts`,
+`components/feed/firstScreen.ts` (`stickyCount`), new
+`components/stickyNotes/noteCount.ts`, `components/stickyNotes/StickyBoard.tsx`
+(`onCount`), `components/feed/FeedSidebar.tsx` (`notesCount`),
+`components/feed/FeedClient.tsx`.
+
+**Verified** (local, real keyboard and clicks). On open the row reads
+"Sticky notes 0" with 0 data requests (the count came inside the page).
+"New note" → 1 at once. Clicking away from that empty note removed it
+(the board's own rule) and the count went back to 0, matching the database.
+A note with text → 1; Notebook → Feed (a kept page) still 1. Deleted it from
+the board → 0, database 0 (the test note is gone; there were none before).
+Typecheck and lint pass. Seen along the way, not caused by this change (the
+same happens on the committed code): on a fresh local dev server, the very
+first page open can fail to gather its first screen ("Extension bundle not
+found: pg_trgm" from PGlite inside the page's bundle), so the screen fetches
+as before; once any API route has opened the local database, the page works.
+Local only: Netlify uses Neon, not PGlite.
+
+#### REF-18 · Excalifont, a fifth hand for cheat sheets — ✅ built · 2026-10-31, not yet deployed
+
+**Where the idea came from.** One of FEAT-16's parked options. The owner
+linked it to the architecture diagram in `docs/diagrams/`, drawn in
+Excalidraw: that diagram's hand is Excalifont (its `.excalidraw` file uses
+font family 5, Excalifont), so cheat sheets in it look like the diagrams.
+
+**The problem.** The studio had four hands (Caveat, Kalam, Architect, Nanum
+Pen), none of them the hand of the owner's own diagrams.
+
+**The change.** **Excalifont** is a fifth choice under Hand in the studio's
+tray, at 20 px (the owner picked 20 from 18 / 20 / 22 on a preview page with
+the real "Parallel" sheet). Every paper, ink and mark works with it, on
+screen and in the PDF.
+
+**How it works.** Excalifont isn't on Google Fonts, so it comes with the
+site: `next/font/local` loads `components/handwritten/fonts/Excalifont-Regular-latin.woff2`
+into `--hand-excalifont`, next to the four Google hands, and only the
+handwritten page includes it. The file is Excalidraw's own Latin part of the
+font (letters, digits, punctuation, curly quotes, dashes, accented Latin
+letters; 25 KB), unchanged, with its licence (SIL Open Font License) beside
+it in `fonts/OFL.txt`. The font has one weight, so questions aren't bolder
+than answers (`boldWeight: 400`, as with Architect); the numbers and marks
+carry the questions.
+
+**Key code.**
+```ts
+// components/handwritten/fonts.ts
+const excalifont = localFont({
+  variable: "--hand-excalifont",
+  src: "./fonts/Excalifont-Regular-latin.woff2",
+  weight: "400",
+});
+// lib/handwritten/themes.ts
+{ id: "excalifont", name: "Excalifont", family: "var(--hand-excalifont)", size: 20, boldWeight: 400, nudge: 3 },
+```
+
+**Alternatives considered.** *Load it from a CDN*: another site to depend on
+at print time; 25 KB in the repo is simpler. *All seven of Excalidraw's
+pieces of the font* (Cyrillic, Greek, more accents): cheat sheets are
+English; a missing letter falls back to the page's cursive. *Excalidraw's
+older hand, Virgil*: Excalifont is its successor and is what the diagram uses.
+
+**Files.** New: `components/handwritten/fonts/Excalifont-Regular-latin.woff2`,
+`components/handwritten/fonts/OFL.txt`. Changed: `components/handwritten/fonts.ts`,
+`lib/handwritten/themes.ts`.
+
+**Verified** (local). Preview page first (published as an artifact): the
+real "Parallel" sheet in each current hand beside Excalifont, every paper,
+ink and mark. In the studio: Excalifont shows as the fifth tile ("Exception"
+in the hand); picked, the "Parallel" sheet redraws in it, words sitting on
+the ruled lines (`nudge: 3` right as is), highlighter on the questions.
+The test browser's saved style was put back to the default afterwards.
+Typecheck and lint pass. The fifth tile sits alone on the tray's third row;
+left as is.
+
+#### REF-19 · Handwritten cheat sheets on real A4 pages — ✅ built · 2026-10-31, not yet deployed
+
+**Where the idea came from.** One of FEAT-16's parked options ("real A4
+pages in the preview, Paged.js"). Designed with the owner from a mock (one
+long sheet today vs. three real pages); the owner took all four suggested
+choices and chose our own page-cutting over Paged.js.
+
+**The problem.** On screen each cheat sheet was one long piece of paper,
+700 px wide. The PDF is A4 (794 px wide at the same scale), so the lines
+wrapped differently, and the browser's print engine decided where pages
+broke. You only learned how many pages there were, and where they broke, in
+the print window.
+
+**The change.** The studio shows real A4 pages, one under the other, cut
+exactly the way Save as PDF prints them:
+- **Page numbers**: a small handwritten "1 / 4" at the bottom of every
+  page, on screen and in the PDF, counted across everything being saved.
+- **Continued pages**: "Parallel questions, continued" in the top margin of
+  a sheet's later pages.
+- **A question and its answer are never split**; neither is an index card.
+  Each sheet still starts on a new page.
+- **Index cards** are packed onto plain white A4 pages, as many as fit.
+- **Phones**: the pages shrink to fit, like a PDF viewer (pinch to zoom),
+  instead of the old narrow-screen paper.
+- The title line says how many pages: "Parallel · 9 questions · 2 pages".
+
+**How it works.** The paper is a strict grid (every line of writing is 34 px
+tall), which makes cutting simple, so no library is needed.
+1. **One page size everywhere.** A `.hw-paper` is now one A4 page, 210 mm ×
+   297 mm, on screen and in print. The same width means the words wrap the
+   same way.
+2. **Measure.** Out of sight, each shown sheet is written once on an A4 page
+   that runs past its bottom (`.hw-measure`). Every block (the heading, each
+   question with its answer, each card) is measured: its height and the
+   space under it.
+3. **Cut.** `paginate()` (`lib/handwritten/pages.ts`, pure) fills pages in
+   order: a block goes on the current page if its own height still fits,
+   otherwise it starts the next page. The room is the page's height less its
+   top and bottom margins (measured without the screen's 1 px border, which
+   print doesn't have; the first try was 2 px short and pushed a question
+   that fitted onto the next page).
+4. **Show.** Each page is its own `.hw-paper` holding its blocks; in print
+   each one breaks after itself, so one screen page = one PDF page. Cutting
+   runs before the first paint and again once the hand's font has loaded.
+5. **Shrink.** On narrow screens the studio sets `--hw-page-scale` (desk
+   width ÷ A4 width); each page is scaled inside a frame of the shrunk size.
+   Rough Notation measures words on screen and would draw at the wrong size
+   inside a scaled page, so shrunk pages use the printed marks (the words'
+   own backgrounds, `printMarks.ts`). Print always forces scale 1
+   (`!important`, as the screen's value is set inline).
+
+The highlighter's 3 px of room around a question is now part of the words on
+screen too (it used to be added only in print, which could make a question
+wrap differently on paper than on screen).
+
+**Key code.**
+```ts
+// lib/handwritten/pages.ts
+export function paginate(blocks: BlockSize[], room: number): number[][] {
+  const pages: number[][] = [];
+  let page: number[] = [];
+  let used = 0;
+  blocks.forEach((block, i) => {
+    if (page.length > 0 && used + block.height > room + 0.5) {
+      pages.push(page);
+      page = [];
+      used = 0;
+    }
+    page.push(i);
+    used += block.height + block.after;
+  });
+  if (page.length > 0) pages.push(page);
+  return pages;
+}
+```
+```css
+/* handwritten.css */
+.hw-paper { width: 210mm; height: 297mm; overflow: hidden; … }
+.hw-frame { width: calc(210mm * var(--hw-page-scale, 1)); height: calc(297mm * var(--hw-page-scale, 1)); }
+.hw-frame > .hw-paper { transform: scale(var(--hw-page-scale, 1)); transform-origin: top left; }
+@media print { .hw-pages { --hw-page-scale: 1 !important; } .hw-paper { break-after: page; } }
+```
+
+**Alternatives considered.** *Paged.js* (the well-known library for this):
+about 500 KB, stable release 0.4.3 with a 0.5 beta that has stayed in beta,
+and it rebuilds the page's content into its own page boxes, which fights
+React, the click-to-rename heading and the marks; every change of paper,
+ink or hand would mean running it again. *Keep one long sheet but draw
+dashed lines where pages would break*: still two layouts (screen and print)
+that can disagree. *Keep the old flowing paper on phones*: two layouts again;
+the owner chose shrinking pages.
+
+**Files.** New: `lib/handwritten/pages.ts`. Changed:
+`components/handwritten/Paper.tsx` (a page of blocks: `Block`, `PageModel`,
+`BlockView`, `sheetBlocks`, `lookVars`; the heading is plain in the measuring
+copy), `components/handwritten/Studio.tsx` (measuring, cutting, shrinking,
+page count), `components/handwritten/handwritten.css` (A4 page, frames,
+running head, page number, shrunk-page marks, print), 
+`components/handwritten/useRoughMarks.ts` (highlighter padding now in CSS).
+
+**Verified** (local). "Parallel" + "Hashmap" (20 questions): 4 pages on
+screen (7 + 2 questions, then 9 + 2), each page's writing inside its page.
+Printed to PDF with headless Chrome: 4 A4 pages (595 × 842 pt), page 1 holds
+the same 7 questions as the screen, page 2 opens with "Parallel questions,
+continued", "1 / 4" at the bottom, highlighter on every question. The first
+PDF came out shrunk to ~85% (the headless window was narrow and the screen's
+shrink leaked into print); fixed with the `!important`. Phone width (375):
+pages shrink to 0.43, same 4 pages, printed-style highlighter, no sideways
+scroll. Index cards: 4 white pages, no card cut. The test browser's saved
+style was put back afterwards. Typecheck and lint pass.
+
+#### REF-20 · The Ask box grows with the question — ✅ built · 2026-10-31, not yet deployed
+
+**Where the idea came from.** The owner, who asks mostly by voice dictation:
+with a long question in the Ask box, the cursor was at the end but the box
+showed the start; they had to press → to see where the question ended.
+
+**The problem.** Both Ask boxes (the study panel's Ask tab and the
+Notebook's follow-up box) were one-line `<input>`s. A one-line input scrolls
+sideways to the cursor only on a key press. Dictation drops a whole sentence
+in at once, so the cursor went to the end while the view stayed at the
+start. The same happened when a failed question was given back into the box.
+
+**The change.** The box is now a text area that grows with the question:
+one line when empty (looks as before), a line taller each time the text
+wraps, up to five lines, then it scrolls inside with the end in view. Enter
+sends, Shift+Enter starts a new line (a dictated "new line" does the same).
+After sending it shrinks back to one line. The owner saw a mock (three
+states and a live box with a "dictated question" button) and asked how it
+behaves while they keep speaking (it wraps on its own; nothing sends until
+Enter or the button) before saying build it.
+
+**How it works.** A new `components/ui/AskField.tsx` is the text area, used
+by both forms. After every change of its text (typed, dictated, pasted or
+given back) it sets its height to fit: `auto` first, then its content
+height, capped at five lines (the line height × 5 plus padding, read from
+its own computed style). Past the cap it scrolls, and if the cursor is at
+the end it scrolls to the bottom. A `ResizeObserver` fits it again when its
+width changes (a wider box wraps differently), ignoring the height changes
+it makes itself. Enter calls the form's `requestSubmit()`, so the forms'
+existing `onSubmit` sends, unchanged; not while an input method is still
+composing (`isComposing`). The forms align to the bottom (`items-end`) so
+the send button stays at the bottom right as the box grows; the Notebook's
+ask icon stays level with the first line. `useAsk`'s focus helper, which
+puts the cursor in the box so dictation lands there, now takes a text area.
+
+**Key code.**
+```tsx
+// components/ui/AskField.tsx
+const fit = useCallback(() => {
+  const el = box.current;
+  if (!el) return;
+  const css = getComputedStyle(el);
+  const max = parseFloat(css.lineHeight) * MAX_LINES + parseFloat(css.paddingTop) + parseFloat(css.paddingBottom);
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  if (el.selectionEnd === el.value.length) el.scrollTop = el.scrollHeight;
+}, []);
+useLayoutEffect(fit, [value, fit]);
+```
+
+**Alternatives considered.** *Keep one line and jump to the end on each
+change*: smaller, but you'd see only the last few words, never the whole
+question, so you couldn't check what dictation heard. *CSS
+`field-sizing: content`*: grows the box with no script, but not every
+browser has it yet; the script works everywhere.
+
+**Files.** New: `components/ui/AskField.tsx`. Changed:
+`components/feed/StudyPanel.tsx` (`AskBox`), `components/notebook/NotebookReader.tsx`,
+`components/useAsk.ts`.
+
+**Verified** (local, no question sent: Gemini wasn't called). Study panel's
+Ask tab: the cursor lands in the box on open; a long question dropped in at
+once (the way dictation does it) grew the box from 46 px to 112 px with no
+scroll bar; a longer one stopped at 134 px (five lines), scrolled inside,
+end in view; the send button stayed at the bottom right. Shift+Enter added a
+new line and didn't send; Enter sent (the send was caught in the test, so
+nothing reached Gemini). Emptied, back to 46 px. Notebook follow-up box: the
+same growth and cap, icon level with the first line, button at the bottom.
+Typecheck and lint pass. Still to try: the owner's own dictation app.
+
 ### FEAT — new features
 
 #### FEAT-01 · Global search — ✅ done · 2026-10-17
@@ -3159,7 +3466,8 @@ preview; heavier, a possible later upgrade. *Neural handwriting
 (calligrapher.ai's model)*: megabytes and slow for a whole sheet.
 *Excalifont* and *the owner's own handwriting (Calligraphr)*: offered,
 declined for now; either is one more entry in `HANDS`. *Tegaki (the page
-writing itself)*: possible later.
+writing itself)*: possible later. (2026-10-31: Excalifont added as REF-18, A4 pages as REF-19; Tegaki
+and the owner's own handwriting dropped, see REDESIGN.md.)
 
 **Files.** New: `lib/handwritten/document.ts`, `lib/handwritten/themes.ts`,
 `components/handwritten/` (`Studio.tsx`, `Paper.tsx`, `Tray.tsx`,
@@ -3269,7 +3577,7 @@ browser). The bin's Delete removed the note (the board was left as found:
 empty). Inbox brought the videos back; Podcasts has no Sticky notes row. No
 console errors; typecheck and lint pass.
 
-#### FEAT-18 · Topics by Gemini — ⏸ parked · 2026-10-31
+#### FEAT-18 · Topics by Gemini, now "Ask your Watch later" — ⏸ parked · 2026-10-31
 
 **Where the idea came from.** The owner, thinking out loud: if Watch Later
 grows to 200 videos, going through them one by one is hard; could Gemini
@@ -3305,6 +3613,105 @@ one.
 **Why parked.** At 9 saved videos you can see them all; building for a
 list that doesn't exist yet is the trap. Revisit when Watch Later passes
 roughly 50, or if finding a topic in the Inbox starts to hurt.
+
+**Update 2026-10-31.** Tagging the Inbox was my suggestion, not the
+owner's, and I had its size wrong: it holds about 16,000 videos, not 1,000.
+At about 200 titles per call that's 50 to 80 Gemini calls even without
+Shorts, days of the 100-a-day cap, for a list that works as an archive you
+search more than one you sort. So the Inbox is out. FEAT-18 stays parked
+for Watch later only, Shorts left out; if picked up, tag new videos and
+Watch later, never the whole archive.
+
+**Reshaped 2026-10-31: "Ask your Watch later" (parked).** Talked through
+with the owner. Topic groups, a Gemini briefing and duplicate-spotting were
+offered; the owner doesn't want topic-by-topic views, and titles alone can't
+tell whether two videos teach the same thing. What the owner wants is to
+*ask* about the list, and most of that is already search (titles and
+creators; "Kafka" is typing Kafka). Gemini adds something only when the
+word isn't in the title ("anything about event streaming?", "what would
+help with a backend interview?", "something light under 15 minutes?"). The
+idea if picked up: a question box on Watch later; Gemini reads the saved
+titles and creators (one call per question) and answers with the matching
+videos as cards. Parked: Watch later holds about 15 to 20 videos (the
+owner's count) and search covers it. Revisit when scrolling Watch later
+starts to hurt and search doesn't find things. Also offered, not wanted for
+now: "Pick one for me" (how much time do you have → one video) and a
+clear-out of videos saved long ago and never opened.
+
+#### FEAT-19 · Install TUBEBOX as an app — ✅ built · 2026-11-09, not yet deployed
+
+**Where it came from.** The owner: some sites offer "Install" so they open
+like an app. Could TUBEBOX? (A PWA, a Progressive Web App.)
+
+**The change.** TUBEBOX can be installed:
+- **Mac, Chrome:** the install icon at the right of the address bar. TUBEBOX
+  then has its own icon in the Dock and Launchpad and opens in its own
+  window, on the Feed, with no tabs or address bar.
+- **iPhone:** Safari, Share, "Add to Home Screen" (Apple shows no install
+  banner). It opens full screen. Apple keeps home-screen apps apart from
+  Safari, so you log in once inside it.
+- **Android:** Chrome offers "Install app".
+The icon is the mascot on the page's cream (option A of the mock; B was a
+blue tile). The installed app's title bar is cream too, and so is Safari's
+bar on the normal site.
+
+**How it works.** `app/manifest.ts` (Next's built-in web app manifest)
+gives the browser the name, the start page, `display: "standalone"` (its
+own window) and the icons; Next links it from every page. The icons are
+PNGs made once from `app/icon.svg`:
+- `public/app-icons/icon-192.png` and `icon-512.png`: a rounded cream tile
+  on a transparent square, for Chrome on the Mac and Windows;
+- `public/app-icons/icon-maskable-512.png`: full-bleed cream, the mascot
+  inside the middle 80%, because Android crops icons into a circle or
+  another shape;
+- `app/apple-icon.png` (180 px, full-bleed: iOS rounds the corners itself
+  and turns transparency black), which Next links as the
+  `apple-touch-icon`.
+`viewport.themeColor` in `app/layout.tsx` colours the title bar. The
+manifest and icons load without logging in; they hold no data, and every
+page still checks the login as before.
+
+**No service worker, on purpose.** A service worker (a background script
+that caches the site) is what lets a PWA open with no connection, and it's
+the usual source of PWA trouble: after a deploy it can keep showing the old
+version. Chrome no longer needs one to offer Install. Without it, the
+installed app loads the live site exactly like a browser tab: every deploy
+shows straight away, and it needs a connection to open, as the site does
+today. The offline waiting list (FEAT-13) works the same inside the app.
+
+**Key code.**
+```ts
+// app/manifest.ts
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    name: "TUBEBOX", short_name: "TUBEBOX",
+    id: "/", start_url: "/", scope: "/",
+    display: "standalone",
+    background_color: CREAM, theme_color: CREAM,
+    icons: [ /* 192, 512 ("any"), 512 ("maskable") */ ],
+  };
+}
+```
+
+**Alternatives considered.** *A service worker so the app opens offline*:
+much more work, and the stale-version risk above, for a site that needs the
+internet to play videos anyway. *Icons drawn by Next at request time*
+(`app/icon.tsx` with `ImageResponse`): code running on every icon request
+for a picture that never changes; plain files are simpler. *An "Install"
+button inside TUBEBOX*: Chrome already shows one in the address bar, and
+iPhone has no way to trigger it.
+
+**Files.** New: `app/manifest.ts`, `app/apple-icon.png`,
+`public/app-icons/icon-192.png`, `public/app-icons/icon-512.png`,
+`public/app-icons/icon-maskable-512.png`. Changed: `app/layout.tsx`.
+
+**Verified** (local). Every page links the manifest, the
+`apple-touch-icon` and `theme-color` `#fbf6ec`; the manifest and all four
+icons load without the login cookie (200, right types). Headless Chrome's
+own check (`Page.getInstallabilityErrors`) found no installability errors
+and no manifest errors. The icons were checked by eye at full size.
+Typecheck and lint pass. Still to try: installing it from the live site
+after the deploy (Mac and iPhone).
 
 ### CLEAN — code cleanup (Phase 10)
 
@@ -4697,6 +5104,255 @@ happened mid-sync, the sync itself was real). Started on Podcasts:
 again: still one `/api/cron` request; finished: "You're up to date. Checked
 16 channels, nothing new." on the Feed, which then refetched its videos,
 channels and counts; back on Podcasts: no repeat. Typecheck and lint pass.
+
+#### FIX-10 · Second audit: saves that could lose text, and too-tall pages — ✅ built · 2026-11-01, not yet deployed
+
+Four fixes chosen with the owner from a second external audit
+(`docs/audit/AuditReport-2.md`, run by ChatGPT over `84797f9` plus the
+uncommitted work). Each finding was checked against the code first; the
+triage (what was built, what was skipped and why) is in
+[audit/AuditFollowUp-2.md](audit/AuditFollowUp-2.md). The audit's section
+numbers are in brackets.
+
+**C1 · Sticky notes could save older text over newer text** (§2). *The
+problem:* a note saved 0.7 s after typing stopped, but saves didn't wait
+for each other: on a slow (cold) server an older save could land last and
+put older text back. Also "saved" moved on before the server confirmed, a
+failed save was only tried again on the next key, leaving the board after
+a failed save dropped it, and a refused delete left the note off the board
+while it was still in the database. *The change:* the same promise queue
+as the video note's editor (FIX-04 A2): saves, and the delete, go out one
+at a time, each sending the text as it is when its turn comes and skipping
+if that's saved. "Saved" moves only on the server's OK. A failed save says
+"Couldn't save that note. Trying again in a moment." and retries after 5 s
+(the message clears when it goes through). Closing the board queues one
+last save (`keepalive`) behind anything in flight. A refused delete puts
+the note back (`onRestored` on the board) with the message.
+*Key code:*
+```ts
+// components/stickyNotes/StickyNote.tsx
+function save(final = false) {
+  if (timer.current != null) window.clearTimeout(timer.current);
+  timer.current = null;
+  queue.current = queue.current.then(() => send(final));
+}
+```
+
+**C2 · A video note written offline was lost when its panel closed** (§6,
+"Video-note drafts can be lost when closed offline"). *The problem:* while
+offline the editor said "Your note will save when you're back online", but
+that held only while the panel stayed open: the closing save failed and was
+dropped. *The change:* the offline waiting list (`lib/offline.ts`, FEAT-13),
+which held ✓ Seen and Watch later, now holds a video's note too
+(`queueNoteSave`: one entry per video, only the latest text). A closing save
+that fails (offline, or the server in trouble) goes on the list, and the
+offline bar sends it like the rest. Reopened before it's sent, the editor
+shows the waiting text (`pendingNote`), not the older saved note. A direct
+save that succeeds drops a waiting copy (`dropPendingNote`), so an older
+waiting text can't land over a newer one later. A note saved from the list
+forgets the remembered screens (`forgetRemembered`), since it changes the
+Notebook and the cards.
+
+**C3 · A server error while sending the waiting list threw changes away**
+(§6, "Offline replay discards transient HTTP failures"). *The problem:*
+back online, each waiting change was either saved, kept (no connection),
+or dropped as "refused" for any error reply, including a 502 while Netlify
+wakes up; the change was undone and you were told to redo it. *The change:*
+a 5xx reply now stops the round and keeps the change waiting, like no
+connection; the offline bar already retries every 15 s. Only a 4xx (the
+server says no, which waiting won't change) is still dropped.
+*Key code:*
+```ts
+// lib/offline.ts, flushPending
+if (res.status >= 500) break; // the server in trouble: try again later
+```
+
+**C4 · A block taller than an A4 page was cut off** (§4, about REF-19).
+*The problem:* the page cutting puts a block taller than a page on a page
+of its own, but a page is exactly A4 with `overflow: hidden`, so the rest
+of that block was hidden, on screen and in the PDF. Nearly impossible in
+practice (Gemini writes one or two sentences per answer; a page holds about
+30 lines), but nothing should silently disappear. *The change:* the cutting
+also marks such a page `tall`; a tall page grows to hold its block
+(`height: auto; min-height: 297mm`), and in print it runs on over the next
+PDF pages, its margins repeated (`box-decoration-break: clone`) and the
+block allowed to break. On a shrunk (phone) screen the page keeps its true
+height in the layout, so a gap shows under it; left as is for a case this
+rare.
+
+**Alternatives considered.** C1: a shared autosave hook for video notes,
+sticky notes and headings (the audit's suggestion): a bigger refactor for
+three editors that each work now; the queue pattern is copied instead.
+C2: change the label so it doesn't promise a save after closing; the owner
+preferred the note actually saving. C4: split a long answer across pages
+with a "continued" block, or warn before printing: more code for a case
+that shouldn't happen.
+
+**Files.** `components/stickyNotes/StickyNote.tsx`,
+`components/stickyNotes/StickyBoard.tsx`, `components/NoteEditor.tsx`,
+`lib/offline.ts`, `components/handwritten/Studio.tsx`,
+`components/handwritten/Paper.tsx`, `components/handwritten/handwritten.css`,
+`lib/handwritten/pages.ts`.
+
+**Verified** (local; every test change undone, the waiting list and the
+studio's saved style left empty as before). C1: with the first save held
+for 3 s, the second went out only after it finished, and the server kept
+"old text then new". A save forced to fail (503) showed the message,
+retried after 5 s, saved, and the message cleared. A delete forced to fail
+(500) put the note back with "Couldn't delete that note"; a real delete
+then removed it (0 notes, as before). C2: with saves failing as if offline,
+a typed note was closed and appeared on the waiting list; reopened, the
+editor showed the waiting text. C3: with the server answering 502, the
+offline bar's retry kept it waiting (before, it would have been dropped);
+with the server back, the next retry saved it ("Back online. All changes
+saved."), and the test note was then deleted again. C4: a question forced
+to 1,400 px got a page of its own that grew to 1,572 px; no page clipped
+anything. A copy of the print rules printed by headless Chrome ran a
+60-line block over three PDF pages, every line there. Typecheck and lint
+pass.
+
+#### FIX-11 · Answers that arrive after you close the panel — ✅ built · 2026-11-07, not yet deployed
+
+**Where it came from.** The owner: ask a question (or start a summary or
+transcript), close the panel before Gemini answers, open another video,
+come back. The question wasn't there, not even as "Thinking…", and the
+answer didn't show until a refresh.
+
+**The problem.** The request belonged to the panel. Closing it threw away
+the panel that was waiting, but not the request: the server still answered
+and saved the answer. Reopened before the answer was saved, the new panel
+loaded the saved list (without it) and knew nothing of the question. When
+the answer came back, it went to the old, closed panel, so it landed
+nowhere until a refresh. Summary and Transcript had a cousin of this:
+reopening mid-request started a second request for the same video.
+
+**The change.** Requests in progress live in a small store for the life of
+the browser tab (`components/inFlight.ts`), not in the panel, the same
+idea as the sync's state (FIX-09):
+- Reopen while Gemini thinks: your question shows with "Thinking…", and
+  the Ask box stays locked until it's answered, as if you never left.
+- The answer arrives while the panel is closed (or another video is open):
+  it waits, and shows the next time that video is shown, no refresh.
+- It fails while you're away: reopening says why once and puts your
+  question back in the box, as when it fails with the panel open.
+- Summary and Transcript: reopening mid-request waits for the same request.
+- The Notebook's Ask box uses the same flow.
+A reload empties the store; the answer is saved on the server, so it still
+shows the next time the video is opened, without the "Thinking…" before it.
+
+**How it works.** `startAsk(videoId, question)` sends the question and keeps
+`{ question, error }` per video; `useAsk` reads it with
+`useSyncExternalStore`, so any Ask box for that video shows the same
+"Thinking…". On the answer, the store hands it to whatever shows that video
+now (`receiveAnswers`); if nothing does, it keeps it and hands it over when
+something shows the video again. A failure stays in the store until an Ask
+box shows it (`clearAskError`). The study panel also keeps the answers that
+arrived while it was open, so a list loaded from the server just before the
+answer was saved can't drop it. `shared(key, run)` runs one request per key
+at a time: Summary and Transcript join a running one.
+
+**Key code.**
+```ts
+// components/inFlight.ts
+export function shared<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const current = running.get(key);
+  if (current) return current as Promise<T>;
+  const request = run().finally(() => running.delete(key));
+  running.set(key, request);
+  return request;
+}
+// components/useAsk.ts
+const job = useSyncExternalStore(subscribeAsks, () => askJob(videoId), () => null);
+const pending = job && job.error == null ? job.question : null;
+```
+
+**Alternatives considered.** *Keep the question in the database as "asked,
+not yet answered"*: it would survive a reload too, but needs a new column,
+a status to clean up when a request dies, and server changes, for the rare
+reload mid-answer. *Poll the server after reopening until the answer shows
+up*: extra requests every few seconds, and still no "Thinking…" to show.
+
+**Files.** New: `components/inFlight.ts`. Changed: `components/useAsk.ts`,
+`components/feed/StudyPanel.tsx`.
+
+**Verified** (local, Gemini faked in the browser: slow replies, no real
+calls; nothing saved). A: asked, closed, reopened: "Thinking…" with the
+question; 6 s later the answer appeared, no refresh. B: asked, closed,
+opened another video (clean, no "Thinking…"), the answer arrived meanwhile;
+back on the first video it was there. C: a failure while closed: reopening
+showed "Couldn't answer that" with the question back in the box, once (not
+again on the next reopen). D: Summary closed and reopened mid-request: one
+request, and the summary showed when it came. Notebook: asked, switched to
+another video, the answer arrived, switched back: there. The server had no
+test answers or summary afterwards. Typecheck and lint pass.
+
+#### FIX-12 · The 6-hourly sync ran twice every time — ✅ built · 2026-11-07, not yet deployed
+
+**Where it came from.** Codex reviewed the sync; checking its points
+against the live Netlify logs turned up a problem it hadn't named.
+
+**The problem.** Netlify's scheduler waits only 15 seconds for the
+6-hourly sync (`feed-cron`), then gives up (a 499 in the logs) and starts
+it again. A sync takes 10 to 24 s, so this happened at every run, four
+times a day: the first sync saved the new videos, and 16 s later a second
+one checked all 165 channels again and found nothing. No harm (a video
+can only be saved once), just a wasted full sync. Two tabs syncing, or Sync
+now pressed during the scheduled sync, did the same. The Sync button's own
+lock (FIX-09) only knows about its own tab.
+
+**The change.** One sync at a time, wherever it was started. A sync leaves
+a "sync running" note in the database; another sync that finds a fresh
+note doesn't run. Nothing changes on screen: the button still says
+"Syncing…" and locks. In the rare case Sync now is pressed while the
+scheduled sync runs, the press waits for that sync, then ends as usual
+("Your feed is up to date.") and the page refreshes with its new videos.
+
+**How it works.** `syncAllChannels` (in `lib/ingest.ts`, called by
+`/api/cron`) claims the `sync_running` row in `app_meta` with one
+statement: insert it, or take it over only if it is more than 2 minutes
+old. If nothing comes back, another sync holds it: wait (checking every
+second, up to 45 s) until it's gone, and return `{ skipped: true }`.
+Otherwise run the usual `refreshAllChannels`, then delete the note,
+matched by this sync's random token so it never deletes a later sync's.
+The 2 minutes: a sync can't run past 60 s (the route's `maxDuration`), so a
+note that old was left by a sync that died, and the next sync isn't blocked
+by it. Claiming in one statement means two syncs arriving together can't
+both get it.
+
+**Key code.**
+```ts
+// lib/ingest.ts
+const claimed = await db
+  .insert(appMeta)
+  .values({ key: SYNC_RUNNING_KEY, value: token })
+  .onConflictDoUpdate({
+    target: appMeta.key,
+    set: { value: token, updatedAt: sql`now()` },
+    setWhere: sql`${appMeta.updatedAt} < now() - interval '2 minutes'`,
+  })
+  .returning({ key: appMeta.key });
+```
+
+**Alternatives considered.** *Make the scheduler not retry* (answer it
+before the sync ends): a normal function that answers early stops the
+sync; moving the sync to a Netlify background function is a bigger change,
+and Sync now would still overlap with it.
+*Read the note, then write it* (two statements): two syncs could both read
+"no note" before either writes. *Also from Codex's review, not built
+(owner's call):* a time limit on each YouTube request, an exact "added"
+count (it only differs when two syncs overlap, which this stops), fewer
+Shorts checks at once, a continuation past 20 pages, and an overall
+deadline with resume. The logs showed none of them was needed: every sync
+finished in 10 to 24 s.
+
+**Files.** `lib/ingest.ts`, `app/api/cron/route.ts`, `components/TopBar.tsx`.
+
+**Verified** (a throwaway in-memory Postgres, no channels, so no YouTube
+calls): one sync runs and leaves no note; two at the same moment, one runs
+and one skips; a note from a running sync makes a new one wait 3 s until
+it's gone, then skip; a 3-minute-old note is taken over and the sync runs.
+Typecheck and lint pass. After the deploy: the logs should show one full
+sync per scheduled run.
 
 ---
 

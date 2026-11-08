@@ -26,11 +26,14 @@ function inOrder(notes: StickyNoteItem[]): StickyNoteItem[] {
 export default function StickyBoard({
   onFilters,
   below,
+  onCount,
 }: {
   /** Narrow screens: opens the sidebar (the way back to the videos). */
   onFilters: () => void;
   /** Shown under the title (the narrow-screen sidebar, when open). */
   below?: ReactNode;
+  /** How many notes there are, whenever that changes (the sidebar's count). */
+  onCount?: (count: number) => void;
 }) {
   // The copy remembered in this tab first (instant), then the server's.
   const [notes, setNotes] = useState<StickyNoteItem[] | null>(
@@ -40,6 +43,10 @@ export default function StickyBoard({
   const [fresh, setFresh] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (notes) onCount?.(notes.length);
+  }, [notes, onCount]);
 
   useEffect(() => {
     api<{ notes: StickyNoteItem[] }>(PATH, { fallback: "Couldn't load your sticky notes" })
@@ -68,6 +75,8 @@ export default function StickyBoard({
   const saved = (note: StickyNoteItem) =>
     setNotes((list) => inOrder((list ?? []).map((n) => (n.id === note.id ? note : n))));
   const removed = (id: number) => setNotes((list) => (list ?? []).filter((n) => n.id !== id));
+  const restored = (note: StickyNoteItem) =>
+    setNotes((list) => inOrder([...(list ?? []).filter((n) => n.id !== note.id), note]));
 
   const pinned = notes?.filter((n) => n.pinned).length ?? 0;
   const summary =
@@ -135,6 +144,7 @@ export default function StickyBoard({
               autoFocus={note.id === fresh}
               onSaved={saved}
               onRemoved={removed}
+              onRestored={restored}
               onError={setMessage}
             />
           ))}

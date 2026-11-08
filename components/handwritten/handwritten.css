@@ -2,17 +2,17 @@
    The paper's colours, the ink and the hand arrive as CSS variables from
    lib/handwritten/themes.ts (set by Paper.tsx); this file owns the geometry.
    One rule holds it together: every line of writing is exactly --hw-gap
-   tall, so the words always sit on the printed lines. */
+   tall, so the words always sit on the printed lines. And one more (REF-19):
+   a .hw-paper is one A4 page, the same size on screen and in the PDF, so the
+   lines wrap and the pages break in the same places. */
 
 .hw-paper {
   --hw-gap: 34px;
   --hw-pad-top: calc(var(--hw-gap) * 2);
-  --hw-scale: 1;
   position: relative;
-  width: 100%;
-  max-width: 700px;
-  min-height: 920px;
-  margin: 0 auto;
+  width: 210mm;
+  height: 297mm;
+  overflow: hidden;
   padding: var(--hw-pad-top) 40px calc(var(--hw-gap) * 2) 96px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-xs);
@@ -20,11 +20,76 @@
   background-color: var(--hw-bg);
   color: var(--hw-ink);
   font-family: var(--hw-font), cursive;
-  font-size: calc(var(--hw-size) * var(--hw-scale));
+  font-size: var(--hw-size);
   line-height: var(--hw-gap);
-  /* Printed across several pages, each page gets its own padding and lines. */
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
+}
+
+/* The pages, one under the other. On a narrow screen each page shrinks to
+   fit, like a PDF viewer (--hw-page-scale, set by the studio); the frame
+   takes the shrunk size so the pages don't overlap. */
+.hw-pages {
+  display: grid;
+  gap: 28px;
+  justify-items: center;
+}
+
+.hw-frame {
+  width: calc(210mm * var(--hw-page-scale, 1));
+  height: calc(297mm * var(--hw-page-scale, 1));
+}
+
+.hw-frame > .hw-paper {
+  transform: scale(var(--hw-page-scale, 1));
+  transform-origin: top left;
+}
+
+/* A page holding one block taller than a page (FIX-10; answers are short,
+   so this is a safety net): it grows instead of cutting the block off. A
+   shrunk page keeps its true height in the layout, so a gap shows under it. */
+.hw-paper[data-tall] {
+  height: auto;
+  min-height: 297mm;
+  overflow: visible;
+}
+
+.hw-frame:has(> .hw-paper[data-tall]) {
+  height: auto;
+}
+
+/* The measuring copy (Studio.tsx): laid out like a page, never seen. */
+.hw-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* "<Heading>, continued" in the top margin, the page number in the bottom
+   one: both outside the writing, so they never take a line. */
+.hw-running,
+.hw-folio {
+  position: absolute;
+  margin: 0;
+  font-size: 0.75em;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.hw-running {
+  top: 26px;
+  left: 96px;
+  right: 40px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hw-folio {
+  right: 40px;
+  bottom: 24px;
 }
 
 .hw-paper[data-pattern="lines"] {
@@ -57,15 +122,21 @@
   background-position: calc(var(--hw-gap) / -4) calc(var(--hw-pad-top) - var(--hw-gap) / 4);
 }
 
-/* Index cards: no sheet, one card per question. */
+/* Index cards: a plain white page holding one card per question. */
 .hw-paper[data-pattern="cards"] {
-  max-width: 640px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  background: none;
+  padding: 14mm 16mm;
+  background: #fff;
+}
+
+.hw-paper[data-pattern="cards"] .hw-running {
+  top: 5mm;
+  left: 16mm;
+  right: 16mm;
+}
+
+.hw-paper[data-pattern="cards"] .hw-folio {
+  right: 16mm;
+  bottom: 5mm;
 }
 
 .hw-card {
@@ -266,25 +337,47 @@
   transform: rotate(-2deg);
 }
 
-@media (max-width: 600px) {
-  .hw-paper {
-    --hw-gap: 30px;
-    --hw-scale: 0.84;
-    min-height: 0;
-    padding: var(--hw-pad-top) 16px calc(var(--hw-gap) * 2) 52px;
-  }
-
-  .hw-paper[data-pattern="lines"]::before {
-    left: 36px;
-  }
-
-  .hw-card {
-    padding: 24px 18px 20px 20px;
-    background-position: 0 24px;
-  }
+/* The marks' room around a question, on screen and in print alike, so the
+   words wrap the same way in both (the pages are cut from the screen). */
+.hw-paper[data-marks="highlight"] .hw-qtext,
+.hw-paper[data-marks="underline"] .hw-qtext {
+  padding: 0 3px;
 }
 
-/* --- Save as PDF: only the paper, each sheet from a new A4 page --- */
+/* Shrunk pages (a narrow screen) show the printed marks: Rough Notation
+   would draw at the wrong size inside a shrunk page. Same as the print
+   rules below. */
+.hw-pages[data-flat-marks] .hw-paper[data-marks="highlight"] .hw-qtext,
+.hw-pages[data-flat-marks] .hw-paper[data-marks="underline"] .hw-qtext {
+  background-repeat: no-repeat;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.hw-pages[data-flat-marks] .hw-paper[data-marks="highlight"] .hw-qtext {
+  background-image: var(--hw-print-highlight);
+  background-size: 100% 0.95em;
+  background-position: 0 60%;
+}
+
+.hw-pages[data-flat-marks] .hw-paper[data-marks="underline"] .hw-qtext {
+  background-image: var(--hw-print-underline);
+  background-size: 100% 6px;
+  background-position: 0 100%;
+}
+
+.hw-pages[data-flat-marks] .hw-paper[data-marks="circle"] .hw-num {
+  position: relative;
+}
+
+.hw-pages[data-flat-marks] .hw-paper[data-marks="circle"] .hw-num::after {
+  content: "";
+  position: absolute;
+  inset: 2px -8px -2px -8px;
+  background: var(--hw-print-circle) no-repeat center / 100% 100%;
+}
+
+/* --- Save as PDF: only the pages, one per A4 sheet --- */
 
 @media print {
   @page {
@@ -295,29 +388,50 @@
     margin: 0;
   }
 
+  /* Always true size on paper, however narrow the window that printed it
+     (the studio sets the screen's shrink inline, hence !important). */
+  .hw-pages {
+    --hw-page-scale: 1 !important;
+    display: block;
+  }
+
+  .hw-frame {
+    width: auto;
+    height: auto;
+  }
+
   .hw-paper {
-    max-width: none;
-    min-height: 297mm;
-    margin: 0;
     border: 0;
     border-radius: 0;
     box-shadow: none;
+    break-after: page;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
-  .hw-paper[data-pattern="cards"] {
-    min-height: 0;
-    padding: 14mm 16mm;
+  .hw-frame:last-child .hw-paper {
+    break-after: auto;
+  }
+
+  /* The tall page runs on over two PDF pages: the block may break, and the
+     paper's margins repeat on the next page. */
+  .hw-paper[data-tall] {
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .hw-paper[data-tall] .hw-item,
+  .hw-paper[data-tall] .hw-card {
+    break-inside: auto;
+  }
+
+  .hw-measure {
+    display: none;
   }
 
   .hw-card {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-  }
-
-  .hw-new-page {
-    break-before: page;
   }
 
   /* Rough Notation's strokes sit at fixed spots measured on screen; printed,
@@ -329,7 +443,6 @@
 
   .hw-paper[data-marks="highlight"] .hw-qtext,
   .hw-paper[data-marks="underline"] .hw-qtext {
-    padding: 0 3px;
     background-repeat: no-repeat;
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;

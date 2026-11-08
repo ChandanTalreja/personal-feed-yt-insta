@@ -55,6 +55,7 @@ export const HANDS: Hand[] = [
   { id: "kalam", name: "Kalam", family: "var(--hand-kalam)", size: 20, boldWeight: 700, nudge: 4 },
   { id: "architect", name: "Architect", family: "var(--hand-architect)", size: 19, boldWeight: 400, nudge: 3 },
   { id: "nanum", name: "Nanum Pen", family: "var(--hand-nanum)", size: 28, boldWeight: 400, nudge: 3 },
+  { id: "excalifont", name: "Excalifont", family: "var(--hand-excalifont)", size: 20, boldWeight: 400, nudge: 3 },
 ];
 
 export type MarkId = "highlight" | "underline" | "circle" | "none";

@@ -60,6 +60,7 @@ export default function FeedSidebar({
   podcasts = false,
   notesOpen = false,
   onNotes,
+  notesCount = null,
   loading = false,
 }: {
   view: View;
@@ -68,6 +69,8 @@ export default function FeedSidebar({
   notesOpen?: boolean;
   /** Opens it; the Feed only (Podcasts has no notes row). */
   onNotes?: () => void;
+  /** How many notes; blank until known. */
+  notesCount?: number | null;
   genres: GenreItem[];
   genreId: number | null;
   onGenre: (id: number | null) => void;
@@ -132,6 +135,7 @@ export default function FeedSidebar({
               </SidebarTile>
             }
             active={notesOpen}
+            count={notesCount != null ? short(notesCount) : undefined}
             onClick={onNotes}
           />
         )}

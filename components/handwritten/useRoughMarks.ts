@@ -53,7 +53,7 @@ export function useRoughMarks(
           marks === "circle"
             ? { type: "circle", color, strokeWidth: 1.4, padding: [2, 7], ...motion }
             : marks === "highlight"
-              ? { type: "highlight", color: HIGHLIGHTER, multiline: true, iterations: 1, padding: [0, 3], ...motion }
+              ? { type: "highlight", color: HIGHLIGHTER, multiline: true, iterations: 1, padding: 0, ...motion }
               : { type: "underline", color, strokeWidth: 1.5, multiline: true, iterations: 1, padding: 1, ...motion }
         )
       );

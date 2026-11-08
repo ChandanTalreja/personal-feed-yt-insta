@@ -4,6 +4,7 @@ import { listChannels } from "./channels";
 import { listFeedVideos, type FeedQuery } from "./feedVideos";
 import { listGenres } from "./genres";
 import { navSummary } from "./nav";
+import { countStickyNotes } from "./stickyNotes";
 
 // Audit B1: the Feed and Podcasts pages send their first screen inside the
 // page itself. Before, the page arrived empty and then made 5 requests
@@ -35,7 +36,7 @@ export function openingQuery(section: "feed" | "podcasts"): FeedQuery {
  */
 export async function loadFirstScreen(db: Db, section: "feed" | "podcasts") {
   const started = performance.now();
-  const [feed, nav, channels, genres, suggestions, continued] = await Promise.all([
+  const [feed, nav, channels, genres, suggestions, continued, stickyCount] = await Promise.all([
     listFeedVideos(db, openingQuery(section)),
     navSummary(db),
     listChannels(db),
@@ -43,6 +44,8 @@ export async function loadFirstScreen(db: Db, section: "feed" | "podcasts") {
     getAskSuggestions(db),
     // Podcasts' "Continue listening", the Feed's "Pick up where you left off".
     listFeedVideos(db, { ...openingQuery(section), continueListening: true }),
+    // The Sticky notes row's count (the Feed only; Podcasts has no notes).
+    section === "feed" ? countStickyNotes(db) : null,
   ]);
   // One line per gathered first screen: how long the page's own data took
   // (and proof of when it runs: on open and on navigation, not on prefetch).
@@ -57,6 +60,7 @@ export async function loadFirstScreen(db: Db, section: "feed" | "podcasts") {
       genres: { genres },
       suggestions: { suggestions },
       continued,
+      stickyCount,
     })
   );
 }

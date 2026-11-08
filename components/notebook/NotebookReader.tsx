@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import CopyButton from "@/components/CopyButton";
 import Markdown from "@/components/Markdown";
 import NoteEditor from "@/components/NoteEditor";
+import AskField from "@/components/ui/AskField";
 import Button from "@/components/ui/Button";
 import GeminiMark from "@/components/ui/GeminiMark";
 import Icon from "@/components/ui/Icon";
@@ -123,24 +124,23 @@ export default function NotebookReader({
           e.preventDefault();
           ask(question);
         }}
-        className="flex overflow-hidden rounded-md border-[1.5px] border-ink bg-surface focus-within-ring"
+        className="flex items-end overflow-hidden rounded-md border-[1.5px] border-ink bg-surface focus-within-ring"
       >
-        <span className="flex items-center px-3 text-muted">
+        <span className="flex h-[calc(1lh+1.5rem)] shrink-0 items-center self-start px-3 text-sm text-muted">
           <Icon name="ask" size={17} />
         </span>
-        <input
-          ref={askInputRef}
-          className="min-w-0 flex-1 bg-transparent py-3 text-sm outline-none placeholder:text-muted"
+        <AskField
+          inputRef={askInputRef}
           placeholder={answers.length ? "Ask a follow-up about this video" : "Ask anything about this video"}
           value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          aria-label="Ask about this video"
+          onChange={setQuestion}
+          label="Ask about this video"
         />
         <button
           type="submit"
           aria-label="Ask"
           disabled={!!pending || !question.trim()}
-          className="icon-hover m-1 flex w-10 items-center justify-center rounded-sm bg-primary disabled:opacity-40"
+          className="icon-hover m-1 flex h-9 w-10 shrink-0 items-center justify-center rounded-sm bg-primary disabled:opacity-40"
         >
           <Icon name="send" size={16} />
         </button>

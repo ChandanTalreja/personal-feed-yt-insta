@@ -7,6 +7,7 @@ import CopyButton from "@/components/CopyButton";
 import Markdown from "@/components/Markdown";
 import NoteEditor from "@/components/NoteEditor";
 import TrackMenu from "./TrackMenu";
+import AskField from "@/components/ui/AskField";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
 import { Thumb } from "@/components/ui/Media";
@@ -16,6 +17,7 @@ import Spinner from "@/components/ui/Spinner";
 import SidePanel from "@/components/ui/SidePanel";
 import type { Answer, FeedVideo } from "@/components/types";
 import type { Chapter } from "@/lib/chapters";
+import { shared } from "@/components/inFlight";
 import { useAsk } from "@/components/useAsk";
 import { api, rememberedReply } from "@/lib/api-client";
 
@@ -101,9 +103,14 @@ export default function StudyPanel({
     const seen = rememberedReply(`/api/videos/${video.id}/ask`);
     return seen ? [...(seen.notes ?? [])].reverse() : null;
   });
+  // Answers that arrived while this panel was open (or just before it
+  // opened): kept so a list loaded from the server before they were saved
+  // can't drop them.
+  const arrived = useRef(new Map<number, Answer>());
   // Ask. Asking the same question again returns the saved answer: move it to the
   // end of the conversation rather than showing it twice.
   const { question, setQuestion, pending, error: askError, ask, inputRef: askInputRef } = useAsk(video.id, (note) => {
+    arrived.current.set(note.id, note);
     const next = [...(answers ?? []).filter((a) => a.id !== note.id), note];
     setAnswers(next);
     onVideoChange(video.id, { answerCount: next.length });
@@ -123,7 +130,9 @@ export default function StudyPanel({
       api(`/api/videos/${id}/ask`)
         .then((d) => {
           // The API sends newest first; a conversation reads oldest first.
-          const list: Answer[] = [...(d.notes ?? [])].reverse();
+          const saved: Answer[] = [...(d.notes ?? [])].reverse();
+          const late = [...arrived.current.values()].filter((a) => !saved.some((s) => s.id === a.id));
+          const list = [...saved, ...late];
           setAnswers(list);
           onVideoChangeRef.current(id, { answerCount: list.length });
         })
@@ -132,7 +141,10 @@ export default function StudyPanel({
     if (tab === "summary" && !started.current.summary && !video.summary) {
       started.current.summary = true;
       setSummaryBusy(true);
-      api(`/api/videos/${id}/summarize`, { method: "POST", fallback: "Couldn't summarise this video" })
+      // Reopened while it's being written: wait for the same request.
+      shared(`summary:${id}`, () =>
+        api(`/api/videos/${id}/summarize`, { method: "POST", fallback: "Couldn't summarise this video" })
+      )
         .then((data) => {
           setSummary(data.summary);
           onVideoChangeRef.current(id, { summary: data.summary });
@@ -143,7 +155,9 @@ export default function StudyPanel({
     if (tab === "transcript" && !started.current.transcript) {
       started.current.transcript = true;
       setTranscriptBusy(true);
-      api(`/api/videos/${id}/transcript`, { method: "POST", fallback: "Couldn't get the transcript" })
+      shared(`transcript:${id}`, () =>
+        api(`/api/videos/${id}/transcript`, { method: "POST", fallback: "Couldn't get the transcript" })
+      )
         .then((data) => {
           setTranscript(data.transcript);
         })
@@ -359,7 +373,7 @@ function AskBox({
   onQuestion: (q: string) => void;
   onAsk: (q: string) => void;
   /** From useAsk: puts the cursor here (so dictation lands in the box). */
-  inputRef: (el: HTMLInputElement | null) => void;
+  inputRef: (el: HTMLTextAreaElement | null) => void;
   busy: boolean;
   error: string | null;
   suggestions: string[];
@@ -388,25 +402,25 @@ function AskBox({
         </Link>
       )}
       <form
-        className="flex overflow-hidden rounded-md border-[1.5px] border-ink bg-cream focus-within-ring"
+        className="flex items-end overflow-hidden rounded-md border-[1.5px] border-ink bg-cream focus-within-ring"
         onSubmit={(e) => {
           e.preventDefault();
           onAsk(question);
         }}
       >
-        <input
-          ref={inputRef}
-          className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm outline-none placeholder:text-muted"
+        <AskField
+          inputRef={inputRef}
+          className="px-3"
           placeholder="Ask Gemini about this video…"
           value={question}
-          onChange={(e) => onQuestion(e.target.value)}
-          aria-label="Ask about this video"
+          onChange={onQuestion}
+          label="Ask about this video"
         />
         <button
           type="submit"
           disabled={busy || !question.trim()}
           aria-label="Ask"
-          className="icon-hover m-1 flex w-10 items-center justify-center rounded-sm bg-primary disabled:opacity-40"
+          className="icon-hover m-1 flex h-9 w-10 shrink-0 items-center justify-center rounded-sm bg-primary disabled:opacity-40"
         >
           <Icon name="send" size={16} />
         </button>

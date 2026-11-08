@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { asc, count, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "./db";
 import { isStickyColor } from "./stickyColors";
 import { stickyNotes, type StickyNote } from "./schema";
@@ -17,6 +17,12 @@ export async function listStickyNotes(db: Db): Promise<StickyNote[]> {
     .select()
     .from(stickyNotes)
     .orderBy(desc(stickyNotes.pinned), desc(stickyNotes.createdAt), asc(stickyNotes.id));
+}
+
+/** How many there are: the Feed sidebar's count, sent inside the page. */
+export async function countStickyNotes(db: Db): Promise<number> {
+  const [row] = await db.select({ n: count() }).from(stickyNotes);
+  return row?.n ?? 0;
 }
 
 export async function createStickyNote(db: Db, color: unknown): Promise<StickyNote> {

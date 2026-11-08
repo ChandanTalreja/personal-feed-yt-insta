@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./db";
 import { appMeta, channels, videos, type Channel } from "./schema";
 import {
@@ -276,4 +276,73 @@ export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
     breakdown,
     syncedAt: syncedAt.toISOString(),
   };
+}
+
+// ---------- One sync at a time (FIX-12) ----------
+//
+// Netlify's scheduler waits only 15 s for the 6-hourly sync, gives up, and
+// starts it again; the second run re-checked all channels and found nothing
+// (the first had saved everything). Two tabs, or Sync now pressed during the
+// scheduled sync, did the same. Now a sync first leaves a "sync running"
+// note in app_meta; one that finds a fresh note waits for that sync to end
+// instead of running again.
+
+/** app_meta key of the "sync running" note. */
+const SYNC_RUNNING_KEY = "sync_running";
+
+/** A note this old was left by a sync that died: a sync can't run past
+ *  60 s (the cron route's maxDuration), so 2 minutes is safely over. */
+const SYNC_NOTE_STALE = sql`now() - interval '2 minutes'`;
+
+/** How long a sync that found another running waits for it (inside 60 s). */
+const WAIT_FOR_OTHER_MS = 45_000;
+
+export type SyncOutcome = RefreshResult | { skipped: true };
+
+/**
+ * Runs the full sync, unless one is already running: then waits for it to
+ * finish (so a Sync now press still ends once the new videos are saved)
+ * and returns `{ skipped: true }`.
+ */
+export async function syncAllChannels(db: Db): Promise<SyncOutcome> {
+  const token = crypto.randomUUID();
+  // Check and claim in one statement: write the note if there is none, or
+  // take over a stale one. Nothing returned = a fresh note is there, so
+  // two syncs starting at the same moment can't both get it.
+  const claimed = await db
+    .insert(appMeta)
+    .values({ key: SYNC_RUNNING_KEY, value: token })
+    .onConflictDoUpdate({
+      target: appMeta.key,
+      set: { value: token, updatedAt: sql`now()` },
+      setWhere: sql`${appMeta.updatedAt} < ${SYNC_NOTE_STALE}`,
+    })
+    .returning({ key: appMeta.key });
+
+  if (claimed.length === 0) {
+    await waitForOtherSync(db);
+    return { skipped: true };
+  }
+  try {
+    return await refreshAllChannels(db);
+  } finally {
+    // Remove our note (not one a later sync took over). If this fails, the
+    // note goes stale in 2 minutes and the next sync runs anyway.
+    await db
+      .delete(appMeta)
+      .where(and(eq(appMeta.key, SYNC_RUNNING_KEY), eq(appMeta.value, token)))
+      .catch(() => {});
+  }
+}
+
+async function waitForOtherSync(db: Db): Promise<void> {
+  const giveUpAt = Date.now() + WAIT_FOR_OTHER_MS;
+  while (Date.now() < giveUpAt) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const [note] = await db
+      .select({ key: appMeta.key })
+      .from(appMeta)
+      .where(and(eq(appMeta.key, SYNC_RUNNING_KEY), sql`${appMeta.updatedAt} >= ${SYNC_NOTE_STALE}`));
+    if (!note) return;
+  }
 }

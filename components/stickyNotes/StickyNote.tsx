@@ -20,6 +20,8 @@ export const PAPER: Record<string, string> = {
 
 /** Typing is saved this long after the last key (and at once when you click away). */
 const SAVE_AFTER_MS = 700;
+/** A failed save tries again this long after, while the note is open. */
+const RETRY_AFTER_MS = 5000;
 
 /**
  * One sticky note: coloured paper, slightly tilted, that straightens and
@@ -32,67 +34,94 @@ export default function StickyNote({
   autoFocus,
   onSaved,
   onRemoved,
+  onRestored,
   onError,
 }: {
   note: StickyNoteItem;
   autoFocus: boolean;
   onSaved: (note: StickyNoteItem) => void;
   onRemoved: (id: number) => void;
-  onError: (message: string) => void;
+  /** A delete the server refused: the note goes back on the board. */
+  onRestored: (note: StickyNoteItem) => void;
+  /** A message for the board; null clears it (a retried save went through). */
+  onError: (message: string | null) => void;
 }) {
   const [lines, setLines] = useState<Line[]>(() => parseBody(note.body));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // What the server has: moves only once a save is confirmed.
   const saved = useRef(note.body);
   const timer = useRef<number | null>(null);
   const latest = useRef(lines);
+  const open = useRef(true);
+  const gone = useRef(false);
+  const failed = useRef(false);
 
-  // Leaving the page with typing not yet saved: send it anyway.
-  useEffect(
-    () => () => {
-      if (timer.current == null) return;
-      window.clearTimeout(timer.current);
-      const body = toBody(latest.current);
-      if (body !== saved.current) {
-        api(`/api/sticky-notes/${note.id}`, { method: "PATCH", body: { body }, keepalive: true }).catch(() => {});
-      }
-    },
-    [note.id]
-  );
-
-  async function saveBody(next: Line[]) {
+  // Saves (and a delete) go out one at a time, in order, like the video
+  // note's (NoteEditor): without the queue an older save could land last
+  // and put older text back. Each sends the text as it is *when its turn
+  // comes*, and skips if that's already saved.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  function save(final = false) {
+    if (timer.current != null) window.clearTimeout(timer.current);
     timer.current = null;
-    const body = toBody(next);
-    if (body === saved.current) return;
-    saved.current = body;
+    queue.current = queue.current.then(() => send(final));
+  }
+
+  async function send(final: boolean) {
+    const body = toBody(latest.current);
+    if (gone.current || body === saved.current) return;
     try {
       const reply = await api<{ note: StickyNoteItem }>(`/api/sticky-notes/${note.id}`, {
         method: "PATCH",
         body: { body },
-        fallback: "Couldn't save that note",
+        keepalive: final, // let the last save finish as the board closes
+        fallback: "Couldn't save that note.",
       });
+      saved.current = body;
       onSaved(reply.note);
+      if (failed.current) onError(null);
+      failed.current = false;
     } catch (err) {
-      saved.current = "";
-      onError((err as Error).message);
+      // Closed already: nothing left to retry from.
+      if (final || !open.current) return;
+      failed.current = true;
+      onError(`${(err as Error).message} Trying again in a moment.`);
+      timer.current = window.setTimeout(() => save(), RETRY_AFTER_MS);
     }
   }
+
+  // Leaving the page (or the board): send what isn't saved yet, behind any
+  // save still in flight, so it lands last. A failed save is retried here too.
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+      save(true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function write(next: Line[]) {
     setLines(next);
     latest.current = next;
     if (timer.current != null) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => saveBody(next), SAVE_AFTER_MS);
+    timer.current = window.setTimeout(() => save(), SAVE_AFTER_MS);
   }
 
-  async function remove() {
+  function remove() {
     if (timer.current != null) window.clearTimeout(timer.current);
     timer.current = null;
+    gone.current = true;
     onRemoved(note.id);
-    try {
-      await api(`/api/sticky-notes/${note.id}`, { method: "DELETE", fallback: "Couldn't delete that note" });
-    } catch (err) {
-      onError((err as Error).message);
-    }
+    // Behind any save in flight, so a late save can't follow the delete.
+    queue.current = queue.current.then(async () => {
+      try {
+        await api(`/api/sticky-notes/${note.id}`, { method: "DELETE", fallback: "Couldn't delete that note" });
+      } catch (err) {
+        onRestored(note);
+        onError((err as Error).message);
+      }
+    });
   }
 
   // Clicked away (focus left the note, not just moved inside it).
@@ -103,10 +132,7 @@ export default function StickyNote({
       remove();
       return;
     }
-    if (timer.current != null) {
-      window.clearTimeout(timer.current);
-      saveBody(latest.current);
-    }
+    save();
   }
 
   /** Paper, hand or pin: shown at once, then saved. */

@@ -54,11 +54,14 @@ function syncedLabel(iso: string | null, now: number): string {
  * checked, so a failure never hides behind "you're up to date".
  */
 function syncMessage(data: {
+  /** Another sync was already running (the 6-hourly one): it has finished now. */
+  skipped?: boolean;
   added: number;
   channels: number;
   failed?: string[];
   breakdown?: { title: string; added: number }[];
 }): string {
+  if (data.skipped) return "Your feed is up to date.";
   const failed = data.failed ?? [];
   const checked = data.channels - failed.length;
   let result: string;

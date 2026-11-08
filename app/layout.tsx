@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Archivo_Black, Caveat, Space_Grotesk, Space_Mono } from "next/font/google";
 import "./globals.css";
 import OfflineBar from "@/components/OfflineBar";
@@ -34,6 +34,11 @@ export const metadata: Metadata = {
   title: "TUBEBOX: your feed, no algorithm",
   description:
     "A personal, distraction-free YouTube feed: only the channels you choose, in chronological order.",
+};
+
+// The installed app's title bar (and Safari's bar) in the page's cream (FEAT-19).
+export const viewport: Viewport = {
+  themeColor: "#fbf6ec",
 };
 
 export default function RootLayout({

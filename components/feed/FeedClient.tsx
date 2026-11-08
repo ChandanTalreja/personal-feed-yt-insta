@@ -21,6 +21,7 @@ import PageTitle from "@/components/ui/PageTitle";
 import SearchField from "@/components/ui/SearchField";
 import SegmentedControl from "@/components/ui/SegmentedControl";
 import StickyBoard from "@/components/stickyNotes/StickyBoard";
+import { knownNoteCount, setKnownNoteCount } from "@/components/stickyNotes/noteCount";
 import type { ContinueReply, FeedVideo, GenreItem } from "@/components/types";
 import { formatWatchTime } from "@/lib/format";
 import { api, remember, rememberedReply } from "@/lib/api-client";
@@ -85,6 +86,11 @@ export default function FeedClient({
   const [view, setView] = useState<View>("unwatched");
   // The Sticky notes board instead of the videos (Feed only, FEAT-17).
   const [notesOpen, setNotesOpen] = useState(false);
+  // Its count: from the page, else the last one seen in this tab (a page
+  // the router kept carries one up to 5 minutes old), else blank.
+  const [noteCount, setNoteCount] = useState<number | null>(
+    () => seed?.stickyCount ?? knownNoteCount() ?? first?.stickyCount ?? null
+  );
   const [lengthFilter, setLengthFilter] = useState<LengthFilter>("any");
   // "Add these search results to a track" panel.
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -167,6 +173,10 @@ export default function FeedClient({
     if (seed.continued) remember(continuePath(section), seed.continued);
     markFirstScreenUsed(seed);
   }, [seed, section]);
+
+  useEffect(() => {
+    if (noteCount != null) setKnownNoteCount(noteCount);
+  }, [noteCount]);
 
   useEffect(() => {
     if (!seed) loadContinue();
@@ -447,6 +457,7 @@ export default function FeedClient({
       facets={facets}
       podcasts={podcasts}
       notesOpen={notesOpen}
+      notesCount={podcasts ? null : noteCount}
       onNotes={
         podcasts
           ? undefined
@@ -473,6 +484,7 @@ export default function FeedClient({
           {notesOpen ? (
             <StickyBoard
               onFilters={() => setFiltersOpen((o) => !o)}
+              onCount={setNoteCount}
               below={
                 filtersOpen && (
                   <div className="mb-5 rounded-lg border border-line bg-surface py-4 lg:hidden">{sidebar}</div>

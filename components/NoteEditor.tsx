@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { notifyNavChanged } from "@/lib/nav-events";
 import { api } from "@/lib/api-client";
-import { isOffline } from "@/lib/offline";
+import { dropPendingNote, isOffline, pendingNote, queueNoteSave } from "@/lib/offline";
 
 interface Props {
   videoId: number;
@@ -35,7 +35,9 @@ export default function NoteEditor({
   rows = 4,
   large = false,
 }: Props) {
-  const [text, setText] = useState(initial ?? "");
+  // A note closed unsaved (offline) waits in the offline list: reopened
+  // before it's sent, the editor shows that text, not the older saved one.
+  const [text, setText] = useState(() => pendingNote(videoId) ?? initial ?? "");
   const [status, setStatus] = useState<Status>("idle");
   // Refs so the timers and the unmount flush always see the latest values.
   const textRef = useRef(text);
@@ -82,12 +84,19 @@ export default function NoteEditor({
         fallback: "Save failed",
       });
       savedRef.current = value.trim();
+      dropPendingNote(videoId); // saved directly: a waiting copy is older
       onSavedRef.current?.(data.video.personalNote, data.video.personalNoteAt);
       notifyNavChanged();
       if (!final) setStatus("saved");
     } catch {
+      // The closing save failed (offline, or the server in trouble): the
+      // text waits in the offline list and saves when it can.
+      if (final) {
+        queueNoteSave(videoId, value);
+        return;
+      }
       // Closed already: the closing save, queued behind this one, retries.
-      if (final || !openRef.current) return;
+      if (!openRef.current) return;
       setStatus("error");
       timerRef.current = setTimeout(() => save(), RETRY_AFTER_MS);
     }

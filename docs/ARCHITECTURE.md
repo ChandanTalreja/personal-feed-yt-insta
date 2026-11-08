@@ -96,7 +96,10 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
   "quiet" status, a track's summary line).
 - **Shared** at the top of `components/`: `TopBar` (with `GlobalSearch`),
   `PlayerModal`, `NoteEditor`, `CopyButton`, `Markdown`, `types.ts` and
-  `useAsk` (the Ask flow used by the study panel and the Notebook).
+  `useAsk` (the Ask flow used by the study panel and the Notebook; its box is
+  `components/ui/AskField.tsx`, a text area that grows to five lines, REF-20;
+  the request itself lives in `components/inFlight.ts` for the life of the
+  tab, so closing the panel mid-answer loses nothing, FIX-11).
 - **Building blocks** in `components/ui/`: `Button` (with `busy`),
   `IconButton`, `Icon` (Phosphor shapes in `iconPaths.ts`), `SearchField`,
   `SegmentedControl`, `SidebarList`, `SidePanel`, `PageTitle`, `EmptyState`,
@@ -180,7 +183,8 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
   `lib/stickyColors.ts`), handwritten, pinned, created_at, updated_at. Notes
   that belong to no video, on a board in the Feed's sidebar; not in the
   Notebook or ⌘K. `body` is plain text: `- ` lines are bullets, `[ ] ` /
-  `[x] ` lines tick boxes (`components/stickyNotes/lines.ts`).
+  `[x] ` lines tick boxes (`components/stickyNotes/lines.ts`). The sidebar row's count comes with the Feed's
+  first screen (`countStickyNotes`, REF-17), then from the board.
 
 Indexes beyond the unique keys: `videos(published_at DESC)`, a trigram index
 on `videos.title` (search), `videos(later_at)` for saved ones,
@@ -239,6 +243,12 @@ for each active channel, ingest uploads from a 14-day lookback window —
 overlap is free because of the unique-key dedup. Triggered every 6 hours by
 `netlify/functions/feed-cron.mts` (schedule in the file's exported config),
 or manually via the REFRESH button.
+One sync at a time (FIX-12): `syncAllChannels` claims a `sync_running`
+row in `app_meta` (insert, or take over a row older than 2 minutes, in one
+statement) and deletes it when done. A sync that finds a fresh row waits
+for that sync to finish and returns `{ skipped: true }`. Needed because
+Netlify's scheduler waits only 15 s for `feed-cron`, gives up (499) and
+retries, which made every scheduled sync run twice.
 
 Quota math: ~2 units/channel/run × 11 channels × 4 runs/day ≈ 90 of 10,000
 daily units. Mass-adding channels with backfill: ~5 units each (plus 100 if
@@ -334,9 +344,14 @@ beyond one column (`cheat_sheets.handwritten_title`, the page's heading).
 paper and prints them to PDF with the browser's own Save as PDF. Its own
 module: `lib/handwritten/document.ts` (what's written, pure),
 `lib/handwritten/themes.ts` (papers, inks, hands, marks, presets as data),
+`lib/handwritten/pages.ts` (cutting a sheet into A4 pages, pure),
 `components/handwritten/` (Studio page, Paper, Tray, the marks: Rough
-Notation on screen, CSS strokes in print, and the A4 print rules). Fonts load
-on that page only.
+Notation on screen, CSS strokes in print and on shrunk pages, and the A4
+print rules). Fonts load on that page only; Excalifont (REF-18) ships in
+`components/handwritten/fonts/` with its licence. Since REF-19 the screen
+shows real A4 pages: each sheet is written once out of sight at A4 size, its
+blocks measured and cut into pages, and each page prints as one PDF page, so
+the screen and the PDF can't disagree.
 
 **Free-tier facts learned the hard way:** TPM (250K) is a per-minute *speed
 limit*, not a budget — the AI Studio dashboard shows the 28-day *peak*, not
@@ -404,6 +419,13 @@ window); that's why fps+resolution tuning matters.
   Drizzle. Accepted residual risk: a determined request flood can exhaust
   free-tier function invocations (edge-level protection would need a paid
   WAF or Cloudflare in front) — monitor via Netlify usage notifications.
+- **Installable (FEAT-19)**: `app/manifest.ts` (web app manifest,
+  `display: "standalone"`, cream `theme_color`) plus PNG icons in
+  `public/app-icons/` and `app/apple-icon.png`, so Chrome offers Install
+  and phones can add it to the home screen. No service worker on purpose:
+  the installed app loads the live site like a tab, so a deploy never
+  leaves a stale cached version. The manifest and icons are public (no
+  data); pages still check the login.
 
 ---
 
@@ -449,7 +471,7 @@ window); that's why fps+resolution tuning matters.
 | `FIRECRAWL_API_KEY` | hosted only, optional | Backup transcript source, used only while the breaker is open (Apify failed 3× in a row; 30 min at a time) |
 | `BACKFILL_MONTHS` | no | Default backfill depth (months) when no window is passed (default 12 = 1 year). The add picker and Backfill 1Y–5Y always pass one, clamped to 1–60 months (max 5 years) |
 | `PGLITE_DIR` | no | Local embedded DB location (default `.data/pglite`) |
-| `OWNER_NAME` | no | The name in the Feed's greeting ("Good morning, Chandan."); unset = no name |
+| `OWNER_NAME` | no | The name in the Feed's greeting ("Good morning, Chandan."); unset = no name. On Netlify, add it **without** "Contains secret values": the secrets scan fails the build when a secret variable's value appears in the repo, and the name is in the docs and comments (the first deploys of FEAT-11 failed this way, 2026-10-31) |
 
 ## 11. Deploy checklist (Netlify — done; live at personal-tubebox.netlify.app)
 
@@ -549,7 +571,10 @@ built: §3.1 above.
   per video. `📝 NOTE` on every card (a "•" when one exists) opens
   `components/NoteEditor.tsx`: autosaves ~0.8s after typing stops, on blur
   and on close (`keepalive`), retries on failure; clearing the text deletes
-  the note. The same editor works inline in the Notebook (✎ EDIT / + ADD MY
+  the note. A closing save that fails (offline, or a 5xx) puts the note on
+  the offline waiting list (`lib/offline.ts`, with ✓ Seen and Watch later),
+  which sends it later; reopened meanwhile, the editor shows that text
+  (FIX-10). Sticky notes save through the same kind of ordered queue. The same editor works inline in the Notebook (✎ EDIT / + ADD MY
   NOTE). `PATCH /api/videos/[id]` validates `personalNote` (text, ≤20,000
   chars). Note: Gemini answers contain markdown (`**bold**`) shown as raw
   text, on cards and in the Notebook alike — rendering it is a candidate fix.

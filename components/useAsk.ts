@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api-client";
-import { notifyNavChanged } from "@/lib/nav-events";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { askJob, clearAskError, receiveAnswers, startAsk, subscribeAsks } from "./inFlight";
 import type { Answer } from "./types";
 
 /**
@@ -11,7 +10,7 @@ import type { Answer } from "./types";
  * Not on touch screens (it would pop the keyboard up), and never away from
  * another text field you're typing in (a note, a search).
  */
-function focusAskBox(box: HTMLInputElement | null) {
+function focusAskBox(box: HTMLTextAreaElement | null) {
   if (!box || box.disabled) return;
   if (window.matchMedia("(pointer: coarse)").matches) return;
   const active = document.activeElement;
@@ -27,47 +26,57 @@ function focusAskBox(box: HTMLInputElement | null) {
  * The box empties as soon as you send (the question shows as "Thinking…");
  * if the request fails, your text comes back so you can fix or retry it.
  * `onAnswer` gets the saved answer; each screen shows it its own way.
- * Pass `inputRef` to the box's <input>: it gets the cursor when it appears
+ * Pass `inputRef` to the box's AskField: it gets the cursor when it appears
  * and again after each answer.
+ *
+ * The request itself lives in components/inFlight.ts, not here (FIX-11):
+ * close the panel while Gemini thinks and reopen the video, and the question
+ * is still "Thinking…"; an answer (or failure) that arrived meanwhile shows
+ * the next time the video is shown.
  */
 export function useAsk(videoId: number, onAnswer: (answer: Answer) => void) {
   const [question, setQuestion] = useState("");
-  const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const job = useSyncExternalStore(subscribeAsks, () => askJob(videoId), () => null);
+  const pending = job && job.error == null ? job.question : null;
 
   // A stable callback ref: runs when the box appears (panel opened, Ask tab
   // chosen), not on every render — so it never pulls focus back later.
-  const box = useRef<HTMLInputElement | null>(null);
-  const inputRef = useCallback((el: HTMLInputElement | null) => {
+  const box = useRef<HTMLTextAreaElement | null>(null);
+  const inputRef = useCallback((el: HTMLTextAreaElement | null) => {
     box.current = el;
     focusAskBox(el);
   }, []);
+
+  // Answers arrive here, including one that came while nothing showed this video.
+  const onAnswerRef = useRef(onAnswer);
+  useEffect(() => {
+    onAnswerRef.current = onAnswer;
+  });
+  useEffect(() => receiveAnswers(videoId, (note) => onAnswerRef.current(note)), [videoId]);
+
+  // A failed question (maybe while the panel was closed): say why, and give
+  // the text back, unless something new was typed.
+  useEffect(() => {
+    if (!job || job.error == null) return;
+    // A failure is an outside event, not a render cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setError(job.error);
+    setQuestion((q) => q || job.question);
+    clearAskError(videoId);
+  }, [job, videoId]);
 
   // Answer (or error) in: back to the box, ready for the next question.
   useEffect(() => {
     if (!pending) focusAskBox(box.current);
   }, [pending]);
 
-  async function ask(prompt: string) {
+  function ask(prompt: string) {
     const text = prompt.trim();
     if (!text || pending) return;
-    setPending(text);
     setError(null);
     setQuestion(""); // sent: it shows as the pending question now
-    try {
-      const data = await api(`/api/videos/${videoId}/ask`, {
-        method: "POST",
-        body: { prompt: text },
-        fallback: "Couldn't answer that",
-      });
-      onAnswer(data.note);
-      notifyNavChanged();
-    } catch (err) {
-      setError((err as Error).message);
-      setQuestion((q) => q || text); // give it back, unless something new was typed
-    } finally {
-      setPending(null);
-    }
+    startAsk(videoId, text);
   }
 
   return { question, setQuestion, pending, error, ask, inputRef };

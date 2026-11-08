@@ -13,6 +13,8 @@ export interface FirstScreen {
   genres: { genres: GenreItem[] };
   suggestions: { suggestions: string[] };
   continued: ContinueReply | null;
+  /** How many sticky notes (the Feed only). */
+  stickyCount: number | null;
 }
 
 /** Older than this, it's a page reused from the router's 5-minute cache. */

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { isAuthed, unauthorized } from "@/lib/auth";
-import { refreshAllChannels } from "@/lib/ingest";
+import { syncAllChannels } from "@/lib/ingest";
 
 export const maxDuration = 60;
 
 /**
  * Triggered every 6 hours by the Netlify scheduled function (with the
  * CRON_SECRET header), or manually from the UI (with the auth cookie).
+ * Only one sync runs at a time: see syncAllChannels (FIX-12).
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
   if (!authorized) return unauthorized();
   try {
     const db = await getDb();
-    const result = await refreshAllChannels(db);
+    const result = await syncAllChannels(db);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
