@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Icon, { type IconName } from "@/components/ui/Icon";
+import IconButton from "@/components/ui/IconButton";
 import { Avatar } from "@/components/ui/Media";
 import SearchField from "@/components/ui/SearchField";
 import { SidebarItem, SidebarSection, SidebarTile } from "@/components/ui/SidebarList";
@@ -13,6 +14,10 @@ export interface Facets {
   views: Record<View, number>;
   /** Count per genre id ("none" = channels without a genre). */
   genres: Record<string, number>;
+  /** What "All genres" would show: hidden genres left out (FEAT-20). */
+  allGenres?: number;
+  /** Hidden genres' new uploads since you hid or last opened them. */
+  hiddenNew?: Record<string, number>;
 }
 
 interface SidebarChannel {
@@ -52,6 +57,7 @@ export default function FeedSidebar({
   genres,
   genreId,
   onGenre,
+  onToggleHidden,
   channels,
   channelIds,
   onToggleChannel,
@@ -74,6 +80,8 @@ export default function FeedSidebar({
   genres: GenreItem[];
   genreId: number | null;
   onGenre: (id: number | null) => void;
+  /** Hide a genre from All genres, or show it again (FEAT-20). */
+  onToggleHidden?: (genre: GenreItem) => void;
   /** Channels in the current genre (all of them when no genre is picked). */
   channels: SidebarChannel[];
   channelIds: number[];
@@ -105,7 +113,7 @@ export default function FeedSidebar({
   ];
   const limited = q || showAll ? ordered : ordered.slice(0, CHANNEL_PREVIEW);
   const allGenresCount = facets
-    ? Object.values(facets.genres).reduce((a, b) => a + b, 0)
+    ? (facets.allGenres ?? Object.values(facets.genres).reduce((a, b) => a + b, 0))
     : undefined;
 
   return (
@@ -150,21 +158,49 @@ export default function FeedSidebar({
             onClick={() => onGenre(null)}
             leading={<span className="h-[9px] w-[9px] shrink-0 rounded-[3px] bg-ink" />}
           />
-          {genres.map((g) => (
-            <SidebarItem
-              key={g.id}
-              label={g.name}
-              active={genreId === g.id}
-              count={facets ? short(facets.genres[g.id] ?? 0) : undefined}
-              onClick={() => onGenre(g.id)}
-              leading={
-                <span
-                  className="h-[9px] w-[9px] shrink-0 rounded-[3px]"
-                  style={{ backgroundColor: g.color }}
-                />
-              }
-            />
-          ))}
+          {genres.map((g) => {
+            // A hidden genre (FEAT-20) is faded with a crossed-out eye; with something
+            // new since you hid or last opened it, its count becomes "3 New!" in red pen
+            // (not while you're in it: you're looking at them).
+            const fresh = g.hiddenFromAll && genreId !== g.id ? (facets?.hiddenNew?.[g.id] ?? 0) : 0;
+            return (
+              <SidebarItem
+                key={g.id}
+                label={g.name}
+                active={genreId === g.id}
+                muted={g.hiddenFromAll}
+                marker={
+                  g.hiddenFromAll && (
+                    <span title="Hidden from All genres">
+                      <Icon name="eyeSlash" size={13} duotone={false} />
+                      <span className="sr-only">hidden from All genres</span>
+                    </span>
+                  )
+                }
+                highlight={fresh > 0}
+                count={fresh > 0 ? `${short(fresh)} New!` : facets ? short(facets.genres[g.id] ?? 0) : undefined}
+                onClick={() => onGenre(g.id)}
+                leading={
+                  <span
+                    className="h-[9px] w-[9px] shrink-0 rounded-[3px]"
+                    style={{ backgroundColor: g.color }}
+                  />
+                }
+                action={
+                  onToggleHidden && (
+                    <IconButton
+                      label={g.hiddenFromAll ? "Show in All genres" : "Hide from All genres"}
+                      align="right"
+                      className="h-7 min-w-7 bg-surface!"
+                      onClick={() => onToggleHidden(g)}
+                    >
+                      <Icon name={g.hiddenFromAll ? "eye" : "eyeSlash"} size={15} />
+                    </IconButton>
+                  )
+                }
+              />
+            );
+          })}
         </SidebarSection>
       )}
 

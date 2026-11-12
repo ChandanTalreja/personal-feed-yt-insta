@@ -101,6 +101,19 @@ body {
   transform-origin: left center;
 }
 
+/* A hidden genre's "3 New!" in the Feed's sidebar (FEAT-20): the
+   greeting's red pen, not rotated (it sits in a row of counts; Caveat's
+   own letters still lean), so it stands out from the yellow everywhere
+   else. Capital N: Caveat's lowercase is small at this size. */
+.pen-new {
+  font-family: var(--font-pen);
+  font-weight: 700;
+  font-size: 1.1875rem;
+  line-height: 1;
+  color: var(--color-pen-red);
+  white-space: nowrap;
+}
+
 /* Icons (UI-08): the inner layer is a faint tint at rest and turns solid
    yellow when lit, or when an `icon-hover` button around it is hovered. */
 .icon-fill {

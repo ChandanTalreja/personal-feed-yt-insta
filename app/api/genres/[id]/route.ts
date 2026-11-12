@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { getDb } from "@/lib/db";
 import { denyUnlessAuthed } from "@/lib/auth";
 import { genres } from "@/lib/schema";
@@ -14,7 +15,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const id = parseId((await params).id);
   if (id == null) return badId();
   const body = await req.json();
-  const updates: Partial<typeof genres.$inferInsert> = {};
+  const updates: PgUpdateSetSource<typeof genres> = {};
   if ("askPrompt" in body) {
     updates.askPrompt = String(body.askPrompt ?? "").trim() || null;
   }
@@ -29,6 +30,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       );
     }
     updates.color = body.color;
+  }
+  if ("hiddenFromAll" in body) {
+    const hidden = Boolean(body.hiddenFromAll);
+    updates.hiddenFromAll = hidden;
+    // FEAT-20: hiding starts the "N new" count now; saving a genre that was
+    // already hidden (the edit box sends every field) keeps its count.
+    updates.hiddenSeenAt = hidden
+      ? sql`CASE WHEN ${genres.hiddenFromAll} THEN ${genres.hiddenSeenAt} ELSE now() END`
+      : null;
   }
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "There's nothing to change." }, { status: 400 });

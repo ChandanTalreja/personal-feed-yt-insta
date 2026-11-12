@@ -141,7 +141,9 @@ export function useFeedData(
       setLoading(seen ? null : replace ? "first" : "more");
       try {
         const res = await fetch(path);
-        const data = await res.json();
+        // A reply that isn't JSON (a crashed or cut-off request) reads as {},
+        // so the message below is ours, not a parse error.
+        const data = await res.json().catch(() => ({}));
         if (res.ok && pageToLoad === 0) remember(path, data);
         if (id !== requestId.current) return []; // a newer request owns the screen
         if (!res.ok) throw new Error(data.error ?? "Couldn't load the feed");

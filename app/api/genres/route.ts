@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
     const name = String(body.name ?? "").trim();
     const color = body.color ?? "#FFC900";
     const askPrompt = String(body.askPrompt ?? "").trim() || null;
+    const hiddenFromAll = Boolean(body.hiddenFromAll);
     if (!name) {
       return NextResponse.json({ error: "Give the genre a name." }, { status: 400 });
     }
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     const db = await getDb();
     const [inserted] = await db
       .insert(genres)
-      .values({ name, color, askPrompt })
+      .values({ name, color, askPrompt, hiddenFromAll, hiddenSeenAt: hiddenFromAll ? new Date() : null })
       .returning();
     return NextResponse.json({ genre: inserted });
   } catch (err) {

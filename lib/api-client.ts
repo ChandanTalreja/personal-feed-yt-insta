@@ -61,6 +61,8 @@ function staleAfter(path: string): string[] | "all" {
   // A track: the Tracks screens, the top bar's count, and the "In N tracks"
   // on feed cards.
   if (/^\/api\/tracks(?:[/?]|$)/.test(path)) return ["/api/tracks", "/api/nav", "/api/videos?"];
+  // A hidden genre opened (FEAT-20): only the feed lists carry its badge.
+  if (/^\/api\/genres\/\d+\/seen$/.test(path)) return ["/api/videos?"];
   if (path.startsWith("/api/cheat-sheets")) return ["/api/cheat-sheets"];
   if (path.startsWith("/api/sticky-notes")) return ["/api/sticky-notes"];
   if (path.startsWith("/api/ask-suggestions")) return ["/api/ask-suggestions"];

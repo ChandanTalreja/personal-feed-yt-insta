@@ -69,6 +69,13 @@ export async function fetchCaptions(
     if (breaker.failures > 0) await writeBreaker(db, { failures: 0, openUntil: null });
     return text;
   } catch (err) {
+    // A turned-down key isn't an outage: waiting won't fix it, so it
+    // doesn't count toward the breaker. Firecrawl is set up here, so use it
+    // now rather than fail (FIX-14).
+    if (err instanceof TranscriptKeyRejected) {
+      console.error(`apify transcript: key turned down, using Firecrawl for ${ytVideoId}`);
+      return fetchViaFirecrawl(ytVideoId);
+    }
     if (!(err instanceof TranscriptServiceDown)) throw err;
     const failures = breaker.failures + 1;
     if (failures < BREAKER_THRESHOLD) {
@@ -217,15 +224,33 @@ async function fetchViaApify(ytVideoId: string): Promise<string | null> {
   // Netlify's ~30s cut-off and the user would get a bare 502 — so we stop
   // and say the service is down instead.
   const english = await runTranscriptActor(actor, token, ytVideoId, "en");
+  if (english === KEY_REJECTED) throw new TranscriptKeyRejected();
   if (english === SERVICE_DOWN) throw new TranscriptServiceDown();
   if (english) return english;
   const anyLanguage = await runTranscriptActor(actor, token, ytVideoId);
+  if (anyLanguage === KEY_REJECTED) throw new TranscriptKeyRejected();
   if (anyLanguage === SERVICE_DOWN) throw new TranscriptServiceDown();
   return anyLanguage;
 }
 
 /** The Actor didn't answer (timeout, network, or an error status). */
 const SERVICE_DOWN = Symbol("transcript service down");
+/** Apify answered 401/403: the token is wrong, expired or was replaced. */
+const KEY_REJECTED = Symbol("transcript key rejected");
+
+/**
+ * Apify turned down APIFY_TOKEN (it replaces every token after a security
+ * incident, as in November 2026). Says what to fix instead of "try again
+ * later", which would never work (FIX-14).
+ */
+class TranscriptKeyRejected extends Error {
+  constructor() {
+    super(
+      "The transcript service turned down its key, so captions can't be " +
+        "fetched. Put the new APIFY_TOKEN on Netlify and deploy again."
+    );
+  }
+}
 
 /**
  * Not "this video has no captions" — the captions exist, we just can't
@@ -299,11 +324,11 @@ async function runTranscriptActor(
   token: string,
   ytVideoId: string,
   language?: string
-): Promise<string | null | typeof SERVICE_DOWN> {
+): Promise<string | null | typeof SERVICE_DOWN | typeof KEY_REJECTED> {
   try {
     const url =
       `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items` +
-      `?token=${token}&maxTotalChargeUsd=0.05`;
+      `?maxTotalChargeUsd=0.05`;
     const input: Record<string, unknown> = {
       youtube_url: `https://www.youtube.com/watch?v=${ytVideoId}`,
       include_transcript_text: true,
@@ -311,11 +336,20 @@ async function runTranscriptActor(
     if (language) input.language = language;
     const res = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      // The token goes in a header, not the URL: web addresses end up in
+      // logs (the same reason as the sync secret, FIX-04).
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(15_000),
       cache: "no-store",
     });
+    if (res.status === 401 || res.status === 403) {
+      console.error(`apify transcript: HTTP ${res.status}, key turned down, for ${ytVideoId}`);
+      return KEY_REJECTED;
+    }
     if (!res.ok) {
       console.error(
         `apify transcript: HTTP ${res.status} for ${ytVideoId}` +

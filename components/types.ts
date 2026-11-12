@@ -59,6 +59,8 @@ export interface GenreItem {
   name: string;
   color: string;
   askPrompt: string | null;
+  /** Hidden from "All genres" (FEAT-20). */
+  hiddenFromAll: boolean;
 }
 
 export interface ChannelItem {

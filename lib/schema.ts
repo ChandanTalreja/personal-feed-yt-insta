@@ -23,6 +23,12 @@ export const genres = pgTable("genres", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  // Hidden from "All genres" (FEAT-20): its videos show only when you pick
+  // the genre (or a channel of it), in search and in Watch later.
+  hiddenFromAll: boolean("hidden_from_all").notNull().default(false),
+  // While hidden: when you hid it or last opened it. Videos uploaded after
+  // this are its "N new" badge in the sidebar. Null while not hidden.
+  hiddenSeenAt: timestamp("hidden_seen_at", { withTimezone: true }),
 });
 
 export const channels = pgTable("channels", {

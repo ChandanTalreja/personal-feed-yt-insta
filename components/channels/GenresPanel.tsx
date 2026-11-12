@@ -14,6 +14,8 @@ interface Draft {
   name: string;
   color: string;
   askPrompt: string;
+  /** Hidden from "All genres" in the Feed (FEAT-20). */
+  hiddenFromAll: boolean;
 }
 
 /**
@@ -40,20 +42,20 @@ export default function GenresPanel({
 }) {
   // "new" = the add form; a number = editing that genre; null = neither.
   const [editing, setEditing] = useState<"new" | number | null>(null);
-  const [draft, setDraft] = useState<Draft>({ name: "", color: GENRE_PALETTE[0], askPrompt: "" });
+  const [draft, setDraft] = useState<Draft>({ name: "", color: GENRE_PALETTE[0], askPrompt: "", hiddenFromAll: false });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
 
   function startNew() {
     // Start a new genre on the first colour nobody uses yet.
     const free = GENRE_PALETTE.find((c) => !genres.some((g) => sameColor(g.color, c)));
-    setDraft({ name: "", color: free ?? GENRE_PALETTE[0], askPrompt: "" });
+    setDraft({ name: "", color: free ?? GENRE_PALETTE[0], askPrompt: "", hiddenFromAll: false });
     setConfirmDelete(false);
     setEditing(editing === "new" ? null : "new");
   }
 
   function startEdit(g: GenreItem) {
-    setDraft({ name: g.name, color: g.color, askPrompt: g.askPrompt ?? "" });
+    setDraft({ name: g.name, color: g.color, askPrompt: g.askPrompt ?? "", hiddenFromAll: g.hiddenFromAll });
     setConfirmDelete(false);
     setEditing(editing === g.id ? null : g.id);
   }
@@ -118,6 +120,20 @@ export default function GenresPanel({
         taken={genres.filter((x) => x.id !== g?.id)}
         previewName={draft.name}
       />
+      <label className="flex cursor-pointer items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={draft.hiddenFromAll}
+          onChange={(e) => setDraft({ ...draft, hiddenFromAll: e.target.checked })}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-ink"
+        />
+        <span>
+          Hide from All genres
+          <span className="block text-xs text-muted">
+            Its videos show when you pick {draft.name.trim() || "this genre"}, search, or save one to Watch later.
+          </span>
+        </span>
+      </label>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" size="sm" variant="primary" disabled={!draft.name.trim()} busy={busy} busyLabel="Saving…">
           {g ? "Save" : "Add genre"}
@@ -182,6 +198,11 @@ export default function GenresPanel({
               style={{ backgroundColor: swatch ?? "var(--color-line)" }}
             />
             <span className={`min-w-0 flex-1 truncate ${active ? "font-semibold" : ""}`}>{label}</span>
+            {genre?.hiddenFromAll && (
+              <span title="Hidden from All genres" className="shrink-0 text-muted">
+                <Icon name="eyeSlash" size={14} />
+              </span>
+            )}
             {genre?.askPrompt && (
               <span title={`Suggested question: ${genre.askPrompt}`} className="shrink-0 text-muted">
                 <Icon name="ask" size={14} />

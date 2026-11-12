@@ -13,7 +13,7 @@ import {
   sum,
 } from "drizzle-orm";
 import type { Db } from "./db";
-import { channels, videos } from "./schema";
+import { channels, genres, videos } from "./schema";
 import { feedVideoColumns } from "./videoColumns";
 import { nextTrackStep } from "./tracks";
 
@@ -85,6 +85,12 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   const later = watched === "later";
   if (later) viewC.push(isNotNull(videos.laterAt));
   const genreC = genreId != null ? [eq(channels.genreId, genreId)] : [];
+  // FEAT-20: "All genres" leaves out the genres you hid from it. Not when
+  // you picked a genre or a channel (that's asking for them), not in Watch
+  // later (you saved those yourself), and the Feed only.
+  const shownInAll = sql`(${channels.genreId} IS NULL OR ${channels.genreId} NOT IN (SELECT ${genres.id} FROM ${genres} WHERE ${genres.hiddenFromAll}))`;
+  const hideHidden = query.section === "feed" && genreId == null && channelIds.length === 0;
+  const hiddenC = hideHidden && !later ? [shownInAll] : [];
   const channelC =
     channelIds.length > 0 ? [inArray(videos.channelId, channelIds)] : [];
   const searchC = [];
@@ -124,7 +130,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   }
 
   const conditions = [
-    sectionC, ...kindC, ...viewC, ...genreC, ...channelC, ...searchC, ...lengthC,
+    sectionC, ...kindC, ...viewC, ...genreC, ...hiddenC, ...channelC, ...searchC, ...lengthC,
   ];
   const where = conditions.length ? and(...conditions) : undefined;
 
@@ -175,25 +181,47 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   // genre clears the channel choice). Only needed with the first page.
   const andAll = (parts: typeof conditions) =>
     parts.length ? and(...parts) : undefined;
+  // Hidden genres (FEAT-20): left out of every view's count but Watch
+  // later's, the same rule as the list.
+  const shown = hideHidden ? shownInAll : sql`true`;
   const facetQueries =
     page === 0
       ? ([
           db
             .select({
-              unwatched: sql<number>`count(*) FILTER (WHERE ${videos.watched} = false)::int`,
-              watched: sql<number>`count(*) FILTER (WHERE ${videos.watched} = true)::int`,
+              unwatched: sql<number>`count(*) FILTER (WHERE ${videos.watched} = false AND ${shown})::int`,
+              watched: sql<number>`count(*) FILTER (WHERE ${videos.watched} = true AND ${shown})::int`,
               later: sql<number>`count(*) FILTER (WHERE ${videos.laterAt} IS NOT NULL)::int`,
-              all: sql<number>`count(*)::int`,
+              all: sql<number>`count(*) FILTER (WHERE ${shown})::int`,
             })
             .from(videos)
             .innerJoin(channels, eq(videos.channelId, channels.id))
             .where(andAll([sectionC, ...kindC, ...genreC, ...channelC, ...searchC, ...lengthC])),
           db
-            .select({ genreId: channels.genreId, n: count() })
+            .select({ genreId: channels.genreId, hidden: genres.hiddenFromAll, n: count() })
             .from(videos)
             .innerJoin(channels, eq(videos.channelId, channels.id))
+            .leftJoin(genres, eq(channels.genreId, genres.id))
             .where(andAll([sectionC, ...kindC, ...viewC, ...searchC, ...lengthC]))
-            .groupBy(channels.genreId),
+            .groupBy(channels.genreId, genres.id),
+          // Each hidden genre's "N new": unwatched uploads (of this tab's
+          // kind) since you hid it or last opened it. Not narrowed by the
+          // view, search or length, so it only means "something came in".
+          db
+            .select({ genreId: genres.id, n: count() })
+            .from(videos)
+            .innerJoin(channels, eq(videos.channelId, channels.id))
+            .innerJoin(genres, eq(channels.genreId, genres.id))
+            .where(
+              and(
+                sectionC,
+                ...kindC,
+                eq(genres.hiddenFromAll, true),
+                eq(videos.watched, false),
+                gt(videos.publishedAt, genres.hiddenSeenAt)
+              )
+            )
+            .groupBy(genres.id),
         ] as const)
       : null;
 
@@ -246,7 +274,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
 
   let facets = null;
   if (facetRows) {
-    const [[views], genreRows] = facetRows;
+    const [[views], genreRows, hiddenNewRows] = facetRows;
     facets = {
       views: {
         unwatched: Number(views?.unwatched ?? 0),
@@ -258,6 +286,11 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
       genres: Object.fromEntries(
         genreRows.map((g) => [g.genreId ?? "none", Number(g.n)])
       ),
+      // What clicking "All genres" would show: hidden genres left out,
+      // except in Watch later.
+      allGenres: genreRows.reduce((sum, g) => (g.hidden && !later ? sum : sum + Number(g.n)), 0),
+      // { "7": 3 }: hidden genres with something new.
+      hiddenNew: Object.fromEntries(hiddenNewRows.map((g) => [g.genreId, Number(g.n)])),
     };
   }
 

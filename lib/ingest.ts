@@ -278,7 +278,7 @@ export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
   };
 }
 
-// ---------- One sync at a time (FIX-12) ----------
+// ---------- One sync at a time (FIX-12, FIX-13) ----------
 //
 // Netlify's scheduler waits only 15 s for the 6-hourly sync, gives up, and
 // starts it again; the second run re-checked all channels and found nothing
@@ -286,25 +286,41 @@ export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
 // scheduled sync, did the same. Now a sync first leaves a "sync running"
 // note in app_meta; one that finds a fresh note waits for that sync to end
 // instead of running again.
+//
+// FIX-13: the retry usually arrives just *after* the first sync ended (it
+// takes 3 to 4 s to start), so it found no note and ran in full anyway.
+// A scheduled sync now also stops when the last sync finished moments ago.
+// Only the scheduled one: Sync now always runs.
 
 /** app_meta key of the "sync running" note. */
 const SYNC_RUNNING_KEY = "sync_running";
 
-/** A note this old was left by a sync that died: a sync can't run past
- *  60 s (the cron route's maxDuration), so 2 minutes is safely over. */
+/** A note this old was left by a sync that died: Netlify cuts every request
+ *  off at about 30 s (whatever the route's maxDuration says), so 2 minutes
+ *  is safely over. */
 const SYNC_NOTE_STALE = sql`now() - interval '2 minutes'`;
 
-/** How long a sync that found another running waits for it (inside 60 s). */
-const WAIT_FOR_OTHER_MS = 45_000;
+/** How long a sync that found another running waits for it. Under Netlify's
+ *  30 s cut-off with room for the start-up, so the wait ends with an answer
+ *  ("Your feed is up to date.") instead of being cut off as an error. */
+const WAIT_FOR_OTHER_MS = 20_000;
+
+/** A scheduled sync this soon after the last one finished is Netlify's
+ *  retry (or another run with nothing new to find): it doesn't run. */
+const JUST_SYNCED = sql`now() - interval '2 minutes'`;
 
 export type SyncOutcome = RefreshResult | { skipped: true };
 
 /**
  * Runs the full sync, unless one is already running: then waits for it to
  * finish (so a Sync now press still ends once the new videos are saved)
- * and returns `{ skipped: true }`.
+ * and returns `{ skipped: true }`. With `scheduled` (the 6-hourly job), it
+ * also returns `{ skipped: true }` when a sync finished in the last 2 minutes.
  */
-export async function syncAllChannels(db: Db): Promise<SyncOutcome> {
+export async function syncAllChannels(
+  db: Db,
+  { scheduled = false }: { scheduled?: boolean } = {}
+): Promise<SyncOutcome> {
   const token = crypto.randomUUID();
   // Check and claim in one statement: write the note if there is none, or
   // take over a stale one. Nothing returned = a fresh note is there, so
@@ -324,6 +340,9 @@ export async function syncAllChannels(db: Db): Promise<SyncOutcome> {
     return { skipped: true };
   }
   try {
+    // Checked while holding the note, so a sync that just ended has already
+    // saved its finish time: no gap for the retry to slip through.
+    if (scheduled && (await syncedJustNow(db))) return { skipped: true };
     return await refreshAllChannels(db);
   } finally {
     // Remove our note (not one a later sync took over). If this fails, the
@@ -333,6 +352,15 @@ export async function syncAllChannels(db: Db): Promise<SyncOutcome> {
       .where(and(eq(appMeta.key, SYNC_RUNNING_KEY), eq(appMeta.value, token)))
       .catch(() => {});
   }
+}
+
+/** Did a sync finish in the last 2 minutes? */
+async function syncedJustNow(db: Db): Promise<boolean> {
+  const [last] = await db
+    .select({ key: appMeta.key })
+    .from(appMeta)
+    .where(and(eq(appMeta.key, LAST_SYNC_KEY), sql`${appMeta.updatedAt} >= ${JUST_SYNCED}`));
+  return Boolean(last);
 }
 
 async function waitForOtherSync(db: Db): Promise<void> {

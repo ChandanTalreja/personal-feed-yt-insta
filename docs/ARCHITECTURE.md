@@ -152,7 +152,11 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
 
 - **genres** — id, name (unique), color, `ask_prompt` (nullable — the single
   optional suggested question for this genre's Ask panel; set on Interview,
-  null elsewhere), created_at.
+  null elsewhere), created_at, `hidden_from_all` (FEAT-20: left out of the
+  Feed's "All genres" list and counts, except Watch later; picking the genre
+  or one of its channels, and search, still show it), `hidden_seen_at`
+  (while hidden: when it was hidden or last opened; unwatched uploads after
+  it are the sidebar's "N new" badge; null while shown).
 - **channels** — id, yt_channel_id (unique), handle, title, thumbnail,
   uploads_playlist_id, genre_id (FK, SET NULL), is_active, added_at.
   `is_active=false` pauses fetching without losing history.
@@ -249,6 +253,20 @@ statement) and deletes it when done. A sync that finds a fresh row waits
 for that sync to finish and returns `{ skipped: true }`. Needed because
 Netlify's scheduler waits only 15 s for `feed-cron`, gives up (499) and
 retries, which made every scheduled sync run twice.
+The retry usually starts just after the first sync ended, so the
+scheduled run (the one with the `x-cron-secret` header) also returns
+`{ skipped: true }` when `last_sync_at` is under 2 minutes old, checked
+while holding the note (FIX-13). The button always runs a full sync. A
+waiting sync gives up after 20 s: Netlify cuts every request off at
+~30 s, whatever `maxDuration` says.
+
+Database time limit (FIX-13): the Neon driver makes each query an HTTP
+`fetch`, which never times out on its own. `lib/db.ts` gives the driver a
+`fetch` with `AbortSignal.timeout(10_000)`; a call past 10 s throws
+`DB_TIMEOUT_MESSAGE` ("The database didn't answer in time. Please try
+again."), found through Drizzle's wrapping with `isDbTimeout`. Normal calls
+take well under a second; a Neon wake-up adds 1 to 2 s. PGlite (local) is
+untouched.
 
 Quota math: ~2 units/channel/run × 11 channels × 4 runs/day ≈ 90 of 10,000
 daily units. Mass-adding channels with backfill: ~5 units each (plus 100 if
@@ -703,6 +721,11 @@ because each Netlify request may be a fresh instance. Rules:
   owner chose this (option B) so that brief blips cost no Firecrawl
   credits; the user just asks again.
 - Gemini errors happen after this step, so they can never trip it.
+- A **turned-down key** (Apify 401/403, e.g. after Apify replaced every
+  token in its November 2026 incident) is not an outage: it skips the
+  breaker and that request goes straight to Firecrawl; without Firecrawl
+  the message says to put a new `APIFY_TOKEN` on Netlify (FIX-14). The token
+  is sent as `Authorization: Bearer`, never in the URL.
 
 Firecrawl's `/v2/scrape` (`formats: ["markdown"]`) returns the whole watch
 page as Markdown; the captions are the section under `## Transcript`, and

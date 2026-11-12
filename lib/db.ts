@@ -1,10 +1,44 @@
 import { createHash } from "node:crypto";
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle as drizzleNeon, NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { eq, sql } from "drizzle-orm";
 import * as schema from "./schema";
 
 export type Db = NeonHttpDatabase<typeof schema>;
+
+// ---------- A time limit on every database call (FIX-13) ----------
+//
+// Each query is one HTTP request to Neon, and fetch waits forever by default.
+// On 2026-11-08 some calls hung until Netlify cut the request off at 30 s:
+// the page sat on its loading screen with no message. Now a call that gets
+// no answer in 10 s gives up with a plain error, so the screen can say
+// "try again" while there's still time. A normal call takes well under a
+// second; waking a paused Neon database adds 1 to 2 s.
+
+/** How long one database call may take. */
+const DB_CALL_TIMEOUT_MS = 10_000;
+
+/** The error a call that ran out of time ends with. */
+export const DB_TIMEOUT_MESSAGE = "The database didn't answer in time. Please try again.";
+
+/** Did this error come from a call that ran out of time? The driver and
+ *  Drizzle each wrap it in their own error ("Failed query: …"), so look
+ *  through the causes. */
+export function isDbTimeout(err: unknown): boolean {
+  for (let e = err, depth = 0; e instanceof Error && depth < 5; e = e.cause, depth++) {
+    if (e.message.includes(DB_TIMEOUT_MESSAGE)) return true;
+  }
+  return false;
+}
+
+neonConfig.fetchFunction = async (url: string, init?: RequestInit) => {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(DB_CALL_TIMEOUT_MS) });
+  } catch (err) {
+    if ((err as Error).name === "TimeoutError") throw new Error(DB_TIMEOUT_MESSAGE);
+    throw err;
+  }
+};
 
 // One CREATE TABLE IF NOT EXISTS pass per process. Keeps setup at zero steps:
 // Neon in production, embedded PGlite (a real Postgres in a local folder)
@@ -133,6 +167,9 @@ const DDL = [
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
   )`,
+  // Hide a genre from "All genres" (FEAT-20), and when it was last seen.
+  `ALTER TABLE genres ADD COLUMN IF NOT EXISTS hidden_from_all boolean NOT NULL DEFAULT false`,
+  `ALTER TABLE genres ADD COLUMN IF NOT EXISTS hidden_seen_at timestamptz`,
 ];
 
 // Short random tag for this server process. On Netlify the app runs on AWS
@@ -202,7 +239,9 @@ async function schemaIsCurrent(db: Db): Promise<boolean> {
       .from(schema.appMeta)
       .where(eq(schema.appMeta.key, SCHEMA_VERSION_KEY));
     return rows[0]?.value === SCHEMA_VERSION;
-  } catch {
+  } catch (err) {
+    // No answer in time: running the full setup would only wait again.
+    if (isDbTimeout(err)) throw err;
     // Brand-new database (no app_meta table yet). If the database is
     // unreachable instead, the full setup below throws the real error.
     return false;

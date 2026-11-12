@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import TopBar from "@/components/TopBar";
 import FeedEmptyState from "./FeedEmptyState";
@@ -96,6 +96,9 @@ export default function FeedClient({
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // A styled version of the toast showing this exact text, with an
+  // optional Undo (hiding a genre, FEAT-20). Plain toasts stay plain.
+  const [toastRich, setToastRich] = useState<{ text: string; content: ReactNode; undo?: () => void } | null>(null);
   const [playing, setPlaying] = useState<FeedVideo | null>(null);
   // "Play unseen in a row" (Shorts): the shorts lined up, and which is on.
   const [queue, setQueue] = useState<{ items: FeedVideo[]; index: number } | null>(null);
@@ -369,6 +372,48 @@ export default function FeedClient({
     setChannelIds([]);
     setNotesOpen(false);
     setFiltersOpen(false);
+    // Opening a hidden genre is seeing what's new in it: its badge starts
+    // again from zero (FEAT-20).
+    if (genres.find((g) => g.id === id)?.hiddenFromAll) {
+      api(`/api/genres/${id}/seen`, { method: "POST" }).catch(() => {});
+    }
+  }
+
+  // Hide a genre from All genres, or show it again (FEAT-20): the sidebar
+  // changes at once, then it saves and the list reloads without (or with)
+  // its videos. Hiding offers an Undo.
+  async function setGenreHidden(genre: GenreItem, hidden: boolean) {
+    const apply = (value: boolean) =>
+      setGenres((list) => list.map((g) => (g.id === genre.id ? { ...g, hiddenFromAll: value } : g)));
+    apply(hidden);
+    try {
+      await api(`/api/genres/${genre.id}`, {
+        method: "PATCH",
+        body: { hiddenFromAll: hidden },
+        fallback: hidden ? "Couldn't hide the genre" : "Couldn't show the genre",
+      });
+      await loadPage(0, true);
+      const text = hidden
+        ? `${genre.name} is hidden from All genres.`
+        : `${genre.name} is back in All genres.`;
+      // Styled like the track notices (FIX-07): the genre in bold, "All
+      // genres" with the thick yellow underline (the app's "on" colour).
+      const allGenres = (
+        <span className="font-semibold underline decoration-primary decoration-4 underline-offset-2 [text-decoration-skip-ink:none]">
+          All genres
+        </span>
+      );
+      const name = <strong className="font-semibold">{genre.name}</strong>;
+      setToast(text);
+      setToastRich({
+        text,
+        content: hidden ? <>{name} is hidden from {allGenres}.</> : <>{name} is back in {allGenres}.</>,
+        undo: hidden ? () => setGenreHidden(genre, false) : undefined,
+      });
+    } catch (err) {
+      apply(!hidden);
+      setToast((err as Error).message);
+    }
   }
 
   function toggleChannel(id: number) {
@@ -444,6 +489,7 @@ export default function FeedClient({
       genres={genres}
       genreId={genreId}
       onGenre={pickGenre}
+      onToggleHidden={podcasts ? undefined : (g) => setGenreHidden(g, !g.hiddenFromAll)}
       channels={visibleChannels.map((c) => ({
         id: c.id,
         title: c.title,
@@ -569,8 +615,28 @@ export default function FeedClient({
           )}
 
           {toast && (
-            <div role="status" className="mb-5 rounded-md border-[1.5px] border-ink bg-surface px-4 py-2 text-sm font-semibold">
-              {toast}
+            <div role="status" className="mb-5 flex items-center gap-3 rounded-md border-[1.5px] border-ink bg-surface px-4 py-2 text-sm font-semibold">
+              {toastRich?.text === toast ? (
+                <>
+                  <span className="min-w-0 flex-1 font-normal">{toastRich.content}</span>
+                  {toastRich.undo && (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      className="shrink-0"
+                      onClick={() => {
+                        setToast(null);
+                        toastRich.undo?.();
+                      }}
+                    >
+                      <Icon name="undo" size={13} duotone={false} />
+                      Undo
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <span className="min-w-0 flex-1">{toast}</span>
+              )}
             </div>
           )}
 

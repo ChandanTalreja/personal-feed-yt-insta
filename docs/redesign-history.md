@@ -5286,7 +5286,7 @@ request, and the summary showed when it came. Notebook: asked, switched to
 another video, the answer arrived, switched back: there. The server had no
 test answers or summary afterwards. Typecheck and lint pass.
 
-#### FIX-12 · The 6-hourly sync ran twice every time — ✅ built · 2026-11-07, not yet deployed
+#### FIX-12 · The 6-hourly sync ran twice every time — ✅ built · 2026-11-07, deployed 2026-11-09 (`e9cca1d`)
 
 **Where it came from.** Codex reviewed the sync; checking its points
 against the live Netlify logs turned up a problem it hadn't named.
@@ -5311,11 +5311,12 @@ scheduled sync runs, the press waits for that sync, then ends as usual
 `/api/cron`) claims the `sync_running` row in `app_meta` with one
 statement: insert it, or take it over only if it is more than 2 minutes
 old. If nothing comes back, another sync holds it: wait (checking every
-second, up to 45 s) until it's gone, and return `{ skipped: true }`.
+second, up to 45 s, 20 s since FIX-13) until it's gone, and return `{ skipped: true }`.
 Otherwise run the usual `refreshAllChannels`, then delete the note,
 matched by this sync's random token so it never deletes a later sync's.
-The 2 minutes: a sync can't run past 60 s (the route's `maxDuration`), so a
-note that old was left by a sync that died, and the next sync isn't blocked
+The 2 minutes: a sync can't run past Netlify's ~30 s cut-off (the
+2026-11-07 text said the route's 60 s `maxDuration`; Netlify stops it first),
+so a note that old was left by a sync that died, and the next sync isn't blocked
 by it. Claiming in one statement means two syncs arriving together can't
 both get it.
 
@@ -5353,6 +5354,261 @@ and one skips; a note from a running sync makes a new one wait 3 s until
 it's gone, then skip; a 3-minute-old note is taken over and the sync runs.
 Typecheck and lint pass. After the deploy: the logs should show one full
 sync per scheduled run.
+
+**Live, after the deploy (2026-11-09):** the note works (two syncs never
+overlapped), but each scheduled run still did two full syncs, back to back:
+Netlify's retry takes 3 to 4 s to start, and by then the first sync has
+finished and removed its note. Two corrections to the reasoning above:
+Netlify cuts every request off at about 30 s, not at the route's 60 s
+`maxDuration`, so the 45 s wait could be cut off. Both fixed in FIX-13.
+
+---
+
+#### FIX-13 · The retry still ran a second full sync, and a stuck database call hung for 30 s — ✅ built · 2026-11-09, not yet deployed
+
+**Where it came from.** Reading the live logs after FIX-12 went out, and
+the evening of 2026-11-08 when the site wouldn't load on the Windows laptop.
+
+**The problem.** Three things.
+1. *The retry ran anyway.* At 5:30 am the first sync finished at 5:31:18
+   (2 new videos); Netlify's retry claimed the free note 0.3 s later and
+   checked all 169 channels again. At 11:30 am the same, 1.7 s apart. The
+   note stops two syncs *at the same time*, not one right *after* another.
+2. *The wait was longer than Netlify allows.* A sync that finds another one
+   running waited up to 45 s, but Netlify cuts a request off at about 30 s,
+   so a Sync now press during a long sync could end in "Couldn't check for
+   new videos" instead of "Your feed is up to date."
+3. *No time limit on database calls.* Each query is an HTTP request to Neon,
+   and `fetch` waits forever. Between 2:45 and 3:00 am on 2026-11-09 (IST)
+   some calls hung until Netlify's 30 s cut-off: the page sat on its loading
+   screen with no message (the "Windows problem"; the laptop was fine).
+
+**The change.**
+1. The scheduled sync doesn't run when a sync finished in the last
+   2 minutes; it returns "skipped" at once. **Only the scheduled one:** the
+   Sync button always runs a full sync, exactly as before (the owner's
+   choice: the button should never surprise you).
+2. The wait is 20 s, so it ends with an answer before the cut-off.
+3. Every database call gives up after 10 s with "The database didn't answer
+   in time. Please try again." The first screen then falls back to fetching
+   its data (as it already did for any failure), and a sync shows the
+   message in its toast.
+
+**How it works.**
+- `/api/cron` knows who called: the scheduled function sends the
+  `x-cron-secret` header, the button comes with the login cookie. It passes
+  `{ scheduled }` to `syncAllChannels`.
+- The "just synced" check runs *after* claiming the note, inside the
+  `try`. A sync saves its finish time (`last_sync_at`) before it removes its
+  note, so whoever gets the note next always sees the latest finish time;
+  checking before claiming would leave a gap of one database round trip.
+- The time limit is one wrapper around `fetch` given to the Neon driver
+  (`neonConfig.fetchFunction`), adding `AbortSignal.timeout(10_000)` to each
+  call. 10 s: a normal call takes well under a second, and waking a paused
+  Neon database adds 1 to 2 s (1.1 s and 1.8 s on 2026-11-09). The driver and
+  Drizzle wrap the error twice ("Failed query: …"), so `isDbTimeout` looks
+  through the causes. Locally (PGlite) nothing changes.
+- When the start-up check times out, the full setup isn't tried (it would
+  wait another 10 s for nothing).
+- The feed's list fetch now reads a reply that isn't JSON (a crashed or
+  cut-off request) as empty, so it shows "Couldn't load the feed" instead of
+  a parse error. `api()` already did this.
+
+**Key code.**
+```ts
+// lib/ingest.ts, syncAllChannels, while holding the note
+if (scheduled && (await syncedJustNow(db))) return { skipped: true };
+
+// lib/db.ts
+neonConfig.fetchFunction = async (url: string, init?: RequestInit) => {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(DB_CALL_TIMEOUT_MS) });
+  } catch (err) {
+    if ((err as Error).name === "TimeoutError") throw new Error(DB_TIMEOUT_MESSAGE);
+    throw err;
+  }
+};
+```
+
+**Alternatives considered.** *Skip any sync within 2 minutes, the button
+too:* simpler, but pressing Sync right after an automatic sync would say
+"up to date" without checking; the owner preferred the button unchanged.
+*Keep the note for 2 minutes after a sync ends* instead of reading
+`last_sync_at`: same effect, but it would also block the button.
+*A longer database limit (20 s):* too close to the 30 s cut-off to still
+show a message. *Netlify background function for the sync:* still the bigger
+change it was in FIX-12.
+
+**Files.** `lib/ingest.ts`, `lib/db.ts`, `app/api/cron/route.ts`,
+`components/feed/useFeedData.ts`.
+
+**Verified** (a throwaway local database, no channels, so no YouTube
+calls): a scheduled sync with no earlier sync runs; a second scheduled one
+right after skips; the button right after runs; a scheduled one 3 minutes
+after the last sync runs; no note is left behind; the button while another
+sync holds the note waits 20.1 s, then skips. Against a fake database that
+takes the request and never answers: the app gives up after 10.0 s with
+our message, and doesn't try the setup after it. Typecheck, lint and
+`npm run build` pass. After the deploy: one full sync per scheduled run;
+the retry's line should read `{"skipped":true}`.
+
+---
+
+#### FEAT-20 · Hide a genre from All genres, with a "new" badge — ✅ built · 2026-11-09, not yet deployed
+
+**Where it came from.** The owner's idea: a Visa genre is something you
+look up when you need it, not something to browse, yet its videos filled
+"All genres". They worried a setting would feel permanent, and added the
+badge so a hidden genre is never forgotten.
+
+**The change.**
+- Hover a genre in the Feed's sidebar: an eye button appears over its count.
+  One click hides it from "All genres"; the row fades and gets a small
+  crossed-out eye; a toast says "Visa is hidden from All genres." with Undo.
+  Hover again: "Show in All genres", one click back.
+- The same switch is in the genre's edit box on the Channels page ("Hide
+  from All genres"), and that page's genre list shows the crossed-out eye.
+- Hidden means hidden from "All genres" only: its videos still show when
+  you pick the genre or one of its channels, in search, and in Watch later
+  (you saved those yourself). The Inbox, Watched and Everything counts, the
+  "All genres" count and the greeting's "N new since yesterday" leave it out.
+- While hidden, new uploads turn its count into "3 New!" in the red pen
+  (Caveat 700, 19px, the greeting's red, not rotated; the owner's idea, so
+  it stands out from the yellow everywhere else; first built as a yellow
+  badge). Shown on the real sidebar against bigger Caveat, "NEW!" in
+  capitals, and two upright hands (Kalam, Architects Daughter); the owner
+  chose Caveat with a capital N ("new" in lowercase looked small), which
+  also needs no extra font on the Feed.
+  "New" means unwatched uploads (of the tab's kind, videos or shorts) since
+  you hid it or last opened it, whichever is later; opening it starts the
+  count again from zero. Not while you're in it: then it shows its count.
+
+**How it works.**
+- Two columns on `genres`: `hidden_from_all` and `hidden_seen_at`.
+  Hiding sets the date to now; showing clears it. Saving the edit box with
+  the switch still on keeps the date (a SQL `CASE`), so editing a hidden
+  genre's name doesn't wipe its badge.
+- `lib/feedVideos.ts`: with no genre and no channel picked, on the Feed and
+  not in Watch later, one more condition leaves out channels whose genre is
+  hidden (a subquery, no extra round trip). The view counts apply the same
+  rule inside their `FILTER`s, Watch later's count excepted. The genre
+  counts now join `genres`, so the "All genres" total (`facets.allGenres`)
+  is computed on the server. One more query, in parallel with the others,
+  counts each hidden genre's new uploads (`facets.hiddenNew`).
+- Opening a hidden genre calls `POST /api/genres/:id/seen` (does nothing
+  for a genre that isn't hidden); it forgets only the remembered feed lists,
+  which carry the badge.
+- `SidebarItem` gained a faded look, a small marker after the label, a
+  red-pen count (`.pen-new`) and a hover action (the eye, over the count's place,
+  also shown on keyboard focus). New Phosphor icons: `eye`, `eyeSlash`.
+- The toast can carry a styled version and an Undo, tied to its exact
+  text. Styled like the track notices (FIX-07), after the owner asked: the
+  genre's name in bold, "All genres" with the thick yellow underline, and
+  Undo as the small yellow button (with the undo icon). Other toasts stay
+  plain.
+
+**Key code.**
+```ts
+// lib/feedVideos.ts
+const shownInAll = sql`(${channels.genreId} IS NULL OR ${channels.genreId} NOT IN (SELECT ${genres.id} FROM ${genres} WHERE ${genres.hiddenFromAll}))`;
+const hideHidden = query.section === "feed" && genreId == null && channelIds.length === 0;
+const hiddenC = hideHidden && !later ? [shownInAll] : [];
+```
+
+**Alternatives considered.** *A filter you pick each visit* ("All genres
+except…"): you'd set it again every time; the owner wants Visa gone until
+they say otherwise. *Only in the Channels page's edit box:* felt permanent
+(a trip to Channels to change it), so the sidebar eye is the main switch.
+*"New" = the last 24 hours:* the badge would vanish unseen and come back
+after you'd looked; the owner chose "since you hid it or last opened it".
+*The word "hidden" as a tag:* squeezed the genre's name to "H…" next to
+the badge in a narrow window; a small crossed-out eye says the same.
+
+**Files.** `lib/schema.ts`, `lib/db.ts`, `lib/feedVideos.ts`,
+`lib/api-client.ts`, `app/api/genres/route.ts`, `app/api/genres/[id]/route.ts`,
+new `app/api/genres/[id]/seen/route.ts`, `components/types.ts`,
+`components/ui/SidebarList.tsx`, `components/ui/iconPaths.ts`,
+`components/feed/FeedSidebar.tsx`, `components/feed/FeedClient.tsx`,
+`components/channels/GenresPanel.tsx`.
+
+**Verified** (local app, Horror standing in for Visa, put back after):
+hiding from the sidebar took the Inbox from 1,055 to 948 and All genres to
+948, faded the row and showed the Undo toast. With the hidden date moved
+back (local data is weeks old), the row showed "9 new", the same as a
+direct count in the database; opening Horror showed its normal count (107),
+and back in All genres the badge was gone. The edit box showed the switch
+ticked; unticking it and saving brought everything back (1,055). Typecheck,
+lint and `npm run build` pass. Later, in the owner's running app: Finance
+hidden, the styled toast checked on screen, Undo pressed, Finance back; no
+new console errors (only the known first-open PGlite line from REF-17).
+Not tried: Watch later with a hidden genre's saved video (none saved
+locally).
+
+---
+
+#### FIX-14 · A replaced Apify key looked like an outage, and the key travelled in the web address — ✅ built · 2026-11-13, not yet deployed
+
+**Where it came from.** Apify had a security incident on 9 and 10 November
+2026 and replaced every API token on the 11th (their emails to the owner,
+11 and 12 November). Right after, the owner tried a transcript on the live
+site and it failed.
+
+**The problem.** Two things.
+1. *A turned-down key read as "the service is down".* Apify answers a dead
+   token with 401. `runTranscriptActor` treated any error status as an
+   outage, so the owner saw "The transcript service isn't responding right
+   now… Try again in a few minutes", which would never come true. Each try
+   also counted toward the breaker, so only the 4th request onwards reached
+   Firecrawl, and only for 30 minutes at a time.
+2. *The token was in the URL* (`?token=…`). Web addresses end up in logs
+   and error reports; the same reason the sync secret moved to a header in
+   FIX-04.
+
+**The change.**
+1. A 401 or 403 from Apify is its own case, "key turned down". With
+   Firecrawl set up (as on Netlify), that request goes to Firecrawl straight
+   away, without touching the breaker. Without Firecrawl, the message says
+   what to fix: "The transcript service turned down its key, so captions
+   can't be fetched. Put the new APIFY_TOKEN on Netlify and deploy again."
+   It also stops before the second (any-language) try, so no 15 s wait.
+2. The token is sent as `Authorization: Bearer …`, which Apify accepts.
+
+**How it works.** `runTranscriptActor` returns a `KEY_REJECTED` marker for
+401/403 (next to the existing `SERVICE_DOWN`); `fetchViaApify` turns it
+into a `TranscriptKeyRejected` error; `fetchCaptions` catches that before
+the breaker logic and calls `fetchViaFirecrawl`. The breaker still counts
+only real outages (timeouts, 5xx), where waiting does help.
+
+**Key code.**
+```ts
+// lib/transcript.ts, runTranscriptActor
+if (res.status === 401 || res.status === 403) return KEY_REJECTED;
+
+// fetchCaptions, the Apify try with Firecrawl set up
+if (err instanceof TranscriptKeyRejected) return fetchViaFirecrawl(ytVideoId);
+```
+
+**Alternatives considered.** *Count a rejected key toward the breaker like
+before:* the first three requests would still fail with the wrong message.
+*Open the breaker for 30 minutes on a rejected key:* it would keep calling
+Apify every 30 minutes with a key that can't work; going to Firecrawl per
+request is simpler and costs the same.
+
+**The owner's side.** A new token made for this app ("TUBEBOX on
+Netlify") rather than the default one, so it can be deleted without
+breaking anything else; put in Netlify's `APIFY_TOKEN`, then a deploy (a
+changed variable reaches the functions only with a deploy). Also from
+Apify's emails: set up two-factor sign-in again, look over GitHub's
+security log, beware convincing billing emails.
+
+**Files.** `lib/transcript.ts`.
+
+**Verified.** A fake key against Apify's real API returns 401. The
+transcript chain run as on Netlify (`SITE_ID` set, a fake `APIFY_TOKEN`, no
+Firecrawl) gives the new message at once, without the 15 s wait.
+Typecheck, lint and `npm run build` pass. Not tried: the Firecrawl path
+(it would spend a Firecrawl credit); after the deploy, one transcript on
+the live site with the new token.
 
 ---
 
