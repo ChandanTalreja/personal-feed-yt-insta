@@ -74,7 +74,10 @@ export function useFeedData(
     onError,
     onPatched,
     firstReply,
+    hiddenGenreIds = [],
   }: {
+    /** Genres hidden from All genres (FEAT-20): ticking their videos leaves All genres' total alone. */
+    hiddenGenreIds?: number[];
     onError: (message: string) => void;
     onPatched: (id: number, patch: Partial<FeedVideo>) => void;
     /** The opening view's page, sent inside the page and fresh (audit B1):
@@ -199,8 +202,16 @@ export function useFeedData(
       if (!f) return f;
       const views = { ...f.views };
       const genresCount = { ...f.genres };
+      let allGenres = f.allGenres;
       const key = String(video.genreId ?? "none");
-      const bumpGenre = (n: number) => (genresCount[key] = Math.max(0, (genresCount[key] ?? 0) + n));
+      // All genres' total moves with the genre's count, unless the genre is
+      // hidden from it (Watch later counts hidden genres too).
+      const inAllGenres =
+        view === "later" || video.genreId == null || !hiddenGenreIds.includes(video.genreId);
+      const bumpGenre = (n: number) => {
+        genresCount[key] = Math.max(0, (genresCount[key] ?? 0) + n);
+        if (allGenres != null && inAllGenres) allGenres = Math.max(0, allGenres + n);
+      };
       if (field === "watched") {
         views.unwatched = Math.max(0, views.unwatched - d);
         views.watched += d;
@@ -210,7 +221,9 @@ export function useFeedData(
         views.later = Math.max(0, views.later + d);
         if (view === "later") bumpGenre(d);
       }
-      return { views, genres: genresCount };
+      // Keep hidden genres' "N New!" (FEAT-20); it doesn't follow the view.
+      // Rebuilding without it lost the badges until a reload (FIX-17).
+      return { ...f, views, genres: genresCount, allGenres };
     });
   }
 
@@ -221,8 +234,20 @@ export function useFeedData(
     if (view === "later") adjustTotals(video, delta);
   }
 
+  // The grid as last drawn, so patchVideo can see a card's state before a change.
+  const videosRef = useRef(videos);
+  useEffect(() => {
+    videosRef.current = videos;
+  }, [videos]);
+
   /** Apply a change to a video everywhere it's shown (grid and panel). */
   const patchVideo = useCallback((id: number, patch: Partial<FeedVideo>) => {
+    // Its first summary or transcript puts it On paper (FEAT-21): count it
+    // there now, like ✓ seen and the bookmark do for their views.
+    const before = videosRef.current.find((v) => v.id === id);
+    if (before && !before.summary && !before.hasTranscript && (patch.summary || patch.hasTranscript)) {
+      setFacets((f) => (f ? { ...f, views: { ...f.views, paper: f.views.paper + 1 } } : f));
+    }
     setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
     patchRememberedFeed(id, patch);
     onPatchedRef.current(id, patch);

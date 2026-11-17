@@ -31,7 +31,7 @@ export interface FeedQuery {
   /** Feed and Podcasts are separate pages over the same videos (FEAT-14). */
   section: "feed" | "podcasts";
   kind: string; // videos | shorts | all
-  watched: string; // unwatched | watched | all | later
+  watched: string; // unwatched | watched | all | later | paper
   genreId: number | null;
   channelIds: number[];
   page: number;
@@ -84,13 +84,22 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   // LATER behaves like the other tabs: it follows genre/channel/kind/search.
   const later = watched === "later";
   if (later) viewC.push(isNotNull(videos.laterAt));
+  // ON PAPER (FEAT-21): videos you can read, with a saved summary or
+  // transcript, so they're easy to find again once they've sunk down the
+  // feed. Newest uploaded first, like the other views.
+  const paper = watched === "paper";
+  const hasText = sql`(${videos.summary} IS NOT NULL OR ${videos.transcript} IS NOT NULL)`;
+  if (paper) viewC.push(hasText);
+  // Watch later and On paper hold videos you chose yourself, by saving or
+  // by asking for a summary, so hidden genres (FEAT-20) stay in both.
+  const yours = later || paper;
   const genreC = genreId != null ? [eq(channels.genreId, genreId)] : [];
   // FEAT-20: "All genres" leaves out the genres you hid from it. Not when
   // you picked a genre or a channel (that's asking for them), not in Watch
-  // later (you saved those yourself), and the Feed only.
+  // later or On paper (you chose those yourself), and the Feed only.
   const shownInAll = sql`(${channels.genreId} IS NULL OR ${channels.genreId} NOT IN (SELECT ${genres.id} FROM ${genres} WHERE ${genres.hiddenFromAll}))`;
   const hideHidden = query.section === "feed" && genreId == null && channelIds.length === 0;
-  const hiddenC = hideHidden && !later ? [shownInAll] : [];
+  const hiddenC = hideHidden && !yours ? [shownInAll] : [];
   const channelC =
     channelIds.length > 0 ? [inArray(videos.channelId, channelIds)] : [];
   const searchC = [];
@@ -182,7 +191,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   const andAll = (parts: typeof conditions) =>
     parts.length ? and(...parts) : undefined;
   // Hidden genres (FEAT-20): left out of every view's count but Watch
-  // later's, the same rule as the list.
+  // later's and On paper's, the same rule as the list.
   const shown = hideHidden ? shownInAll : sql`true`;
   const facetQueries =
     page === 0
@@ -192,6 +201,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
               unwatched: sql<number>`count(*) FILTER (WHERE ${videos.watched} = false AND ${shown})::int`,
               watched: sql<number>`count(*) FILTER (WHERE ${videos.watched} = true AND ${shown})::int`,
               later: sql<number>`count(*) FILTER (WHERE ${videos.laterAt} IS NOT NULL)::int`,
+              paper: sql<number>`count(*) FILTER (WHERE ${hasText})::int`,
               all: sql<number>`count(*) FILTER (WHERE ${shown})::int`,
             })
             .from(videos)
@@ -280,6 +290,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
         unwatched: Number(views?.unwatched ?? 0),
         later: Number(views?.later ?? 0),
         watched: Number(views?.watched ?? 0),
+        paper: Number(views?.paper ?? 0),
         all: Number(views?.all ?? 0),
       },
       // { "3": 120, "none": 4 } — "none" = channels without a genre.
@@ -287,8 +298,8 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
         genreRows.map((g) => [g.genreId ?? "none", Number(g.n)])
       ),
       // What clicking "All genres" would show: hidden genres left out,
-      // except in Watch later.
-      allGenres: genreRows.reduce((sum, g) => (g.hidden && !later ? sum : sum + Number(g.n)), 0),
+      // except in Watch later and On paper.
+      allGenres: genreRows.reduce((sum, g) => (g.hidden && !yours ? sum : sum + Number(g.n)), 0),
       // { "7": 3 }: hidden genres with something new.
       hiddenNew: Object.fromEntries(hiddenNewRows.map((g) => [g.genreId, Number(g.n)])),
     };

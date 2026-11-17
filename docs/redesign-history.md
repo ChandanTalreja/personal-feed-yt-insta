@@ -5631,7 +5631,7 @@ owner opened a transcript on the live site: Apify's Runs page showed
 
 ---
 
-#### FIX-15 · Summary and Transcript light up when they're saved — ✅ built · 2026-11-18, not yet deployed
+#### FIX-15 · Summary and Transcript light up when they're saved — ✅ built · 2026-11-18, deployed 2026-11-18 (`6b2b8e2`)
 
 **Where it came from.** The owner: Ask fills in yellow (a lit icon and the
 answer count) once you've asked something, but Summary and Transcript stay
@@ -5669,7 +5669,7 @@ PGlite line). Typecheck and lint pass.
 
 ---
 
-#### FIX-16 · Say why a channel couldn't be checked, in the logs — ✅ built · 2026-11-18, not yet deployed
+#### FIX-16 · Say why a channel couldn't be checked, in the logs — ✅ built · 2026-11-18, deployed 2026-11-18 (`6b2b8e2`)
 
 **Where it came from.** The owner saw the amber sync dot twice around
 11:38 pm, the weekend before. Nothing could explain it: Netlify keeps about
@@ -5692,6 +5692,142 @@ never reaches the log.
 **Verified.** Typecheck and lint pass. Not run against a failing channel
 (that would need breaking a real channel or spending YouTube quota); after
 the deploy, the next amber dot is the test.
+
+**Live (2026-11-18).** Deployed; the owner says it works as expected.
+
+---
+
+#### FEAT-21 · On paper: every video you can read — ✅ built · 2026-11-18, not yet deployed
+
+**Where it came from.** The owner: a summary or transcript made weeks ago
+sinks down the feed as new videos arrive, and the Notebook doesn't list it
+(the Notebook is Ask answers and your own notes). Where should they live?
+
+**Decided with the owner.**
+- *Not in the Notebook.* The Notebook holds what you made: questions and
+  notes. A summary is written by Gemini and a transcript is long raw text;
+  in the Notebook's reader they would bury your answers.
+- *Not a new page.* The problem is finding these videos, not reading them:
+  the study panel already reads them well. A page would rebuild the list,
+  search, genre and channel filters the feed already has.
+- *A fifth view in the feed's sidebar*, so every filter comes free.
+- *The name.* "Studied" was my first offer; the owner pointed out that
+  getting a summary isn't studying (often it's to decide whether to watch at
+  all). The name should say what's true about the video, not guess what you
+  did, like Watched and Watch later. "Summaries" was kept in reserve (it
+  leaves out transcripts); "Clippings" (warm, but hints you chose to keep
+  them), "Readable", "Saved" (too close to Watch later) and "Kept" (the
+  Notebook's word) were weighed. **On paper** won: true for a summary and a
+  transcript alike, and in the app's notebook-and-pen voice.
+- *Only summaries and transcripts.* A video you only asked about stays in
+  the Notebook, so the two places don't overlap.
+
+**The change.**
+- **On paper** sits between Watched and Everything in the Feed's and
+  Podcasts' sidebar: a lilac tile with the card's Transcript (page) icon,
+  and a count.
+- The page: title "On paper", blue pen note "videos you can read", newest
+  upload first. Genre, channel, kind (Videos/Shorts), length and search
+  narrow it like any view. Each card shows its lit Summary or Transcript
+  icon (FIX-15), and opening one reads the saved text: no Gemini call.
+- Empty: "Nothing on paper yet. Summarise a video or open its transcript,
+  and it lands here."
+- A video's first summary or transcript, made in the panel, adds 1 to the
+  sidebar count at once, like ✓ seen and the bookmark do for theirs.
+
+**How it works.**
+*One more value of the view filter.* The feed's list (`lib/feedVideos.ts`)
+already turns each view into a condition (`watched = false`, `later_at IS
+NOT NULL`). On paper is `summary IS NOT NULL OR transcript IS NOT NULL`,
+and its sidebar count is one more `count(*) FILTER (...)` in the query that
+counts the other views, so no extra round trip. Checking a text column for
+NULL doesn't read the text itself, so the long transcripts cost nothing.
+
+*Hidden genres stay in.* Like Watch later, these are videos you chose (by
+asking for a summary), so a genre hidden from All genres (FEAT-20) still
+shows here and in its count.
+
+*The live count.* The panel tells the feed when a summary or transcript
+arrives (FIX-15). The feed compares with the card as it was: only a video
+that had neither moves the count, because the panel also reports a
+transcript it merely read back.
+
+**Key code** — `lib/feedVideos.ts` and `components/feed/useFeedData.ts`
+```ts
+// lib/feedVideos.ts
+const paper = watched === "paper";
+const hasText = sql`(${videos.summary} IS NOT NULL OR ${videos.transcript} IS NOT NULL)`;
+if (paper) viewC.push(hasText);
+const yours = later || paper; // hidden genres stay in both
+
+// useFeedData.ts, patchVideo
+const before = videosRef.current.find((v) => v.id === id);
+if (before && !before.summary && !before.hasTranscript && (patch.summary || patch.hasTranscript)) {
+  setFacets((f) => (f ? { ...f, views: { ...f.views, paper: f.views.paper + 1 } } : f));
+}
+```
+
+**Alternatives considered.** *Summaries and transcripts in the Notebook*
+(a "Summaries" switch beside Answers and My notes): reuses the reader, but
+mixes Gemini's text with yours. *Its own page*: a second list to build and
+keep in step. *Sort by when the summary was made*: there's no timestamp for
+it, and a new column only for the order wasn't worth it; newest upload
+first matches the other views.
+
+**Files.** `lib/feedVideos.ts`, `components/feed/FeedSidebar.tsx`,
+`components/feed/model.ts`, `components/feed/FeedEmptyState.tsx`,
+`components/feed/useFeedData.ts`, `components/StyleguideClient.tsx`.
+
+**Verified.** Typecheck and lint pass. In the running app (local data):
+On paper shows 37 videos, the same in the sidebar count and under the
+title, cards with lit Transcript icons, the pen note in place. Not tried:
+the live +1 when a first summary is made (it would spend a Gemini call).
+
+---
+
+#### FIX-17 · Ticking a video no longer drops hidden genres' badges — ✅ built · 2026-11-18, not yet deployed
+
+**Where it came from.** Found while building FEAT-21, then explained to the
+owner, who said fix it.
+
+**The problem.** ✓ seen and the bookmark update the sidebar's counts on the
+spot instead of asking the server again. That step rebuilt the counts from
+two parts, the views and the genres, and FEAT-20 had added two more: each
+hidden genre's red "N New!" and the "All genres" total. So after one tick,
+until the next load or view change:
+- every hidden genre's "3 New!" vanished (its plain count showed instead);
+- "All genres" fell back to adding up every genre, hidden ones included
+  (in the test: 330 instead of 269).
+
+**The change.** The update keeps everything it doesn't change, and moves
+"All genres" by the same 1 as the genre's count, except for a genre hidden
+from it (in Watch later hidden genres count, so it always moves there). The
+feed passes the hook the list of hidden genres for that.
+
+**Key code** — `components/feed/useFeedData.ts`
+```ts
+const inAllGenres =
+  view === "later" || video.genreId == null || !hiddenGenreIds.includes(video.genreId);
+const bumpGenre = (n: number) => {
+  genresCount[key] = Math.max(0, (genresCount[key] ?? 0) + n);
+  if (allGenres != null && inAllGenres) allGenres = Math.max(0, allGenres + n);
+};
+return { ...f, views, genres: genresCount, allGenres };
+```
+
+**Alternatives considered.** *Fetch the counts again after each tick:* one
+more request per tick, and the numbers would lag behind the card. *Keep
+"All genres" as it was without moving it:* 1 too high after every tick.
+
+**Files.** `components/feed/useFeedData.ts`, `components/feed/FeedClient.tsx`.
+
+**Verified.** In the running app (local data, Inbox, 30m+): hid Horror
+(61), All genres 270; ticked an Interview video seen: All genres 269,
+Interview 121, Horror's count kept; the server's own counts for the same
+filters, fetched afterwards: 269 and 121, the same. Then put back (video
+unwatched, Horror shown: 331 again). Not tried: a real "N New!" badge
+surviving a tick (a freshly hidden genre has nothing new yet); the fix
+keeps that number untouched by the same line. Typecheck and lint pass.
 
 ---
 

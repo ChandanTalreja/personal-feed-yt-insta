@@ -8,7 +8,7 @@ import SearchField from "@/components/ui/SearchField";
 import { SidebarItem, SidebarSection, SidebarTile } from "@/components/ui/SidebarList";
 import type { GenreItem } from "@/components/types";
 
-export type View = "unwatched" | "later" | "watched" | "all";
+export type View = "unwatched" | "later" | "watched" | "paper" | "all";
 
 export interface Facets {
   views: Record<View, number>;
@@ -29,11 +29,14 @@ interface SidebarChannel {
   count: number;
 }
 
-/** The four views, each with its soft colour tile (REDESIGN §2 v2). */
+/** The five views, each with its soft colour tile (REDESIGN §2 v2). */
 const VIEWS: [View, string, IconName, string][] = [
   ["unwatched", "Inbox", "inbox", "bg-tile-yellow"],
   ["later", "Watch later", "later", "bg-tile-pink"],
   ["watched", "Watched", "watched", "bg-tile-green"],
+  // Videos with a saved summary or transcript (FEAT-21). The page icon is
+  // the card's Transcript icon.
+  ["paper", "On paper", "text", "bg-tile-lilac"],
   ["all", "Everything", "everything", "bg-tile-blue"],
 ];
 

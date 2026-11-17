@@ -138,6 +138,8 @@ export default function FeedClient({
     { section, kind, view, genreId, channelIds, search: debouncedSearch, lengthFilter },
     {
       firstReply: seed?.feed ?? null,
+      // Videos of these genres aren't in All genres' total (FEAT-20, FIX-17).
+      hiddenGenreIds: genres.filter((g) => g.hiddenFromAll).map((g) => g.id),
       onError: setToast,
       onPatched: (id, patch) => {
         // The study panel holds its own copy of the video: keep it in step.

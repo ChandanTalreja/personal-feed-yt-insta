@@ -20,6 +20,7 @@ export const VIEW_TITLES: Record<View, string> = {
   unwatched: "Inbox",
   later: "Watch later",
   watched: "Watched",
+  paper: "On paper",
   all: "Everything",
 };
 
@@ -28,6 +29,7 @@ export const VIEW_NOTES: Record<View, string | undefined> = {
   unwatched: "newest first, no algorithm",
   later: "saved for a slower day",
   watched: "seen it, kept it",
+  paper: "videos you can read",
   all: undefined,
 };
 

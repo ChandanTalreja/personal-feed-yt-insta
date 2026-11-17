@@ -153,7 +153,7 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
 - **genres** — id, name (unique), color, `ask_prompt` (nullable — the single
   optional suggested question for this genre's Ask panel; set on Interview,
   null elsewhere), created_at, `hidden_from_all` (FEAT-20: left out of the
-  Feed's "All genres" list and counts, except Watch later; picking the genre
+  Feed's "All genres" list and counts, except Watch later and On paper; picking the genre
   or one of its channels, and search, still show it), `hidden_seen_at`
   (while hidden: when it was hidden or last opened; unwatched uploads after
   it are the sidebar's "N new" badge; null while shown).
@@ -634,6 +634,12 @@ built: §3.1 above.
   `later_at` (server-side in `PATCH /api/videos/[id]`), so the list empties
   as you go. Caveat until "honest watched" ships: pressing play still marks
   a video watched immediately, so an accidental open drops it from LATER.
+- **On paper** (FEAT-21) — a fifth view (`watched=paper` on
+  `GET /api/videos`): videos with `summary IS NOT NULL OR transcript IS NOT
+  NULL`, newest upload first, following every other filter. Its sidebar
+  count is one more `FILTER` in the view-count query. Like Watch later it
+  keeps hidden genres (you chose these). No new column: the saved text is
+  the marker.
 
 **Built 2026-10-15:**
 - **Manage-page channel search + genre filter chips** — filters the channel

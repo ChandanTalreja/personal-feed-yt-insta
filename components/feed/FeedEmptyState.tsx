@@ -72,6 +72,10 @@ export default function FeedEmptyState({
     note = "nothing new. go outside?";
     body = "Nothing unseen in this view.";
     action = <Button onClick={onSeeEverything}>See everything</Button>;
+  } else if (view === "paper") {
+    title = "Nothing on paper yet";
+    body = "Summarise a video or open its transcript, and it lands here.";
+    action = null;
   } else if (view === "watched") {
     title = "Nothing watched yet";
     body = "Videos you tick, or watch past halfway, land here.";
