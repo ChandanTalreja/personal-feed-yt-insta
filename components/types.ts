@@ -9,6 +9,8 @@ export interface FeedVideo {
   publishedAt: string;
   watched: boolean;
   summary: string | null;
+  /** A transcript is saved (lights the card's Transcript icon). */
+  hasTranscript: boolean;
   /** When it was saved to Watch Later; null = not saved. */
   laterAt: string | null;
   /** Played 10-second chunks ("1" = played); see lib/progress.ts. */

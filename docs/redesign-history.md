@@ -5364,7 +5364,7 @@ Netlify cuts every request off at about 30 s, not at the route's 60 s
 
 ---
 
-#### FIX-13 · The retry still ran a second full sync, and a stuck database call hung for 30 s — ✅ built · 2026-11-09, not yet deployed
+#### FIX-13 · The retry still ran a second full sync, and a stuck database call hung for 30 s — ✅ built · 2026-11-09, deployed 2026-11-13 (`07a5c4d`)
 
 **Where it came from.** Reading the live logs after FIX-12 went out, and
 the evening of 2026-11-08 when the site wouldn't load on the Windows laptop.
@@ -5452,9 +5452,22 @@ our message, and doesn't try the setup after it. Typecheck, lint and
 `npm run build` pass. After the deploy: one full sync per scheduled run;
 the retry's line should read `{"skipped":true}`.
 
+**Live, after the deploy (2026-11-13, Netlify's request logs).** The
+response body isn't logged, so the durations tell it: a full sync takes 11
+to 25 s, a skip a few seconds.
+- 5:31 am IST: the first run took 25.3 s (Neon waking took 4.8 s, under the
+  10 s limit); Netlify's retry came 21 s in, waited for the note, and was
+  done in 5.5 s: skipped.
+- 11:31 am IST: the first run took 16.6 s; the retry started 0.3 s before
+  it ended and was done in 3.3 s: skipped.
+- 11:50 am IST: a lone run of 11.4 s, the owner's Sync button, a full sync
+  as intended.
+Every cold start logged the schema as current (`7c49129f47f2`), so the
+FEAT-20 columns were added by the first start after the deploy.
+
 ---
 
-#### FEAT-20 · Hide a genre from All genres, with a "new" badge — ✅ built · 2026-11-09, not yet deployed
+#### FEAT-20 · Hide a genre from All genres, with a "new" badge — ✅ built · 2026-11-09, deployed 2026-11-13 (`07a5c4d`)
 
 **Where it came from.** The owner's idea: a Visa genre is something you
 look up when you need it, not something to browse, yet its videos filled
@@ -5546,7 +5559,7 @@ locally).
 
 ---
 
-#### FIX-14 · A replaced Apify key looked like an outage, and the key travelled in the web address — ✅ built · 2026-11-13, not yet deployed
+#### FIX-14 · A replaced Apify key looked like an outage, and the key travelled in the web address — ✅ built · 2026-11-13, deployed 2026-11-13 (`07a5c4d`)
 
 **Where it came from.** Apify had a security incident on 9 and 10 November
 2026 and replaced every API token on the 11th (their emails to the owner,
@@ -5609,6 +5622,76 @@ Firecrawl) gives the new message at once, without the 15 s wait.
 Typecheck, lint and `npm run build` pass. Not tried: the Firecrawl path
 (it would spend a Firecrawl credit); after the deploy, one transcript on
 the live site with the new token.
+
+**Live, after the deploy (2026-11-13).** With a new token named TUBEBOX
+on Netlify (marked "Contains secret values"; the deploy went through), the
+owner opened a transcript on the live site: Apify's Runs page showed
+`starvibe/youtube-video-transcript` succeeded at 01:08:18, 1 result, 2 s.
+
+
+---
+
+#### FIX-15 · Summary and Transcript light up when they're saved — ✅ built · 2026-11-18, not yet deployed
+
+**Where it came from.** The owner: Ask fills in yellow (a lit icon and the
+answer count) once you've asked something, but Summary and Transcript stay
+plain after you've made one, so you can't tell which videos you've already
+summarised.
+
+**The change.** On every video card, the Summary and Transcript icons are
+lit (the same yellow fill as Ask, Note and Track) when that video has one
+saved. Opening a lit one costs nothing: it's read from the database.
+
+**How it works.** The summary text already came with each card, so
+`!!video.summary` is enough. The transcript doesn't (it can be 150,000
+characters), so the shared card columns gain one small field,
+`hasTranscript` (`transcript IS NOT NULL`), in `lib/videoColumns.ts`, which
+every list uses (feed, Notebook, tracks). After the Transcript tab loads,
+the study panel tells the card (`hasTranscript: true`), so it lights at once
+without a refresh; a new summary already did the same.
+
+**Also checked (the owner's question): asking again never calls Gemini.**
+`/summarize` returns the saved `videos.summary` straight away (`cached:
+true`); `/transcript` reads the saved `videos.transcript`; captions fetched
+once are saved before Gemini runs, and a transcript Gemini writes by watching
+is saved too. So a summary made on the 18th and opened on the 20th is a
+database read. Only Ask makes a new Gemini call each time, because each
+question is new (its answers are saved in the Notebook).
+
+**Files.** `lib/videoColumns.ts`, `components/types.ts`,
+`components/feed/VideoCard.tsx`, `components/feed/StudyPanel.tsx`.
+
+**Verified.** Local app: the Kafka "Top 50" card (a saved answer, summary
+and transcript) shows Ask 1 and lit Summary and Transcript icons; the cards
+beside it stay plain. No new console errors (only the known first-open
+PGlite line). Typecheck and lint pass.
+
+
+---
+
+#### FIX-16 · Say why a channel couldn't be checked, in the logs — ✅ built · 2026-11-18, not yet deployed
+
+**Where it came from.** The owner saw the amber sync dot twice around
+11:38 pm, the weekend before. Nothing could explain it: Netlify keeps about
+2 days of logs, and even inside that window a failed channel left no trace.
+`app_meta` keeps only the latest list of names (for the dot), never the
+reason.
+
+**The change.** Each channel a sync can't check writes one line to the
+function log: `sync: couldn't check "Channel name": <the reason>`. Nothing
+changes on screen. Next time the dot is amber, Netlify's logs (search
+"couldn't check") say whether YouTube refused (and with what status), timed
+out, or something else.
+
+**Safe to log.** YouTube errors carry the HTTP status and the first 300
+characters of Google's error reply, never the request URL, so the API key
+never reaches the log.
+
+**Files.** `lib/ingest.ts`.
+
+**Verified.** Typecheck and lint pass. Not run against a failing channel
+(that would need breaking a real channel or spending YouTube quota); after
+the deploy, the next amber dot is the test.
 
 ---
 

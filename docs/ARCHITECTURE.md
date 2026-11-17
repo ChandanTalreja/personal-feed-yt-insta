@@ -256,7 +256,7 @@ retries, which made every scheduled sync run twice.
 The retry usually starts just after the first sync ended, so the
 scheduled run (the one with the `x-cron-secret` header) also returns
 `{ skipped: true }` when `last_sync_at` is under 2 minutes old, checked
-while holding the note (FIX-13). The button always runs a full sync. A
+while holding the note (FIX-13). A channel a sync can't check is logged with its reason (`sync: couldn't check "…": …`, FIX-16); `last_sync_failed` keeps only the names, for the amber dot. The button always runs a full sync. A
 waiting sync gives up after 20 s: Netlify cuts every request off at
 ~30 s, whatever `maxDuration` says.
 

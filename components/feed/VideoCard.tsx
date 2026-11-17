@@ -206,12 +206,18 @@ export default function VideoCard({
             className="w-7 shrink-0 justify-center @min-[12rem]:w-8"
             align={i === all.length - 1 ? "right" : "center"}
           >
-            {/* A lit note icon means a note already exists; a lit track
-                icon, that the video is in at least one track. */}
+            {/* A lit icon means it's already there: a saved summary or
+                transcript (opening it again costs nothing), a note, or a
+                track the video is in. */}
             <Icon
               name={icon}
               size={18}
-              lit={(tool === "note" && !!video.personalNote) || (tool === "track" && video.trackCount > 0)}
+              lit={
+                (tool === "summary" && !!video.summary) ||
+                (tool === "transcript" && video.hasTranscript) ||
+                (tool === "note" && !!video.personalNote) ||
+                (tool === "track" && video.trackCount > 0)
+              }
             />
           </StripButton>
         ))}

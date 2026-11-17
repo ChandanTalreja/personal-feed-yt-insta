@@ -160,6 +160,7 @@ export default function StudyPanel({
       )
         .then((data) => {
           setTranscript(data.transcript);
+          onVideoChangeRef.current(id, { hasTranscript: true });
         })
         .catch((err) => setTranscriptError((err as Error).message))
         .finally(() => setTranscriptBusy(false));

@@ -18,6 +18,9 @@ export const feedVideoColumns = {
   publishedAt: videos.publishedAt,
   watched: videos.watched,
   summary: videos.summary,
+  // Lights the card's Transcript icon (FIX-15). Only whether one is saved:
+  // the text itself can be 150k characters, so the feed never sends it.
+  hasTranscript: sql<boolean>`(${videos.transcript} IS NOT NULL)`,
   laterAt: videos.laterAt,
   watchProgress: videos.watchProgress,
   resumeSeconds: videos.resumeSeconds,

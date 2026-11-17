@@ -230,7 +230,11 @@ export async function refreshAllChannels(db: Db): Promise<RefreshResult> {
       try {
         outcomes[i] = { count: await ingestChannel(db, active[i], since) };
       } catch (err) {
-        outcomes[i] = { error: (err as Error).message };
+        const message = (err as Error).message;
+        outcomes[i] = { error: message };
+        // The amber dot only keeps the names; the reason goes to the logs,
+        // so a failed channel can be explained later (FIX-16).
+        console.error(`sync: couldn't check "${active[i].title}": ${message}`);
       }
     }
   }
