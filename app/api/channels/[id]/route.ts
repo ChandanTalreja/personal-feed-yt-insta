@@ -18,6 +18,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     updates.genreId = body.genreId === null ? null : Number(body.genreId);
   }
   if ("isActive" in body) updates.isActive = !!body.isActive;
+  // A picked channel (FEAT-22) is never synced, so it can't be resumed.
+  if (updates.isActive) {
+    const db = await getDb();
+    const [c] = await db.select({ picked: channels.picked }).from(channels).where(eq(channels.id, id));
+    if (c?.picked) {
+      return NextResponse.json({ error: "A picked channel only holds the videos you picked." }, { status: 400 });
+    }
+  }
   // Move between the Feed and Podcasts (FEAT-14).
   if ("section" in body) {
     if (body.section !== "feed" && body.section !== "podcasts") {

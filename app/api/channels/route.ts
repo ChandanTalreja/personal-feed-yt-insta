@@ -48,12 +48,16 @@ export async function POST(req: NextRequest) {
     const db = await getDb();
 
     const existing = await db
-      .select({ id: channels.id })
+      .select({ id: channels.id, picked: channels.picked })
       .from(channels)
       .where(eq(channels.ytChannelId, resolved.ytChannelId));
     if (existing.length > 0) {
       return NextResponse.json(
-        { error: `"${resolved.title}" is already in your feed.` },
+        {
+          error: existing[0].picked
+            ? `"${resolved.title}" is already here as a picked channel. Use Pick more on its row.`
+            : `"${resolved.title}" is already in your feed.`,
+        },
         { status: 409 }
       );
     }

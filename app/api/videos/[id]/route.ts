@@ -44,6 +44,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if ("later" in body) {
     updates.laterAt = body.later ? new Date() : null;
   }
+  // ✕ on a "Pick up where you left off" tile, and its Undo (FEAT-23).
+  if ("continueHidden" in body) {
+    updates.continueHiddenAt = body.continueHidden ? new Date() : null;
+  }
   if ("watched" in body) {
     updates.watched = !!body.watched;
     // Watch Later is a to-do list: once watched, the video leaves it.

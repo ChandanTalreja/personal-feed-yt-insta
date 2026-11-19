@@ -42,7 +42,7 @@ const MAX_PAGES_UNBUDGETED = 20;
  * details for the rest, works out which are shorts, and inserts them
  * (leaving the shorts out with `dropShorts`). Returns how many were added.
  */
-async function storePage(
+export async function storePage(
   db: Db,
   channelId: number,
   ids: string[],

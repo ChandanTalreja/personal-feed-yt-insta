@@ -18,7 +18,13 @@ export default function FeedEmptyState({
   onClearSearch,
   onAnyLength,
   onSeeEverything,
+  didYouMean = null,
+  onSearch,
 }: {
+  /** A search found nothing: the closest spelling in your titles (FEAT-24). */
+  didYouMean?: string | null;
+  /** Runs a search (the "Did you mean" link). */
+  onSearch?: (term: string) => void;
   hasChannels: boolean;
   /** The Podcasts page (FEAT-14): no podcast channels yet means "move one". */
   podcasts?: boolean;
@@ -34,7 +40,7 @@ export default function FeedEmptyState({
 }) {
   let title = "Nothing here";
   let note: string | null = null;
-  let body = "Nothing matches these filters.";
+  let body: ReactNode = "Nothing matches these filters.";
   let action: ReactNode = (
     <Button onClick={onClearFilters}>Clear filters</Button>
   );
@@ -58,6 +64,21 @@ export default function FeedEmptyState({
   } else if (search) {
     title = "No matches";
     body = `Nothing in this view matches “${search}”.`;
+    if (didYouMean && onSearch) {
+      body = (
+        <>
+          Nothing in this view matches “{search}”. Did you mean{" "}
+          <button
+            type="button"
+            onClick={() => onSearch(didYouMean)}
+            className="font-semibold text-ink underline decoration-primary decoration-[3px] underline-offset-2 hover:decoration-ink"
+          >
+            {didYouMean}
+          </button>
+          ?
+        </>
+      );
+    }
     action = <Button onClick={onClearSearch}>Clear search</Button>;
   } else if (kind === "videos" && lengthFilter !== "any") {
     title = "Nothing that length here";
@@ -72,6 +93,14 @@ export default function FeedEmptyState({
     note = "nothing new. go outside?";
     body = "Nothing unseen in this view.";
     action = <Button onClick={onSeeEverything}>See everything</Button>;
+  } else if (view === "picked") {
+    title = "Nothing picked yet";
+    body = "On the Channels page, switch the add bar to Pick and tick the videos you want from a channel.";
+    action = (
+      <Link href="/channels#add" className={buttonClass("primary")}>
+        Open Channels
+      </Link>
+    );
   } else if (view === "paper") {
     title = "Nothing on paper yet";
     body = "Summarise a video or open its transcript, and it lands here.";

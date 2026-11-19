@@ -85,8 +85,9 @@ export function RowMenu({
 }: {
   open: boolean;
   onToggle: () => void;
-  /** "Backfill" row: one button per year window. */
-  onBackfill: (years: number) => void;
+  /** "Backfill" row: one button per year window. Left out for a picked
+   *  channel (FEAT-22), which only holds what you picked. */
+  onBackfill?: (years: number) => void;
   items: { label: string; onClick: () => void; danger?: boolean }[];
   onPicked: () => void;
 }) {
@@ -105,6 +106,7 @@ export function RowMenu({
       </button>
       {open && (
         <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-md border-[1.5px] border-ink bg-surface p-1 shadow-sticker">
+          {onBackfill && (
           <div className="border-b border-line px-2.5 pb-2.5 pt-1.5">
             <p className="text-sm font-semibold">Backfill</p>
             <p className="text-xs text-muted">Fetch every upload from the last…</p>
@@ -124,6 +126,7 @@ export function RowMenu({
               ))}
             </div>
           </div>
+          )}
           {items.map((it) => (
             <button
               key={it.label}

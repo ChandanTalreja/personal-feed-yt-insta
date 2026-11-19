@@ -127,6 +127,7 @@ export default function FeedClient({
     loading,
     totals,
     facets,
+    didYouMean,
     laterCounts,
     filterParams,
     loadPage,
@@ -232,7 +233,9 @@ export default function FeedClient({
     const channel = Number(searchParams.get("channel"));
     const q = searchParams.get("q");
     const video = Number(searchParams.get("video"));
-    if (!channel && !q && !video) return;
+    // /?view=picked: the Picked view, from the Channels page's "See them" (FEAT-25).
+    const picked = searchParams.get("view") === "picked";
+    if (!channel && !q && !video && !picked) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (channel || q) setNotesOpen(false);
     if (channel) {
@@ -240,6 +243,13 @@ export default function FeedClient({
       setChannelIds([channel]);
       setSearch("");
       setView("all");
+    }
+    if (picked) {
+      setNotesOpen(false);
+      setGenreId(null);
+      setChannelIds([]);
+      setSearch("");
+      setView("picked");
     }
     if (q) {
       setGenreId(null);
@@ -378,6 +388,60 @@ export default function FeedClient({
     // again from zero (FEAT-20).
     if (genres.find((g) => g.id === id)?.hiddenFromAll) {
       api(`/api/genres/${id}/seen`, { method: "POST" }).catch(() => {});
+    }
+  }
+
+  // ✕ on a "Pick up where you left off" tile (FEAT-23): out of the row at
+  // once, then saved; Undo puts it back where it was. The video itself is
+  // untouched: still unwatched, its place kept, back in the row once played.
+  function keepContinued(next: ContinueReply) {
+    setContinued(next);
+    remember(continuePath(section), next);
+  }
+
+  async function removeContinued(video: FeedVideo) {
+    const before = continued;
+    const at = before.videos.findIndex((v) => v.id === video.id);
+    keepContinued({ ...before, videos: before.videos.filter((v) => v.id !== video.id) });
+    const rowName = podcasts ? "Continue listening" : "Pick up where you left off";
+    try {
+      await api(`/api/videos/${video.id}`, {
+        method: "PATCH",
+        body: { continueHidden: true },
+        fallback: `Couldn't remove it from ${rowName}`,
+      });
+      const text = `Removed ${video.title} from ${rowName}.`;
+      setToast(text);
+      setToastRich({
+        text,
+        content: (
+          <>
+            Removed <strong className="font-semibold">{video.title}</strong> from {rowName}.
+          </>
+        ),
+        undo: async () => {
+          try {
+            await api(`/api/videos/${video.id}`, {
+              method: "PATCH",
+              body: { continueHidden: false },
+              fallback: `Couldn't put it back in ${rowName}`,
+            });
+            setContinued((c) => {
+              if (c.videos.some((v) => v.id === video.id)) return c;
+              const videos = [...c.videos];
+              videos.splice(Math.min(Math.max(at, 0), videos.length), 0, video);
+              const next = { ...c, videos };
+              remember(continuePath(section), next);
+              return next;
+            });
+          } catch (err) {
+            setToast((err as Error).message);
+          }
+        },
+      });
+    } catch (err) {
+      keepContinued(before);
+      setToast((err as Error).message);
     }
   }
 
@@ -701,6 +765,7 @@ export default function FeedClient({
                   videos={continued.videos}
                   track={podcasts ? null : continued.track}
                   onPlay={handlePlay}
+                  onRemove={removeContinued}
                 />
                 {podcasts && <h2 className="label-caps mb-3 text-muted">New episodes</h2>}
               </>
@@ -723,6 +788,8 @@ export default function FeedClient({
               view={view}
               onClearFilters={clearFilters}
               onClearSearch={() => setSearch("")}
+              didYouMean={didYouMean}
+              onSearch={setSearch}
               onAnyLength={() => setLengthFilter("any")}
               onSeeEverything={() => setView("all")}
             />

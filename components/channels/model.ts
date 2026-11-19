@@ -11,7 +11,7 @@ export interface Row {
 }
 
 export type SortKey = "name" | "genre" | "videos" | "last";
-export type StatusFilter = "all" | "quiet" | "paused";
+export type StatusFilter = "all" | "quiet" | "paused" | "picked";
 
 /** No upload in this many days → "quiet": worth a look before it's pruned. */
 export const QUIET_DAYS = 90;
@@ -28,8 +28,10 @@ export function isQuiet(r: Row, now: number): boolean {
   return r.lastUploadAt == null || now - new Date(r.lastUploadAt).getTime() > QUIET_DAYS * DAY;
 }
 
-/** "Active", "Paused", or "No uploads 4 mo". */
-export function statusOf(r: Row, now: number): { label: string; tone: "ok" | "paused" | "quiet" } {
+/** "Active", "Paused", "Picked", or "No uploads 4 mo". */
+export function statusOf(r: Row, now: number): { label: string; tone: "ok" | "paused" | "quiet" | "picked" } {
+  // Picked (FEAT-22): never followed, so never Paused or Quiet.
+  if (r.channel.picked) return { label: "Picked", tone: "picked" };
   if (!r.channel.isActive) return { label: "Paused", tone: "paused" };
   if (r.lastUploadAt == null) return { label: "No uploads stored", tone: "quiet" };
   if (isQuiet(r, now)) {

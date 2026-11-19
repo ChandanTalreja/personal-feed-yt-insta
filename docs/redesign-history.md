@@ -5831,6 +5831,422 @@ keeps that number untouched by the same line. Typecheck and lint pass.
 
 ---
 
+#### FEAT-22 · Pick videos from a channel, and the Picked view — ✅ built · 2026-11-20, not yet deployed
+
+**Where it came from.** The owner: some channels have 5 or 10 videos worth
+keeping and nothing else, spread over months, and following them brings
+every upload. Removing such a channel later deletes everything on its
+videos (answers, notes, summaries, track steps), so the better answer is
+never to follow it: pick only the videos you want.
+
+**Decided with the owner, step by step.**
+- *Where:* the add bar they already use, with one new **Follow | Pick**
+  switch. They search by name or @handle, so Pick starts from the same
+  "Found … Is this the one?" step ("Yes, show its videos"); an exact
+  @handle goes straight to the list.
+- *How far back:* the bar's 1Y to 5Y choice (my first mock fixed it at one
+  year; the owner pointed out the backfill choice). In Pick mode it reads
+  "Uploads from", and the picker has its own copy to change it.
+- *Shorts:* option B of three mocked (Videos only / a Videos | Shorts switch
+  / one mixed list): the switch, opening on Videos. In **Podcasts** there's
+  no switch at all, long videos only, since Podcasts never hold Shorts.
+- *Pick more:* yes, from the channel's row, with what you already have
+  shown ticked and "Added".
+- *No Resume:* a picked channel was never followed, so it can't be resumed;
+  no Backfill (it would bring every upload) and no Pause either.
+- *Its place on the Channels page:* a fourth filter, **Picked**, beside All,
+  Quiet and Paused; never counted as Paused or Quiet ("no uploads in 3
+  months" means nothing for a channel you don't follow). Status "Picked",
+  with the owner's line on hover: "Only holds the videos you picked."
+- *Not in Watch later:* I suggested sending picks to Watch later; the owner
+  pointed out it says "saved for a slower day", a to-do list. Picking is a
+  shelf you keep, so it got its own **Picked** view.
+- *Switching a followed channel to picking:* not wanted for now. Adding a
+  single video by its link: talked about, parked for later (it would land
+  in the same Picked filter as "Picked · 1 video").
+
+**The change.**
+- **Channels page, add bar:** Follow | Pick. Pick → "Show videos" → the
+  picker opens under the bar: the channel, Videos | Shorts (Feed only),
+  "Uploads from" 1Y to 5Y, a title filter (the app's loose matching), then
+  the uploads newest first, 50 at a time with **Show older**. Each row:
+  tick, thumbnail with length, title, age, "Live stream" for past streams.
+  Ticks are kept across the two tabs. Footer: "3 ticked, into Tech in the
+  Feed." and **Add 3 videos**.
+- **After adding:** the toast "Added **3 videos** from **Fireship**. It only
+  holds what you picked. See them →" (the app's toast style: bold names,
+  yellow-underlined link).
+- **A picked row:** "3 picked" in the Videos column, status "Picked" with a
+  hand icon and a **Pick more** link; the ⋯ menu has Pick more…, Move,
+  Delete (no Backfill box, no Pause or Resume). Not faded like a paused one.
+  Bulk Backfill and Resume leave picked channels out.
+- **Feed and Podcasts sidebar:** **Picked**, between On paper and
+  Everything, a new soft mint tile (all six were taken) and Phosphor's
+  pointing hand. Title "Picked", pen note "only the ones you picked",
+  newest picked first. Watched videos stay. Genre, channel, kind, length and
+  search narrow it; hidden genres stay in (you chose these).
+- **Empty:** "Nothing picked yet. On the Channels page, switch the add bar to
+  Pick and tick the videos you want from a channel." with Open Channels.
+
+**How it works.**
+*Picked videos are ordinary videos.* They go into the same `videos` table
+through the sync's own `storePage` (skips what's stored, fetches details,
+checks Shorts, inserts), then get `picked_at`. So the feed, Watch later,
+On paper, the Notebook, tracks and search work on them unchanged. This was
+the owner's worry ("will it reduce code quality?"): nothing outside the
+Channels page and one feed filter knows picking exists.
+
+*A picked channel is an inactive channel with a mark.* `channels.picked`
+plus `is_active = false`: the sync already skips inactive channels, so it
+never reads a picked one. The mark only changes the Channels page (status,
+filter, menu) and makes the server refuse what would break it: Backfill
+(400), Resume (400, also through the bulk route, which leaves picked rows
+out), and following it again (409, "Use Pick more on its row").
+
+*The lists.* YouTube keeps unofficial lists beside a channel's uploads:
+UULF (long videos), UULV (past live streams) and UUSH (only Shorts). The
+Videos tab reads UULF then UULV, the Shorts tab UUSH, so nothing has to be
+sorted one video at a time. Checked first with one call on a real channel
+(125 Shorts in UUSH, 1,733 in UULF). If a list 404s, the uploads list is
+read and each upload checked. A page costs 2 quota units (the list and its
+details) and stores nothing; a page whose uploads were all the other kind
+reads on (up to 3 pages) rather than coming back empty.
+
+*Saving.* `POST /api/channels/pick` checks the ids (up to 100), adds the
+channel the first time (picked, inactive, with the bar's genre and
+Feed/Podcasts), stores the videos (Shorts dropped for Podcasts), and
+stamps `picked_at` only where it's empty, so a video keeps its first
+picked date. If storing fails for a channel just added, the empty channel
+is removed again.
+
+**Key code** — `lib/pick.ts`, `lib/feedVideos.ts`
+```ts
+// lib/pick.ts: the list a tab starts from
+let list: PickList = m ? (m[1] as PickList) : opts.kind === "shorts" ? "SH" : "LF";
+
+// lib/pick.ts: saving
+const added = await storePage(db, channel.id, ids, channel.section === "podcasts");
+await db.update(videos).set({ pickedAt: new Date() })
+  .where(and(eq(videos.channelId, channel.id), inArray(videos.ytVideoId, ids), isNull(videos.pickedAt)));
+
+// lib/feedVideos.ts: the view
+if (picked) viewC.push(isNotNull(videos.pickedAt));
+.orderBy(...searchOrder, later ? desc(videos.laterAt) : picked ? desc(videos.pickedAt) : desc(videos.publishedAt), desc(videos.publishedAt))
+```
+
+**Alternatives considered.** *A pop-up picker:* the owner adds channels from
+the bar, so the list opens right under it instead. *Paste one video's link:*
+parked, the owner wants to come back to it. *Picks into Watch later:*
+turned down (a to-do list, not a shelf). *One mixed list with a Short badge:*
+harder to scan. *Checking every upload for Shorts:* one request per short
+video; the UUSH list makes it unnecessary. *A "picked" flag per video
+only:* the Channels page needs to know the channel itself is picked (no
+Backfill, no Resume), so both.
+
+**Files.** New: `lib/pick.ts`, `app/api/channels/pick/route.ts`,
+`components/channels/ChannelPicker.tsx`. Changed: `lib/schema.ts`,
+`lib/db.ts` (two columns and an index), `lib/youtube.ts` (`shortsList`,
+`uploadsListOf`), `lib/ingest.ts` (`storePage` exported),
+`lib/feedVideos.ts`, `app/api/channels/route.ts`,
+`app/api/channels/[id]/route.ts`, `app/api/channels/[id]/backfill/route.ts`,
+`app/api/channels/bulk/route.ts`, `components/channels/AddChannelBar.tsx`,
+`ChannelsClient.tsx`, `ChannelRow.tsx`, `TableParts.tsx`, `model.ts`,
+`components/types.ts`, `components/feed/FeedSidebar.tsx`, `model.ts`,
+`FeedEmptyState.tsx`, `components/ui/iconPaths.ts`, `app/globals.css`
+(`tile-mint`), `components/StyleguideClient.tsx`.
+
+**Verified.** In the running app (local data), with Fireship (not in
+TUBEBOX): Pick + "@Fireship" opened the picker at once; Shorts at 1Y said
+"No Shorts in the last year", which YouTube confirmed (newest Short
+September 2024); at 3Y they appeared. Ticked 2 videos and 1 Short (ticks
+kept across tabs), added: the toast, the Feed count 2321 → 2324, "1 picked"
+in the title line, the Picked filter showing "3 picked", the menu without
+Backfill or Pause. Pick more showed the 3 as "Added". Through the routes:
+Backfill 400, Resume 400, bulk Resume changed 0, following again 409, the
+channel still inactive. The feed's Picked view: 2 videos (the Short under
+Shorts), the mint tile and pen note. Podcasts + Pick on MKBHD: long videos
+only, no switch. Show older: two pages of 50 in date order, no repeats, no
+Shorts. Then Fireship deleted (16 channels, Inbox 2321 again). Typecheck,
+lint and `npm run build` pass. Not tried: a channel whose UULF or UUSH list
+is missing (the fallback), and the live site.
+
+---
+
+#### FEAT-23 · Remove a tile from "Pick up where you left off" — ✅ built · 2026-11-20, not yet deployed
+
+**Where it came from.** The owner: once a video is in "Pick up where you
+left off" (or Podcasts' "Continue listening") there's no way to take it
+out, short of ticking it seen. They asked for it to be done carefully: a
+video is there because you watched part of it.
+
+**Decided with the owner.** A faint ✕ on each tile, always shown (works on
+a phone, where there's no hover), darker while the tile is hovered. My first
+mock was drawn from the code and didn't look like the real row; the owner
+sent a production screenshot and the second mock matched it. Agreed rules:
+- Removing means "not now", never "watched": the video stays unwatched in
+  the Inbox and keeps its place (resume point and progress).
+- Playing it again brings it back to the row.
+- The track's "Up next" tile has no ✕: its track runs it.
+- Podcasts' "Continue listening" works the same.
+
+**The change.** ✕ → the tile leaves the row at once (the count beside the
+heading drops), then it's saved; the toast "Removed **[title]** from Pick
+up where you left off." with the yellow **Undo**, which puts the tile back
+where it was.
+
+**How it works.** One new time on the video, `continue_hidden_at`. The row
+leaves out a video whose last play is older than that time:
+`continue_hidden_at IS NULL OR last_played_at > continue_hidden_at`.
+Playing saves progress, progress saves set `last_played_at`, so a play
+after the ✕ brings it back with nothing else to update. Undo clears the
+time.
+
+*Why not clear `last_played_at` instead (no new column)?* Tracks use it for
+"last watched yesterday", for ordering the Tracks page and for the next
+step, so the ✕ would quietly change Tracks.
+
+*The tile.* It was one button; a ✕ can't sit inside a button, so the tile
+is now a small frame holding the play button and the ✕ button side by side
+(the ✕ in the corner, the title cut a little earlier to make room).
+
+**Key code** — `lib/feedVideos.ts`, `components/feed/FeedClient.tsx`
+```ts
+// The row: not removed, or played again since.
+sql`(${videos.continueHiddenAt} IS NULL OR ${videos.lastPlayedAt} > ${videos.continueHiddenAt})`
+
+// PATCH /api/videos/:id
+if ("continueHidden" in body) updates.continueHiddenAt = body.continueHidden ? new Date() : null;
+```
+
+**Alternatives considered.** *Mark it seen:* already possible from the
+card, and wrong when you simply aren't in the mood. *Clear the resume
+point:* loses your place. *Hide it for good:* the owner's "carefully": a
+video you start again should come back.
+
+**Files.** `lib/schema.ts`, `lib/db.ts` (one column), `lib/feedVideos.ts`,
+`app/api/videos/[id]/route.ts`, `components/feed/ContinueStrip.tsx`,
+`components/feed/FeedClient.tsx`.
+
+**Verified.** In the running app (local data), on Podcasts' one "Continue
+listening" episode: ✕ took it out of the row at once and on the server;
+still unwatched, resume point 5:40 kept, "65 to watch" unchanged; the toast
+with Undo; Undo put it back (screen and server). Played again (its own
+saved progress sent again, so the progress didn't change): back in the
+row. The Feed's row locally holds only the track tile, which has no ✕.
+Side effect of that test: the episode's "last played" is now 2026-11-20.
+Typecheck, lint and `npm run build` pass.
+
+---
+
+#### FEAT-24 · Search counts your words: real matches first, rarer words count more, "Did you mean" — ✅ built · 2026-11-20, not yet deployed
+
+**Where it came from.** The owner had a hard time finding something with
+the feed's filter box, and asked how it works, whether exact matches come
+first, and whether Gemini could search the titles. Explained step by step
+with real searches run on the local Inbox (after the owner rightly asked me
+to look at the running app before proposing anything).
+
+**How it worked.** A video matched if the title contained the letters
+anywhere, or the whole search "looked like" the title (pg_trgm
+`word_similarity > 0.4`). Containing came first, newest first. Real "rag"
+results, 32: the newest was "The Murder at the Vica**rag**e", then
+"File Sto**rag**e App", then 6 real RAG videos, then 24 look-alikes
+(RabbitMQ, RATED, ranked, random, rally, Rate Limiting). Long searches
+worked only if remembered nearly word for word: "kafka apache explained"
+put "Apache Kafka Explained in 6 Mins" 16th of 199; "kafka explained in five
+minutes" put it behind 3 horror films; "jtw" said only "No matches".
+
+**Decided with the owner.** Gemini over 17,000 titles per search: no (about
+250,000 words of input each time, seconds per search, the daily allowance
+gone in a few searches). Search by meaning (embeddings) parked for when the
+library is bigger. No "Close matches" line or labels in the grid (the owner:
+it's a feed, not a results page): only the order and the count change. "Did
+you mean" was the owner's idea. Rarer words count more: the owner's yes.
+
+**The change.**
+- **Counting words.** Small words ("in", "the", "of", "every") are ignored.
+  A word counts when a title word **starts** with it ("microservice" →
+  "Microservices"), half when it's hidden inside a word ("rag" in
+  "Storage"), a little when a long word (5+ letters) only looks like one
+  (typos: "kubernets", "explaind"). Short words never use look-alikes ("five"
+  looked like "live" and "first": 89 matches).
+- **Which titles show:** the word; both of two words; at least half of three
+  or more. Word order doesn't matter.
+- **Order:** more of your words first, rarer words worth more (Kafka beats
+  "explained"), the whole search as typed worth extra; ties in the view's
+  usual order.
+- **Did you mean.** Only when nothing matches: "Nothing in this view matches
+  “jtw”. Did you mean **JWT**?" (yellow underline; click to search it). The
+  suggestion is a real word from your titles, one slip away for short words
+  (same length, same first letter) and two for longer ones.
+- **⌘K** ranks its videos the same way.
+
+**How it works.** `lib/titleSearch.ts` builds two SQL pieces from the
+search: `where` (enough words matched) and `rank` (the score). Per word: a
+regex for "starts a word", `strpos` for "inside a word", `word_similarity`
+for look-alikes; the rarity weight is
+`ln((all titles + 1) / (titles with the word + 1)) + 1`, written as a
+subquery that doesn't depend on the row, so Postgres works it out once per
+search. "Did you mean" splits titles into words, keeps those within 2 edits
+by `levenshtein` (the `fuzzystrmatch` extension, added to the schema list
+and registered on PGlite), then picks in code by optimal string alignment,
+where swapping two letters is one slip ("jtw" → "jwt") rather than
+levenshtein's two.
+
+**Key code** — `lib/titleSearch.ts`
+```ts
+const start = sql`(${title} ~* ${`(^|[^[:alnum:]])${literal(w)}`})`;
+const inside = sql`(strpos(${lower}, ${w}) > 0)`;
+const hit = sql`(CASE WHEN ${start} THEN 1.0 WHEN ${inside} THEN 0.5 WHEN ${looks} THEN 0.4 ELSE 0 END)`;
+const weight = sql`(SELECT ln((count(*) + 1)::float8 / (count(*) FILTER (WHERE strpos(lower(videos.title), ${w}) > 0) + 1)) + 1 FROM videos)`;
+const need = words.length <= 2 ? words.length : Math.ceil(words.length / 2);
+```
+
+**Alternatives considered.** *Elasticsearch:* a separate server to run and
+keep in sync; Postgres does this in under 0.2 s at this size. *Postgres
+full-text search (tsvector):* stems English words well but drops the "starts
+a word" and typo behaviour, and needs a new column and index. *Gemini over
+the titles:* too heavy per search. *Search by meaning (embeddings):* parked.
+*Half of the words for two-word searches:* "explaind kafka" gave 228
+results; two typed words mean both.
+
+**Files.** New: `lib/titleSearch.ts`. Changed: `lib/feedVideos.ts`,
+`lib/search.ts`, `lib/db.ts` (`fuzzystrmatch`), `components/feed/useFeedData.ts`,
+`FeedClient.tsx`, `FeedEmptyState.tsx`.
+
+**Verified.** Local Inbox, before → after:
+
+| Search | Before | After |
+|---|---|---|
+| rag | 32, a murder story and File Storage first | 8: the 6 RAG videos, then Vicarage and Storage |
+| kafka apache explained | the video 16th of 199 | 1st of 9 |
+| kafka explained in five minutes | 4th of 83, behind horror films | 1st of 15 |
+| every kafka mistake explained | 1st of 4, then 3 horror films | 1st of 6, all Kafka |
+| explaind kafka | (not tried before) | 6, all Kafka "Explained" |
+| kubernets | 21 (14 of them junk) | 7, the same 7 as "kubernetes" |
+| microservice | 82 | 75, "Microservices" titles kept |
+| jtw / kafak | No matches / 20 | Did you mean **JWT** / **Kafka** |
+| ytr | No matches | No matches |
+| c++ / node.js | | 15 / 6, all really containing them |
+
+Every search under 0.2 s locally. In the page: "jtw" showed "Did you mean
+JWT?", clicking it showed the 8 JWT videos. ⌘K "rag" now leads with RAG
+videos. Typecheck, lint and `npm run build` pass. Not tried: Neon (the
+extension is standard there) and the live site.
+
+---
+
+#### FEAT-25 · Add a video or a playlist by its link, and "No genre picked" — ✅ built · 2026-11-20, not yet deployed
+
+**Where it came from.** Parked during FEAT-22; the owner came back to it:
+paste one YouTube video's link and add just that video to Picked. Then,
+thinking it through: what about a playlist link?
+
+**Found on the way.** A video or playlist link pasted into the add bar was
+treated as a channel link: it found no channel, then fell back to the
+plain-name search with the whole link as the search words. At best
+"Channel not found"; at worst YouTube's search returned some channel and,
+in Follow mode, it was added with a year of uploads.
+
+**Decided with the owner.**
+- A video link asks "Add it to Picked?", whichever the Follow | Pick switch
+  says (a video link can only mean one video).
+- A playlist link opens the picker with **all videos ticked** (you pasted
+  it because you want it); untick the few you don't.
+- A video opened from a playlist (`watch?v=…&list=…`) asks: **This video**
+  or **The whole playlist**.
+- "Also make a track from it" for a playlist: the owner hesitated ("I can
+  make my own"), then yes; a tick box, unticked to start.
+- A mixed playlist (many creators): added as it is, each video under its
+  own creator. Explained why a picked video still has a channel: every
+  video needs one (its name on the card, its genre, Feed or Podcasts, the
+  sidebar's channel list); the channel is just its home, never synced.
+- Picked already has Videos | Shorts (the feed's switch works in every
+  view); a pasted Short goes under Shorts, and is refused for Podcasts.
+- The genre: a dropdown in the picker's footer was mocked and turned down
+  ("ugly"); instead, only when no genre is chosen, the footer says so
+  gently: "**No genre picked**, so they'll sit under No genre."
+
+**The change.**
+- **The add bar** reads video links (`watch?v=`, `youtu.be/`, `/shorts/`,
+  `/live/`, `/embed/`, on www., m. and music.) and playlist links
+  (`playlist?list=`). Placeholder: "A channel, @handle, video or playlist
+  link".
+- **A video:** "Found **title** by **channel**. Add it to Picked?" with Yes,
+  add it / No. Already in Picked: says so. In the feed already (a followed
+  channel): says so and still offers Picked. A Short with Podcasts chosen:
+  "Podcasts don't hold Shorts. Switch the bar to Feed to add it." Toast:
+  "Added **title** to Picked. See it →".
+- **A video in a playlist:** "**title** by **channel** is part of the
+  playlist **X Corp** (5 videos). Add this video, or the whole playlist?"
+  with The whole playlist / This video / No.
+- **A playlist:** the picker, titled after the playlist ("Playlist by
+  Fireship · 5 videos. All ticked: untick the ones you don't want."), in the
+  playlist's order, each row with its creator, "Short" and "Already in
+  TUBEBOX" where true, Show more for long ones. Footer: the tick box "Also
+  make a track from it ("X Corp", in this order)". Toast: "Added **5
+  videos** to Picked from **X Corp**, and made the track **X Corp**. See
+  them →".
+- **Mixes, Watch later, Liked videos, private playlists:** "YouTube doesn't
+  share that list. Mixes, Watch later, Liked videos and private playlists
+  can't be read."
+- **"No genre picked"** in the footer (any picker except Pick more), bold
+  with the yellow underline; clicking it scrolls to the add bar's genre box,
+  and the open picker follows whatever genre you choose there.
+- **"See them →"** now opens the Picked view (`/?view=picked`).
+
+**How it works.** `lib/youtubeLinks.ts` reads a link (shared by the add
+bar and the routes). `GET /api/channels/link` says what it points at (the
+video with its channel, whether it's a Short and whether it's already
+here; the playlist's name, owner and size). The picker lists a playlist
+through the same `listPickPage` (a `PL:` cursor, the playlist's order kept,
+Shorts left out for Podcasts). Saving is now one `pickVideos` for every case
+(a channel's ticks, one video, a playlist): it looks up whose each video is,
+adds missing channels as picked in one YouTube call for up to 50, stores
+the videos per channel with the sync's `storePage`, stamps `picked_at`
+(also on videos already stored, which is what "Add to Picked" means), and,
+when asked, makes a track in the given order (named after the playlist; "X
+Corp 2" if taken).
+
+**Key code** — `lib/pick.ts`
+```ts
+const ownerOf = new Map(details.map((d) => [d.ytVideoId, d.ytChannelId]));
+// new channels: added as picked, inactive, with the bar's genre and home
+.values(found.map((c) => ({ ...c, genreId: opts.genreId, section: opts.section, isActive: false, picked: true })))
+// then per channel
+added += await storePage(db, channel.id, mine, channel.section === "podcasts");
+```
+
+**Alternatives considered.** *A genre dropdown in the footer:* mocked,
+turned down. *A track by default:* the owner can make their own; the tick
+box starts empty. *Refusing a video from a followed channel:* it's in the
+feed already, but adding it to Picked is still a fair wish, so it's
+allowed and just says so.
+
+**Files.** New: `lib/youtubeLinks.ts`, `app/api/channels/link/route.ts`.
+Changed: `lib/youtube.ts` (`getPlaylist`, `listPlaylistPage`,
+`getChannels`, each video's channel in `getVideoDetails`, and the
+channel search no longer treats a video link as a name), `lib/pick.ts`,
+`app/api/channels/pick/route.ts`, `components/channels/AddChannelBar.tsx`,
+`ChannelPicker.tsx`, `ChannelsClient.tsx`, `components/feed/FeedClient.tsx`
+(`?view=picked`).
+
+**Verified.** Local, with Fireship's 5-video "X Corp" playlist (Fireship not
+in TUBEBOX): the link route read a playlist link, a video link, a video in
+a playlist, a Mix (refused with the message) and a channel link (left to the
+channel search). In the page, with the switch on Follow: the video-in-a-
+playlist question; This video → toast, Fireship added as Picked · 1. The
+playlist link: all 5 ticked in order, the first "Already in TUBEBOX",
+"No genre picked" in the footer; clicking it focused the genre box; choosing
+Tech changed the footer to "into **Tech** in the Feed"; with the track box
+ticked, Add 5 videos → the toast, Picked view 5, the track "X Corp" with
+the 5 in the playlist's order. `/?view=picked` opened Picked. Then the
+track and Fireship were deleted (16 channels, tracks Haunted and AI, Inbox
+2321). Typecheck, lint and `npm run build` pass. Not tried: a mixed
+playlist, a playlist over 100 videos, a Short link, the live site.
+
+---
+
 ## Design system, Phases 1–8 (replaced by v2 in Phase 9)
 
 Kept for the decisions that refer to it. The current values are in

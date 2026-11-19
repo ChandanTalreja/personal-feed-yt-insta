@@ -47,6 +47,9 @@ const DDL = [
   // Fuzzy (typo-tolerant) title search. Neon has pg_trgm built in; PGlite
   // gets it via the contrib module wired into the client below.
   `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
+  // levenshtein(), for search's "Did you mean …?" (FEAT-24). Neon has it
+  // built in; PGlite gets it the same way as pg_trgm.
+  `CREATE EXTENSION IF NOT EXISTS fuzzystrmatch`,
   `CREATE TABLE IF NOT EXISTS genres (
     id serial PRIMARY KEY,
     name text NOT NULL UNIQUE,
@@ -170,6 +173,12 @@ const DDL = [
   // Hide a genre from "All genres" (FEAT-20), and when it was last seen.
   `ALTER TABLE genres ADD COLUMN IF NOT EXISTS hidden_from_all boolean NOT NULL DEFAULT false`,
   `ALTER TABLE genres ADD COLUMN IF NOT EXISTS hidden_seen_at timestamptz`,
+  // Pick videos from a channel instead of following it (FEAT-22).
+  `ALTER TABLE channels ADD COLUMN IF NOT EXISTS picked boolean NOT NULL DEFAULT false`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS picked_at timestamptz`,
+  `CREATE INDEX IF NOT EXISTS videos_picked_idx ON videos (picked_at DESC) WHERE picked_at IS NOT NULL`,
+  // Remove a tile from "Pick up where you left off" (FEAT-23).
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS continue_hidden_at timestamptz`,
 ];
 
 // Short random tag for this server process. On Netlify the app runs on AWS
@@ -258,6 +267,7 @@ async function init(): Promise<Db> {
   } else {
     const { PGlite } = await import("@electric-sql/pglite");
     const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
+    const { fuzzystrmatch } = await import("@electric-sql/pglite/contrib/fuzzystrmatch");
     const { drizzle: drizzlePglite } = await import("drizzle-orm/pglite");
     const { mkdir } = await import("fs/promises");
     const dir = process.env.PGLITE_DIR ?? ".data/pglite";
@@ -265,7 +275,7 @@ async function init(): Promise<Db> {
     await mkdir(dir, { recursive: true });
     // pg_trgm must be registered on the PGlite client (Neon ships it
     // natively); the CREATE EXTENSION in DDL then activates it.
-    const client = new PGlite(dir, { extensions: { pg_trgm } });
+    const client = new PGlite(dir, { extensions: { pg_trgm, fuzzystrmatch } });
     db = drizzlePglite(client, { schema }) as unknown as Db;
   }
   const t1 = performance.now();

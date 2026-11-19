@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { denyUnlessAuthed } from "@/lib/auth";
 import { channels } from "@/lib/schema";
@@ -45,10 +45,11 @@ export async function POST(req: NextRequest) {
     }
     changed = await db.update(channels).set({ genreId }).where(where).returning({ id: channels.id });
   } else if (action === "pause" || action === "resume") {
+    // Picked channels (FEAT-22) are never synced: left out of both.
     changed = await db
       .update(channels)
       .set({ isActive: action === "resume" })
-      .where(where)
+      .where(and(where, eq(channels.picked, false)))
       .returning({ id: channels.id });
   } else if (action === "delete") {
     changed = await db.delete(channels).where(where).returning({ id: channels.id });

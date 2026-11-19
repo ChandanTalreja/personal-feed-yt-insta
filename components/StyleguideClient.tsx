@@ -236,6 +236,7 @@ export default function StyleguideClient() {
                       ["Watch later", 18, "later", "bg-tile-pink"],
                       ["Watched", "2.1k", "watched", "bg-tile-green"],
                       ["On paper", 36, "text", "bg-tile-lilac"],
+                      ["Picked", 6, "picked", "bg-tile-mint"],
                       ["Everything", "10.5k", "everything", "bg-tile-blue"],
                     ] as [string, number | string, IconName, string][]
                   ).map(([label, n, icon, tile]) => (

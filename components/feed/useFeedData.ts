@@ -48,6 +48,8 @@ export interface FeedReply {
   laterCounts?: { videos: number; shorts: number };
   totals?: Totals;
   facets?: Facets;
+  /** A search found nothing: the closest spelling in your titles (FEAT-24). */
+  didYouMean?: string | null;
 }
 
 /** Apply a change to a video inside every remembered feed page too (also
@@ -101,6 +103,7 @@ export function useFeedData(
   const [totals, setTotals] = useState<Totals | null>(initial?.totals ?? null);
   // Sidebar counts (views and genres), from the first page's response.
   const [facets, setFacets] = useState<Facets | null>(initial?.facets ?? null);
+  const [didYouMean, setDidYouMean] = useState<string | null>(initial?.didYouMean ?? null);
   const [videos, setVideos] = useState<FeedVideo[]>(initial?.videos ?? []);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(initial?.hasMore ?? false);
@@ -136,6 +139,7 @@ export function useFeedData(
         if (data.laterCounts) setLaterCounts(data.laterCounts);
         if (data.totals) setTotals(data.totals);
         if (data.facets) setFacets(data.facets);
+        if (replace) setDidYouMean(data.didYouMean ?? null);
       };
       // A first page seen before in this tab shows at once (no placeholders);
       // the fresh one replaces it when it arrives.
@@ -390,6 +394,7 @@ export function useFeedData(
     loading,
     totals,
     facets,
+    didYouMean,
     laterCounts,
     filterParams,
     loadPage,

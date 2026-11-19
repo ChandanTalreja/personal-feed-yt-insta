@@ -75,6 +75,8 @@ export interface ChannelItem {
   isActive: boolean;
   /** "feed" or "podcasts" (FEAT-14). */
   section: string;
+  /** Holds only the videos you picked; never synced (FEAT-22). */
+  picked: boolean;
   addedAt: string;
 }
 

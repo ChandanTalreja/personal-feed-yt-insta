@@ -31,6 +31,7 @@
   --color-tile-blue: #d6e4ff;
   --color-tile-peach: #ffdcc2;
   --color-tile-lilac: #e6dcff;
+  --color-tile-mint: #ccf0ea;
 
   /* Six text sizes, no one-offs. */
   --text-*: initial;

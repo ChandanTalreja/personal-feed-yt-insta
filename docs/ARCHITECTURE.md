@@ -158,12 +158,19 @@ The look is documented in [REDESIGN.md](REDESIGN.md) §2; this is the code.
   (while hidden: when it was hidden or last opened; unwatched uploads after
   it are the sidebar's "N new" badge; null while shown).
 - **channels** — id, yt_channel_id (unique), handle, title, thumbnail,
-  uploads_playlist_id, genre_id (FK, SET NULL), is_active, added_at.
+  uploads_playlist_id, genre_id (FK, SET NULL), is_active, added_at,
+  `picked` (FEAT-22: holds only the videos you picked; always
+  `is_active=false`, so the sync never reads it, and the routes refuse
+  Resume and Backfill on it).
   `is_active=false` pauses fetching without losing history.
 - **videos** — id, yt_video_id (unique — the idempotency key), channel_id
   (FK, CASCADE), title, thumbnail, duration_seconds, is_short, is_live,
   published_at, watched, summary (cached), `transcript` (cached — captions
   text or Gemini transcription), `later_at` (Watch later; null = not saved),
+  `picked_at` (FEAT-22: when you picked it from a channel; null = not
+  picked; the Picked view's sort key, kept when watched),
+  `continue_hidden_at` (FEAT-23: the ✕ on a "Pick up where you left off"
+  tile; the row skips the video until `last_played_at` is newer),
   `watch_progress` (played 10-second chunks as a "0/1" string) and
   `resume_seconds` (honest watched, `lib/progress.ts`), `last_played_at`
   (stamped by every progress save — not by a hand-ticked ✓; feeds a track's
@@ -238,6 +245,12 @@ restart to apply.
    uploads list (dropping Shorts). The backfill cursor then names its list
    (`LF:` / `LV:` / `UU:` + YouTube's bookmark). Podcasts queries also hide
    stored Shorts (a channel moved over from the Feed).
+   **The picker** (FEAT-22, `lib/pick.ts`) reads the same lists to show a
+   channel's uploads to tick: Videos = `UULF…` then `UULV…`, Shorts =
+   `UUSH…` (only Shorts, also unofficial; checked against a real channel
+   before building). Either falls back to the uploads list on a 404. Each
+   page is 2 quota units (the list and its details) and stores nothing;
+   saving reuses the sync's `storePage`, then stamps `picked_at`.
 4. Live streams: upcoming/in-progress broadcasts are skipped (picked up as
    VODs on a later run); finished streams get `is_live=true` and a STREAM
    badge.
@@ -640,6 +653,22 @@ built: §3.1 above.
   count is one more `FILTER` in the view-count query. Like Watch later it
   keeps hidden genres (you chose these). No new column: the saved text is
   the marker.
+- **Picked** (FEAT-22) — a sixth view (`watched=picked`): videos with
+  `picked_at`, newest picked first (then newest upload), following every
+  other filter, keeping hidden genres. Videos are picked on the Channels
+  page: the add bar's **Follow | Pick** switch sends a found channel to the
+  picker (`GET/POST /api/channels/pick`) instead of adding it; a picked
+  channel's row has **Pick more** in place of Pause/Resume and Backfill, and
+  a **Picked** filter beside All, Quiet and Paused. Picked videos are
+  ordinary rows, so the feed, Notebook, tracks and search need nothing new.
+  **Links (FEAT-25):** the add bar reads video and playlist links
+  (`lib/youtubeLinks.ts`) and asks `GET /api/channels/link` what they point
+  at. A video → "Add it to Picked?"; a playlist → the picker over
+  `playlistItems` (`PL:` cursor), all ticked, with an optional track in the
+  playlist's order. `pickVideos` serves every case: it groups the videos by
+  their channel (`snippet.channelId`), adds missing channels as picked in
+  one `channels.list` call per 50, stores per channel with `storePage`, and
+  stamps `picked_at` on all of them, stored before or not.
 
 **Built 2026-10-15:**
 - **Manage-page channel search + genre filter chips** — filters the channel
@@ -659,6 +688,22 @@ built: §3.1 above.
 **Built 2026-08-28:**
 - **Fuzzy title search** on the feed — debounced, scoped to the active
   filters (`search` param on `/api/videos`).
+  **Replaced 2026-11-20 by word-counting search (FEAT-24,
+  `lib/titleSearch.ts`)**, shared by the feed and ⌘K's videos. The search is
+  split into words (small words like "in", "the" dropped; C++, .NET and
+  Node.js kept whole). Per word: a title word *starting* with it scores 1
+  (regex `(^|[^[:alnum:]])word`), the word hidden inside another word 0.5
+  (`strpos`), a look-alike 0.4 (`word_similarity > 0.5`, words of 5+
+  letters only). Each word's score is multiplied by its rarity across all
+  titles (`ln((N+1)/(titles with it+1)) + 1`, an uncorrelated subquery
+  Postgres runs once per query), plus a bonus when the whole search appears
+  as typed (loosely). A title needs the word, both of two words, or half of
+  three or more. Ordered by score, then the view's usual order. When nothing
+  matches, `suggestSpelling` offers "Did you mean …?": the closest real
+  title word, candidates found with `levenshtein` (the `fuzzystrmatch`
+  extension, on Neon and PGlite) and judged in code by optimal string
+  alignment (a swap is one slip); short words only get same-length words
+  with the same first letter.
 - **Channel-chip wrap** — the feed's channel filter row wraps onto multiple
   lines instead of one horizontal scroll (Option A of the "many channels"
   problem; now also the narrow-screen fallback for the rail below).

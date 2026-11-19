@@ -1,4 +1,5 @@
 import { parseChapters, type Chapter } from "./chapters";
+import { readYouTubeLink } from "./youtubeLinks";
 
 const API = "https://www.googleapis.com/youtube/v3";
 
@@ -82,6 +83,11 @@ export async function resolveChannel(input: string): Promise<ResolvedChannel> {
     ...params,
   });
   let item = data.items?.[0];
+  // A pasted video or playlist link isn't a channel name: searching with it
+  // could find (and add) some unrelated channel (FEAT-25).
+  if (!item && readYouTubeLink(trimmed)) {
+    throw new Error("That looks like a video or playlist link, not a channel. Paste it as it is and TUBEBOX offers to add it to Picked.");
+  }
   if (!item && !("id" in params)) {
     // Plain-name fallback ("Marques Brownlee"): one search.list call.
     // Costs 100 quota units, so it only runs when the handle lookup misses.
@@ -105,6 +111,11 @@ export async function resolveChannel(input: string): Promise<ResolvedChannel> {
       `Channel not found for "${input}". Try its @handle or full channel URL.`
     );
   }
+  return toResolved(item);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toResolved(item: any): ResolvedChannel {
   return {
     ytChannelId: item.id,
     title: plainLetters(item.snippet.title),
@@ -114,6 +125,58 @@ export async function resolveChannel(input: string): Promise<ResolvedChannel> {
       item.snippet.thumbnails?.default?.url ??
       null,
     uploadsPlaylistId: item.contentDetails.relatedPlaylists.uploads,
+  };
+}
+
+/** Several channels by id, 50 per call (1 quota unit each): the channels
+ *  of a picked playlist's videos (FEAT-25). Missing ids are left out. */
+export async function getChannels(ids: string[]): Promise<ResolvedChannel[]> {
+  const out: ResolvedChannel[] = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const data = await yt("channels", { part: "snippet,contentDetails", id: ids.slice(i, i + 50).join(",") });
+    for (const item of data.items ?? []) out.push(toResolved(item));
+  }
+  return out;
+}
+
+/** A playlist's name, owner and size; null when YouTube won't share it (a
+ *  Mix, Watch later, Liked videos, or a private playlist). 1 quota unit. */
+export async function getPlaylist(
+  listId: string
+): Promise<{ id: string; title: string; channelTitle: string; count: number; thumbnail: string | null } | null> {
+  let data;
+  try {
+    data = await yt("playlists", { part: "snippet,contentDetails", id: listId });
+  } catch (err) {
+    if (err instanceof YouTubeApiError && (err.status === 404 || err.status === 403 || err.status === 400)) return null;
+    throw err;
+  }
+  const item = data.items?.[0];
+  if (!item) return null;
+  return {
+    id: item.id,
+    title: plainLetters(item.snippet.title),
+    channelTitle: plainLetters(item.snippet.channelTitle ?? ""),
+    count: item.contentDetails?.itemCount ?? 0,
+    thumbnail: item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url ?? null,
+  };
+}
+
+/** One page (up to 50) of a playlist's videos, in the playlist's order.
+ *  1 quota unit. `next` = YouTube's bookmark for the following page. */
+export async function listPlaylistPage(
+  listId: string,
+  pageToken?: string
+): Promise<{ ids: string[]; next: string | null }> {
+  const data = await yt("playlistItems", {
+    part: "contentDetails",
+    playlistId: listId,
+    maxResults: "50",
+    ...(pageToken ? { pageToken } : {}),
+  });
+  return {
+    ids: (data.items ?? []).map((i: { contentDetails: { videoId: string } }) => i.contentDetails.videoId),
+    next: data.nextPageToken ?? null,
   };
 }
 
@@ -129,6 +192,16 @@ export function longVideosList(uploadsPlaylistId: string): string {
 
 export function liveStreamsList(uploadsPlaylistId: string): string {
   return `UULV${uploadsPlaylistId.slice(2)}`;
+}
+
+/** Only the channel's Shorts (its Shorts tab), same naming (FEAT-22). */
+export function shortsList(uploadsPlaylistId: string): string {
+  return `UUSH${uploadsPlaylistId.slice(2)}`;
+}
+
+/** A channel's uploads list is its id with "UU" for "UC". */
+export function uploadsListOf(ytChannelId: string): string {
+  return `UU${ytChannelId.slice(2)}`;
 }
 
 /**
@@ -173,6 +246,9 @@ interface VideoDetails {
   durationSeconds: number;
   isLive: boolean;
   publishedAt: Date;
+  /** Whose video it is (a playlist can mix creators, FEAT-25). */
+  ytChannelId: string;
+  channelTitle: string;
 }
 
 export async function getVideoDetails(
@@ -208,6 +284,8 @@ export async function getVideoDetails(
         chapters: parseChapters(item.snippet.description, parseISODuration(item.contentDetails.duration)),
         isLive: !!item.liveStreamingDetails,
         publishedAt: new Date(item.snippet.publishedAt),
+        ytChannelId: item.snippet.channelId,
+        channelTitle: plainLetters(item.snippet.channelTitle ?? ""),
       });
     }
   }

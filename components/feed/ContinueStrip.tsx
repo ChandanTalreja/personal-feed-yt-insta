@@ -13,18 +13,22 @@ import { formatDuration } from "@/lib/format";
  * progress, time left) that scrolls sideways, so a handful of half-watched
  * videos never pushes the new ones down. On the Feed, the last tile is
  * your latest track's next step. The arrows only show when there's more
- * to scroll to.
+ * to scroll to. A video's tile has a ✕ that takes it out of the row until
+ * it's played again (FEAT-23); the track's tile has none, its track runs it.
  */
 export default function ContinueStrip({
   title,
   videos,
   track = null,
   onPlay,
+  onRemove,
 }: {
   title: string;
   videos: FeedVideo[];
   track?: TrackStep | null;
   onPlay: (video: FeedVideo) => void;
+  /** ✕ on a video's tile: out of this row until it's played again. */
+  onRemove?: (video: FeedVideo) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [canLeft, setCanLeft] = useState(false);
@@ -78,6 +82,8 @@ export default function ContinueStrip({
                 label={v.title}
                 detail={left > 0 ? `${formatDuration(left)} left` : v.channelTitle}
                 onPlay={onPlay}
+                removeLabel={`Remove from ${title}`}
+                onRemove={onRemove}
               />
             );
           })}
@@ -100,40 +106,63 @@ export default function ContinueStrip({
   );
 }
 
-/** One tile: thumbnail (play on hover), a title line, progress, and a detail line. */
+/**
+ * One tile: thumbnail (play on hover), a title line, progress, and a detail
+ * line. With `onRemove`, a faint ✕ in the corner: its own button beside the
+ * play button (a button can't hold another), darker while the tile is hovered.
+ */
 function Tile({
   video,
   label,
   detail,
   onPlay,
+  removeLabel,
+  onRemove,
 }: {
   video: FeedVideo;
   label: string;
   detail: string;
   onPlay: (video: FeedVideo) => void;
+  removeLabel?: string;
+  onRemove?: (video: FeedVideo) => void;
 }) {
   const resume = video.resumeSeconds ?? 0;
   const pct = video.durationSeconds > 0 ? Math.min(100, Math.round((resume / video.durationSeconds) * 100)) : 0;
   return (
-    <button
-      type="button"
-      onClick={() => onPlay(video)}
-      title={label}
-      className="group flex w-[280px] shrink-0 items-center gap-2.5 rounded-lg border border-line bg-surface p-2 text-left transition-colors hover:border-ink"
-    >
-      <span className="relative shrink-0">
-        <Thumb src={video.thumbnail} className="w-[76px] rounded-sm" />
-        <span className="absolute inset-0 flex items-center justify-center rounded-sm bg-ink/0 text-white opacity-0 transition group-hover:bg-ink/35 group-hover:opacity-100">
-          <Icon name="play" size={16} filled />
+    <div className="group/tile relative w-[280px] shrink-0">
+      <button
+        type="button"
+        onClick={() => onPlay(video)}
+        title={label}
+        className={`group flex w-full items-center gap-2.5 rounded-lg border border-line bg-surface p-2 text-left transition-colors hover:border-ink group-hover/tile:border-ink ${
+          onRemove ? "pr-6" : ""
+        }`}
+      >
+        <span className="relative shrink-0">
+          <Thumb src={video.thumbnail} className="w-[76px] rounded-sm" />
+          <span className="absolute inset-0 flex items-center justify-center rounded-sm bg-ink/0 text-white opacity-0 transition group-hover:bg-ink/35 group-hover:opacity-100">
+            <Icon name="play" size={16} filled />
+          </span>
         </span>
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="truncate text-meta font-semibold">{label}</span>
-        <span className="h-1 overflow-hidden rounded-full bg-ink/10">
-          <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="truncate text-meta font-semibold">{label}</span>
+          <span className="h-1 overflow-hidden rounded-full bg-ink/10">
+            <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+          </span>
+          <span className="font-mono text-xs text-muted">{detail}</span>
         </span>
-        <span className="font-mono text-xs text-muted">{detail}</span>
-      </span>
-    </button>
+      </button>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={removeLabel}
+          title={removeLabel}
+          onClick={() => onRemove(video)}
+          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-xs text-muted opacity-50 transition hover:bg-ink/5 hover:text-ink hover:opacity-100 group-hover/tile:opacity-90"
+        >
+          <Icon name="x" size={11} duotone={false} />
+        </button>
+      )}
+    </div>
   );
 }

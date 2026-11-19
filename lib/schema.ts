@@ -44,6 +44,9 @@ export const channels = pgTable("channels", {
   isActive: boolean("is_active").notNull().default(true),
   /** Where its videos show: "feed" or "podcasts" (FEAT-14). */
   section: text("section").notNull().default("feed"),
+  /** Picked, not followed (FEAT-22): holds only the videos you picked from
+   *  it. Always inactive, so the sync never reads it; no Resume, no Backfill. */
+  picked: boolean("picked").notNull().default(false),
   addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -65,6 +68,9 @@ export const videos = pgTable("videos", {
   // Watch Later: null = not saved; a timestamp = saved at that moment (also
   // the LATER tab's sort key, newest first). Cleared when marked watched.
   laterAt: timestamp("later_at", { withTimezone: true }),
+  // Picked (FEAT-22): when you picked it from a channel; null = not picked.
+  // The Picked view's sort key, newest first. Kept when watched.
+  pickedAt: timestamp("picked_at", { withTimezone: true }),
   // Honest watched: a map of played 10-second chunks (see lib/progress.ts)
   // and the second to resume from. Both null until first played.
   watchProgress: text("watch_progress"),
@@ -72,6 +78,10 @@ export const videos = pgTable("videos", {
   /** When it was last actually played (set by every progress save). Feeds
    *  a track's "last watched yesterday"; a hand-ticked ✓ doesn't count. */
   lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
+  /** ✕ on its "Pick up where you left off" tile (FEAT-23): hidden from that
+   *  row until it's played again (a play after this time brings it back).
+   *  Nothing else changes: still unwatched, its place kept. */
+  continueHiddenAt: timestamp("continue_hidden_at", { withTimezone: true }),
   // Your own note on this video (one per video; null = none). Separate
   // from video_notes, which holds Gemini's saved Ask answers.
   personalNote: text("personal_note"),

@@ -14,7 +14,9 @@ import SegmentedControl from "@/components/ui/SegmentedControl";
 import type { GenreItem } from "@/components/types";
 import { notifyNavChanged } from "@/lib/nav-events";
 import { api, rememberedReply } from "@/lib/api-client";
+import Link from "next/link";
 import AddChannelBar from "./AddChannelBar";
+import ChannelPicker, { type PickTarget } from "./ChannelPicker";
 import ChannelRow from "./ChannelRow";
 import {
   continueBackfill,
@@ -53,6 +55,8 @@ export default function ChannelsClient() {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [menuFor, setMenuFor] = useState<number | null>(null);
+  // The picker (FEAT-22): a channel found in Pick mode, or "Pick more".
+  const [pickFor, setPickFor] = useState<PickTarget | null>(null);
 
   // Bulk work
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -199,7 +203,8 @@ export default function ChannelsClient() {
     .filter((r) => {
       if (genreFilter === "none" && r.channel.genreId != null) return false;
       if (typeof genreFilter === "number" && r.channel.genreId !== genreFilter) return false;
-      if (statusFilter === "paused" && r.channel.isActive) return false;
+      if (statusFilter === "paused" && (r.channel.isActive || r.channel.picked)) return false;
+      if (statusFilter === "picked" && !r.channel.picked) return false;
       if (statusFilter === "quiet" && !(r.channel.isActive && isQuiet(r, now))) return false;
       if (!q) return true;
       return (
@@ -228,7 +233,10 @@ export default function ChannelsClient() {
   const selectedRows = rows.filter((r) => selected.has(r.channel.id));
   const selectedIds = selectedRows.map((r) => r.channel.id);
   const allVisibleSelected = visible.length > 0 && visible.every((r) => selected.has(r.channel.id));
-  const pausedCount = rows.filter((r) => !r.channel.isActive).length;
+  const pausedCount = rows.filter((r) => !r.channel.isActive && !r.channel.picked).length;
+  const pickedCount = rows.filter((r) => r.channel.picked).length;
+  // Picked channels are never backfilled or resumed (FEAT-22).
+  const followedSelectedIds = selectedRows.filter((r) => !r.channel.picked).map((r) => r.channel.id);
   const quietCount = rows.filter((r) => r.channel.isActive && isQuiet(r, now)).length;
   const selectedVideos = selectedRows.reduce((n, r) => n + r.videoCount + r.shortCount, 0);
 
@@ -279,6 +287,7 @@ export default function ChannelsClient() {
                 <>
                   {plural(rows.length)}
                   {pausedCount > 0 && <> · {pausedCount} paused</>}
+                  {pickedCount > 0 && <> · {pickedCount} picked</>}
                   {quietCount > 0 && (
                     <>
                       {" · "}
@@ -298,7 +307,59 @@ export default function ChannelsClient() {
           }
         />
 
-        <AddChannelBar genres={genres} onMessage={setToast} onAdded={load} />
+        <AddChannelBar
+          genres={genres}
+          onMessage={setToast}
+          onAdded={load}
+          onPick={setPickFor}
+          // An open picker follows the bar's genre (not for Pick more: the
+          // channel already has one).
+          onGenreChange={(genreId) => setPickFor((p) => (p && !p.more ? { ...p, genreId } : p))}
+        />
+
+        {pickFor && (
+          <ChannelPicker
+            // A different channel or playlist starts a fresh list.
+            key={pickFor.playlist?.id ?? pickFor.ytChannelId}
+            target={pickFor}
+            genres={genres}
+            onCancel={() => setPickFor(null)}
+            onPickGenre={() => {
+              const box = document.getElementById("add-genre");
+              box?.scrollIntoView({ behavior: "smooth", block: "center" });
+              box?.focus();
+            }}
+            onDone={async ({ picked, channels, track }) => {
+              const title = pickFor.title;
+              const fromPlaylist = !!pickFor.playlist;
+              const podcasts = (channels[0]?.section ?? pickFor.section) === "podcasts";
+              setPickFor(null);
+              setToast(
+                <>
+                  Added <strong>{picked} video{picked === 1 ? "" : "s"}</strong> {fromPlaylist ? "to Picked from" : "from"}{" "}
+                  <strong>{title}</strong>
+                  {track ? (
+                    <>
+                      , and made the track <strong>{track.name}</strong>.
+                    </>
+                  ) : fromPlaylist ? (
+                    "."
+                  ) : (
+                    ". It only holds what you picked."
+                  )}{" "}
+                  <Link
+                    href={`${podcasts ? "/podcasts" : "/"}?view=picked`}
+                    className="whitespace-nowrap underline decoration-primary decoration-2 underline-offset-2 hover:decoration-ink"
+                  >
+                    See them →
+                  </Link>
+                </>
+              );
+              await load();
+              notifyNavChanged();
+            }}
+          />
+        )}
 
         {toast && (
           <div role="status" className="mb-5 rounded-md border-[1.5px] border-ink bg-surface px-4 py-2 text-sm font-semibold">{toast}</div>
@@ -358,12 +419,14 @@ export default function ChannelsClient() {
                   </select>
                   <Icon name="chev" size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" />
                 </label>
+                {/* Not for picked channels (FEAT-22): they only hold what you picked. */}
+                {followedSelectedIds.length > 0 && (
                 <label className="relative" title="Make sure every upload from the chosen years is here (fills gaps, reaches further back)">
                   <span className="sr-only">Backfill</span>
                   <select
                     className="h-7 cursor-pointer appearance-none rounded-sm border border-cream/40 bg-ink pl-2.5 pr-7 text-meta font-semibold text-cream hover:border-cream"
                     value=""
-                    onChange={(e) => e.target.value && backfill(selectedIds, Number(e.target.value))}
+                    onChange={(e) => e.target.value && backfill(followedSelectedIds, Number(e.target.value))}
                   >
                     <option value="">Backfill…</option>
                     {[1, 2, 3, 4, 5].map((y) => (
@@ -374,10 +437,11 @@ export default function ChannelsClient() {
                   </select>
                   <Icon name="chev" size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" />
                 </label>
+                )}
                 {selectedRows.some((r) => r.channel.isActive) && (
                   <BarButton onClick={() => setPaused(selectedIds, true)}>Pause</BarButton>
                 )}
-                {selectedRows.some((r) => !r.channel.isActive) && (
+                {selectedRows.some((r) => !r.channel.isActive && !r.channel.picked) && (
                   <BarButton onClick={() => setPaused(selectedIds, false)}>Resume</BarButton>
                 )}
                 <span className="ml-auto flex gap-2">
@@ -414,6 +478,7 @@ export default function ChannelsClient() {
                     { value: "all", label: "All" },
                     { value: "quiet", label: `Quiet ${quietCount}` },
                     { value: "paused", label: `Paused ${pausedCount}` },
+                    { value: "picked", label: `Picked ${pickedCount}` },
                   ]}
                 />
                 <span className="ml-auto font-mono text-xs text-muted">
@@ -480,6 +545,19 @@ export default function ChannelsClient() {
                   onBackfill={(y) => backfill([r.channel.id], y)}
                   onPause={(pause) => setPaused([r.channel.id], pause)}
                   onSection={(section) => setSection([r.channel.id], section)}
+                  onPickMore={() => {
+                    setPickFor({
+                      ytChannelId: r.channel.ytChannelId,
+                      title: r.channel.title,
+                      handle: r.channel.handle,
+                      thumbnail: r.channel.thumbnail,
+                      genreId: r.channel.genreId,
+                      section: r.channel.section === "podcasts" ? "podcasts" : "feed",
+                      years: 1,
+                      more: true,
+                    });
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
                   onDelete={() => {
                     setSelected(new Set([r.channel.id]));
                     setConfirmDelete(true);

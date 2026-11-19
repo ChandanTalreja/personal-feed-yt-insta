@@ -42,6 +42,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!channel) {
     return NextResponse.json({ error: "That channel isn't in your library anymore." }, { status: 404 });
   }
+  // A picked channel (FEAT-22) only holds what you picked: a backfill would
+  // bring in every upload.
+  if (channel.picked) {
+    return NextResponse.json({ error: `${channel.title} only holds the videos you picked.` }, { status: 400 });
+  }
   try {
     const step = await backfillChannel(db, channel, backfillSince(months), {
       cursor,

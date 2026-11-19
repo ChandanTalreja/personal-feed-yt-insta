@@ -21,6 +21,7 @@ export const VIEW_TITLES: Record<View, string> = {
   later: "Watch later",
   watched: "Watched",
   paper: "On paper",
+  picked: "Picked",
   all: "Everything",
 };
 
@@ -30,6 +31,7 @@ export const VIEW_NOTES: Record<View, string | undefined> = {
   later: "saved for a slower day",
   watched: "seen it, kept it",
   paper: "videos you can read",
+  picked: "only the ones you picked",
   all: undefined,
 };
 

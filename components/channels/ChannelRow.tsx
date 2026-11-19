@@ -19,6 +19,7 @@ export default function ChannelRow({
   onPause,
   onSection,
   onDelete,
+  onPickMore,
   onMenu,
   onMenuPicked,
 }: {
@@ -38,11 +39,15 @@ export default function ChannelRow({
   onSection: (section: "feed" | "podcasts") => void;
   /** Starts the delete confirmation for this row. */
   onDelete: () => void;
+  /** A picked channel (FEAT-22): open its uploads to tick more. */
+  onPickMore: () => void;
   onMenu: () => void;
   onMenuPicked: () => void;
 }) {
   const status = statusOf(r, now);
   const g = r.genre;
+  const picked = r.channel.picked;
+  const total = r.videoCount + r.shortCount;
   return (
     <li
       // Clicking anywhere on a row (except its controls) ticks it.
@@ -55,7 +60,7 @@ export default function ChannelRow({
       }`}
     >
       <Checkbox checked={on} onChange={() => onToggle()} label={`Select ${r.channel.title}`} />
-      <div className={`flex min-w-0 items-center gap-3 ${r.channel.isActive ? "" : "opacity-55"}`}>
+      <div className={`flex min-w-0 items-center gap-3 ${r.channel.isActive || picked ? "" : "opacity-55"}`}>
         <Avatar src={r.channel.thumbnail} name={r.channel.title} size={32} />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold" title={r.channel.title}>
@@ -67,7 +72,7 @@ export default function ChannelRow({
           </p>
           {/* Phones: the hidden columns, as one line. */}
           <p className="mt-0.5 truncate text-meta text-muted md:hidden">
-            {g?.name ?? "No genre"} · {r.videoCount + r.shortCount} videos ·{" "}
+            {g?.name ?? "No genre"} · {total} {picked ? "picked" : "videos"} ·{" "}
             {r.lastUploadAt ? timeAgo(r.lastUploadAt) : "None yet"} ·{" "}
             <span className={status.tone === "quiet" ? "text-warn" : ""}>{status.label}</span>
           </p>
@@ -95,8 +100,8 @@ export default function ChannelRow({
         <Icon name="chev" size={12} className="pointer-events-none absolute right-2 text-muted" />
       </label>
       <span className="hidden font-mono text-meta md:block">
-        {r.videoCount}
-        {r.shortCount > 0 && (
+        {picked ? <span className="whitespace-nowrap">{total} picked</span> : r.videoCount}
+        {!picked && r.shortCount > 0 && (
           <span className="ml-1.5 text-xs text-muted">+{r.shortCount} shorts</span>
         )}
       </span>
@@ -109,8 +114,19 @@ export default function ChannelRow({
         }`}
       >
         {status.tone === "paused" && <Icon name="pause" size={12} duotone={false} />}
+        {status.tone === "picked" && <Icon name="picked" size={13} duotone={false} />}
         <span className="flex flex-col items-start">
-          {status.label}
+          {picked ? <span title="Only holds the videos you picked.">{status.label}</span> : status.label}
+          {picked && (
+            <button
+              type="button"
+              disabled={working}
+              onClick={onPickMore}
+              className="mt-0.5 whitespace-nowrap text-xs font-semibold text-ink underline decoration-primary decoration-2 underline-offset-2 hover:decoration-ink disabled:opacity-50"
+            >
+              Pick more
+            </button>
+          )}
           {/* Nothing in the window it was added with — likely a
               channel that posts rarely. Offer to look further back. */}
           {r.lastUploadAt == null && r.channel.isActive && (
@@ -128,11 +144,14 @@ export default function ChannelRow({
       <RowMenu
         open={menuOpen}
         onToggle={onMenu}
-        onBackfill={onBackfill}
+        // A picked channel: no Backfill, Pause or Resume (FEAT-22).
+        onBackfill={picked ? undefined : onBackfill}
         items={[
-          r.channel.isActive
-            ? { label: "Pause", onClick: () => onPause(true) }
-            : { label: "Resume", onClick: () => onPause(false) },
+          picked
+            ? { label: "Pick more…", onClick: onPickMore }
+            : r.channel.isActive
+              ? { label: "Pause", onClick: () => onPause(true) }
+              : { label: "Resume", onClick: () => onPause(false) },
           r.channel.section === "podcasts"
             ? { label: "Move to the Feed", onClick: () => onSection("feed") }
             : { label: "Move to Podcasts", onClick: () => onSection("podcasts") },

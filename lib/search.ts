@@ -1,6 +1,7 @@
 import { and, desc, eq, ilike, isNotNull, or, sql, type SQLWrapper } from "drizzle-orm";
 import type { Db } from "./db";
 import { looseKey, looseMatcher, loosePattern, looseSqlPattern } from "./looseMatch";
+import { titleSearch } from "./titleSearch";
 import { channels, cheatSheets, genres, videoNotes, videos } from "./schema";
 
 // Global search (the top bar's box): channels, videos, and your answers and
@@ -109,8 +110,10 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
     contains(channels.handle),
     sql`word_similarity(${lower}::text, lower(${channels.title})) > 0.4`
   );
-  // Videos: the same fuzzy title match the feed's search box uses.
-  const videoMatch = sql`(${contains(videos.title)} OR word_similarity(${lower}::text, lower(${videos.title})) > 0.4)`;
+  // Videos: the same title search as the feed's filter box (FEAT-24).
+  const titles = titleSearch(videos.title, term);
+  if (!titles) return empty;
+  const videoMatch = titles.where;
 
   const channelQuery = db
     .select({
@@ -167,8 +170,9 @@ export async function searchEverything(db: Db, raw: string): Promise<SearchResul
         .from(videos)
         .innerJoin(channels, eq(videos.channelId, channels.id))
         .where(videoMatch)
-        // Titles that actually contain the words first, then the newest.
-        .orderBy(sql`${contains(videos.title)} DESC`, desc(videos.publishedAt))
+        // Titles with more of your words first (rarer words count for
+        // more), then the newest.
+        .orderBy(sql`${titles.rank} DESC`, desc(videos.publishedAt))
         .limit(LIMIT.videos),
       db.select({ n: sql<number>`count(*)::int` }).from(videos).where(videoMatch),
       db

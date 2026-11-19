@@ -16,6 +16,7 @@ import type { Db } from "./db";
 import { channels, genres, videos } from "./schema";
 import { feedVideoColumns } from "./videoColumns";
 import { nextTrackStep } from "./tracks";
+import { suggestSpelling, titleSearch } from "./titleSearch";
 
 // The Feed's and Podcasts' video list: one function behind both
 // `GET /api/videos` and the pages that send their first screen with the
@@ -31,7 +32,7 @@ export interface FeedQuery {
   /** Feed and Podcasts are separate pages over the same videos (FEAT-14). */
   section: "feed" | "podcasts";
   kind: string; // videos | shorts | all
-  watched: string; // unwatched | watched | all | later | paper
+  watched: string; // unwatched | watched | all | later | paper | picked
   genreId: number | null;
   channelIds: number[];
   page: number;
@@ -90,9 +91,14 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   const paper = watched === "paper";
   const hasText = sql`(${videos.summary} IS NOT NULL OR ${videos.transcript} IS NOT NULL)`;
   if (paper) viewC.push(hasText);
-  // Watch later and On paper hold videos you chose yourself, by saving or
-  // by asking for a summary, so hidden genres (FEAT-20) stay in both.
-  const yours = later || paper;
+  // PICKED (FEAT-22): videos you picked from a channel, most recently picked
+  // first. Watched ones stay: it's a shelf, not a to-do list.
+  const picked = watched === "picked";
+  if (picked) viewC.push(isNotNull(videos.pickedAt));
+  // Watch later, On paper and Picked hold videos you chose yourself, by
+  // saving, asking for a summary or picking, so hidden genres (FEAT-20)
+  // stay in all three.
+  const yours = later || paper || picked;
   const genreC = genreId != null ? [eq(channels.genreId, genreId)] : [];
   // FEAT-20: "All genres" leaves out the genres you hid from it. Not when
   // you picked a genre or a channel (that's asking for them), not in Watch
@@ -103,20 +109,14 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   const channelC =
     channelIds.length > 0 ? [inArray(videos.channelId, channelIds)] : [];
   const searchC = [];
-  // While searching, titles that really contain the words come first and
-  // fuzzy look-alikes after ("redis" also matches "Redux" at 0.5), each
-  // group in the view's usual order — the same rule as global search.
+  // Title search (FEAT-24, lib/titleSearch.ts): titles with more of your
+  // words first (rarer words count for more), each tie in the view's usual
+  // order. Just one more AND: it narrows within the other filters.
   const searchOrder = [];
-  // Fuzzy title search: exact/substring via ILIKE, plus pg_trgm trigram
-  // word-similarity so small typos ("kubernets") still match. Just one
-  // more AND — it narrows within whatever filters are already applied.
-  if (search) {
-    const like = `%${search}%`;
-    const term = search.toLowerCase();
-    searchC.push(
-      sql`(${videos.title} ILIKE ${like} OR word_similarity(${term}::text, lower(${videos.title})) > 0.4)`
-    );
-    searchOrder.push(sql`(${videos.title} ILIKE ${like}) DESC`);
+  const found = search ? titleSearch(videos.title, search) : null;
+  if (found) {
+    searchC.push(found.where);
+    searchOrder.push(sql`${found.rank} DESC`);
   }
 
   // Length buckets: under 10 min / 10–30 min / 30 min and up. A duration of
@@ -158,7 +158,9 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
           eq(videos.watched, false),
           eq(videos.isShort, false),
           isNotNull(videos.lastPlayedAt),
-          gt(videos.resumeSeconds, 60)
+          gt(videos.resumeSeconds, 60),
+          // Not removed with its ✕, or played again since (FEAT-23).
+          sql`(${videos.continueHiddenAt} IS NULL OR ${videos.lastPlayedAt} > ${videos.continueHiddenAt})`
         )
       )
       .orderBy(desc(videos.lastPlayedAt))
@@ -191,7 +193,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   const andAll = (parts: typeof conditions) =>
     parts.length ? and(...parts) : undefined;
   // Hidden genres (FEAT-20): left out of every view's count but Watch
-  // later's and On paper's, the same rule as the list.
+  // later's, On paper's and Picked's, the same rule as the list.
   const shown = hideHidden ? shownInAll : sql`true`;
   const facetQueries =
     page === 0
@@ -202,6 +204,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
               watched: sql<number>`count(*) FILTER (WHERE ${videos.watched} = true AND ${shown})::int`,
               later: sql<number>`count(*) FILTER (WHERE ${videos.laterAt} IS NOT NULL)::int`,
               paper: sql<number>`count(*) FILTER (WHERE ${hasText})::int`,
+              picked: sql<number>`count(*) FILTER (WHERE ${videos.pickedAt} IS NOT NULL)::int`,
               all: sql<number>`count(*) FILTER (WHERE ${shown})::int`,
             })
             .from(videos)
@@ -243,9 +246,14 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
       .from(videos)
       .innerJoin(channels, eq(videos.channelId, channels.id))
       .where(where)
-      // LATER: newest saved first. Every other tab: newest uploaded first.
-      // (Searching: exact title matches ahead of near matches.)
-      .orderBy(...searchOrder, later ? desc(videos.laterAt) : desc(videos.publishedAt))
+      // LATER: newest saved first. PICKED: newest picked first. Every other
+      // tab: newest uploaded first. (Searching: exact title matches ahead of
+      // near matches.)
+      .orderBy(
+        ...searchOrder,
+        later ? desc(videos.laterAt) : picked ? desc(videos.pickedAt) : desc(videos.publishedAt),
+        desc(videos.publishedAt)
+      )
       .limit(PAGE_SIZE + 1)
       .offset(page * PAGE_SIZE),
     // Everything saved on this page, ignoring filters — the tab badge's total.
@@ -291,6 +299,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
         later: Number(views?.later ?? 0),
         watched: Number(views?.watched ?? 0),
         paper: Number(views?.paper ?? 0),
+        picked: Number(views?.picked ?? 0),
         all: Number(views?.all ?? 0),
       },
       // { "3": 120, "none": 4 } — "none" = channels without a genre.
@@ -298,7 +307,7 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
         genreRows.map((g) => [g.genreId ?? "none", Number(g.n)])
       ),
       // What clicking "All genres" would show: hidden genres left out,
-      // except in Watch later and On paper.
+      // except in Watch later, On paper and Picked.
       allGenres: genreRows.reduce((sum, g) => (g.hidden && !yours ? sum : sum + Number(g.n)), 0),
       // { "7": 3 }: hidden genres with something new.
       hiddenNew: Object.fromEntries(hiddenNewRows.map((g) => [g.genreId, Number(g.n)])),
@@ -306,6 +315,12 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
   }
 
   const hasMore = rows.length > PAGE_SIZE;
+  // Nothing found: offer the closest spelling that's really in your titles
+  // ("jtw" → "Did you mean JWT?"). Only then, so normal searches don't pay.
+  const didYouMean =
+    found && page === 0 && totals.count === 0
+      ? await suggestSpelling(db, search, query.section).catch(() => null)
+      : null;
   return {
     videos: rows.slice(0, PAGE_SIZE),
     hasMore,
@@ -313,5 +328,6 @@ export async function listFeedVideos(db: Db, query: FeedQuery) {
     laterCounts,
     totals,
     facets,
+    didYouMean,
   };
 }
