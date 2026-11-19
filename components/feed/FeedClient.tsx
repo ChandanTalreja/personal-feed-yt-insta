@@ -416,7 +416,11 @@ export default function FeedClient({
         text,
         content: (
           <>
-            Removed <strong className="font-semibold">{video.title}</strong> from {rowName}.
+            Removed <strong className="font-semibold">{video.title}</strong> from{" "}
+            <span className="font-semibold underline decoration-primary decoration-4 underline-offset-2 [text-decoration-skip-ink:none]">
+              {rowName}
+            </span>
+            .
           </>
         ),
         undo: async () => {

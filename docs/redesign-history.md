@@ -6247,6 +6247,46 @@ playlist, a playlist over 100 videos, a Short link, the live site.
 
 ---
 
+#### FIX-18 · One unbroken yellow underline, on the genre and the removed row too — ✅ built · 2026-11-20, not yet deployed
+
+**Where it came from.** The owner, after deploying FEAT-22 to FEAT-25:
+- "No genre picked" looked underlined word by word;
+- the remove notice ("Removed … from Pick up where you left off") had no
+  underline at all, so it was easy to miss;
+- with a genre chosen, the picker's footer showed "Tech" in bold only, not
+  underlined like "No genre picked".
+Also asked: "jtw" no longer shows the Java Swing videos. That's intended:
+they came in through the old look-alike check (JTable, JTextArea…); "jt"
+still finds them, and "jtw" now offers "Did you mean JWT?", which the owner
+confirmed works live.
+
+**The cause (first one).** The underline was one line, but browsers leave
+a gap wherever a letter dips below the line ("g", "p": "No **g**enre
+**p**icked"), so it read as three underlines. The hide-a-genre notice and
+the track notice turn that off (`text-decoration-skip-ink: none`); the new
+ones didn't.
+
+**The change.**
+- "No genre picked" and "Did you mean **JWT**?": one unbroken underline.
+- The picker's footer: the chosen genre gets the same yellow underline
+  ("into <u>**Tech**</u> in the Feed"), so it always marks where the videos go.
+- The remove notice, option A of two mocked: like the hide-a-genre notice,
+  the title in bold and the place with the thick yellow underline ("Removed
+  **…** from <u>Pick up where you left off</u>."). The owner's other idea,
+  underlining the title, was weighed: long titles make a long, heavy line,
+  and it wouldn't match the genre notice.
+
+**Files.** `components/channels/ChannelPicker.tsx`,
+`components/feed/FeedEmptyState.tsx`, `components/feed/FeedClient.tsx`.
+
+**Verified.** Local: the "Did you mean" link's underline setting reads
+"none" (no gaps); removing Podcasts' "Continue listening" episode shows
+"from <u>Continue listening</u>" with one line straight under the "g"; Undo put
+it back. The picker footer uses the same classes (not opened, to save the
+YouTube calls). `npm run build` passes.
+
+---
+
 ## Design system, Phases 1–8 (replaced by v2 in Phase 9)
 
 Kept for the decisions that refer to it. The current values are in

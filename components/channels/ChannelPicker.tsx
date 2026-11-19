@@ -344,7 +344,11 @@ export default function ChannelPicker({
               "."
             ) : genre ? (
               <>
-                , into <strong className="text-ink">{genre.name}</strong> in {podcasts ? "Podcasts" : "the Feed"}.
+                , into{" "}
+                <strong className="text-ink underline decoration-primary decoration-[3px] underline-offset-2 [text-decoration-skip-ink:none]">
+                  {genre.name}
+                </strong>{" "}
+                in {podcasts ? "Podcasts" : "the Feed"}.
               </>
             ) : (
               // No genre chosen: say so gently, and offer the way to choose one.
@@ -353,7 +357,7 @@ export default function ChannelPicker({
                 <button
                   type="button"
                   onClick={onPickGenre}
-                  className="font-semibold text-ink underline decoration-primary decoration-[3px] underline-offset-2 hover:decoration-ink"
+                  className="font-semibold text-ink underline decoration-primary decoration-[3px] underline-offset-2 [text-decoration-skip-ink:none] hover:decoration-ink"
                 >
                   No genre picked
                 </button>

@@ -71,7 +71,7 @@ export default function FeedEmptyState({
           <button
             type="button"
             onClick={() => onSearch(didYouMean)}
-            className="font-semibold text-ink underline decoration-primary decoration-[3px] underline-offset-2 hover:decoration-ink"
+            className="font-semibold text-ink underline decoration-primary decoration-[3px] underline-offset-2 [text-decoration-skip-ink:none] hover:decoration-ink"
           >
             {didYouMean}
           </button>
