@@ -143,7 +143,7 @@ export async function getChannels(ids: string[]): Promise<ResolvedChannel[]> {
  *  Mix, Watch later, Liked videos, or a private playlist). 1 quota unit. */
 export async function getPlaylist(
   listId: string
-): Promise<{ id: string; title: string; channelTitle: string; count: number; thumbnail: string | null } | null> {
+): Promise<{ id: string; title: string; channelTitle: string; ytChannelId: string; count: number; thumbnail: string | null } | null> {
   let data;
   try {
     data = await yt("playlists", { part: "snippet,contentDetails", id: listId });
@@ -157,6 +157,7 @@ export async function getPlaylist(
     id: item.id,
     title: plainLetters(item.snippet.title),
     channelTitle: plainLetters(item.snippet.channelTitle ?? ""),
+    ytChannelId: item.snippet.channelId ?? "",
     count: item.contentDetails?.itemCount ?? 0,
     thumbnail: item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url ?? null,
   };

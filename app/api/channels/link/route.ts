@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { denyUnlessAuthed } from "@/lib/auth";
 import { videos } from "@/lib/schema";
 import { getPlaylist, getVideoDetails, isShortVideo } from "@/lib/youtube";
+import { findKnownChannel } from "@/lib/channels";
 import { readYouTubeLink } from "@/lib/youtubeLinks";
 
 /**
@@ -25,9 +26,10 @@ export async function GET(req: NextRequest) {
       link.listId ? getPlaylist(link.listId) : Promise.resolve(null),
     ]);
     const d = details[0];
+    const db = await getDb();
     let video = null;
     if (d) {
-      const [stored] = await (await getDb())
+      const [stored] = await db
         .select({ id: videos.id, pickedAt: videos.pickedAt })
         .from(videos)
         .where(inArray(videos.ytVideoId, [d.ytVideoId]));
@@ -40,6 +42,9 @@ export async function GET(req: NextRequest) {
         isShort: await isShortVideo(d.ytVideoId, d.durationSeconds, d.isLive),
         // Already here: in Picked, or in the feed (a followed channel).
         stored: stored ? (stored.pickedAt ? "picked" : "feed") : null,
+        // Its channel already here: the video keeps that channel's genre
+        // and home, not the add bar's (FIX-19).
+        existing: await findKnownChannel(db, d.ytChannelId),
       };
     }
     if (!video && !playlist) {
@@ -52,7 +57,9 @@ export async function GET(req: NextRequest) {
         { status: 404 }
       );
     }
-    return NextResponse.json({ video, playlist });
+    // The playlist's owner already here: its videos keep the owner's genre.
+    const withOwner = playlist ? { ...playlist, existing: await findKnownChannel(db, playlist.ytChannelId) } : null;
+    return NextResponse.json({ video, playlist: withOwner });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

@@ -6287,6 +6287,83 @@ YouTube calls). `npm run build` passes.
 
 ---
 
+#### FIX-19 · Every way of adding says where the videos will really go — ✅ built · 2026-11-20, not yet deployed
+
+**Where it came from.** The owner, on the live site: a single video link
+added with no genre chosen gave no "No genre picked" warning. My miss: the
+note was built into the picker's footer only, not the single-video
+question. Checking every way of adding found a second gap: a channel
+already in TUBEBOX keeps its own genre and Feed/Podcasts, whatever the add
+bar says, yet the playlist picker and Pick mode showed the bar's genre (a
+promise that wasn't kept). The owner asked me to check playlists: they
+already had the note (same picker window); the gap there was only this
+"already here" case.
+
+**Every way of adding, now:**
+
+| Way in | It says |
+|---|---|
+| Single video link, new channel, a genre chosen | "It goes into <u>**Tech**</u> in the Feed." |
+| Same, no genre chosen | "<u>**No genre picked**</u>, so it'll sit under No genre." (click: the genre box) |
+| Video from a channel already here | "It goes into <u>**Interview**</u> in the Feed, like the rest of **GenZ Career**." (the bar's genre doesn't apply) |
+| Video opened from a playlist | the same line, under the "This video or the whole playlist?" question |
+| Playlist, or Pick mode, from a channel already here | footer: "into <u>**Tech**</u> in the Feed, like the rest of **Fireship**", unchanged by the bar |
+| Pick more | the same footer (was only "10 ticked.") |
+| Anything new | as FEAT-25: the bar's genre, or "No genre picked" |
+
+A channel already here also decides Feed or Podcasts: the "Shorts aren't
+for Podcasts" check and the "See it" link follow the channel's home.
+
+**How it works.** `findKnownChannel` (`lib/channels.ts`) looks a YouTube
+channel up with its genre and home. `GET /api/channels/resolve` returns it
+as `existing`; `GET /api/channels/link` returns it for the video's channel
+and the playlist's owner (`getPlaylist` now also gives the owner's id). The
+add bar and the picker use `existing` when it's there, the bar otherwise.
+The yellow underline style is shared from one place (`UNDERLINE` in
+`ChannelPicker.tsx`).
+
+**Files.** `lib/channels.ts`, `lib/youtube.ts`,
+`app/api/channels/resolve/route.ts`, `app/api/channels/link/route.ts`,
+`components/channels/AddChannelBar.tsx`, `ChannelPicker.tsx`,
+`ChannelsClient.tsx`.
+
+**Verified.** Local, every row of the table above: a Fireship video link
+with No genre (the note), then Tech chosen (the line changed at once); a
+GenZ Career video with the bar on Tech ("into Interview… like the rest of
+GenZ Career"); Fireship added as picked in Tech, then its playlist (footer
+"into Tech… like the rest of Fireship", unchanged after switching the bar
+to Finance); Pick more (the same); "@fireship" resolved with
+`existing: Tech`. Fireship deleted afterwards (16 channels, Inbox 2321).
+Typecheck, lint and `npm run build` pass.
+
+---
+
+#### FIX-20 · In Picked, the sidebar lists only the channels you picked from — ✅ built · 2026-11-25, not yet deployed
+
+**Where it came from.** The owner: Picked will grow, and there was no way
+to see one channel's picks; the sidebar listed every channel. A genre
+already narrows the channel list to its channels; Picked should do the
+same.
+
+**The change.** In the Picked view (Feed and Podcasts), the sidebar's
+Channels list shows only channels with picked videos of the kind on screen
+(Videos or Shorts), each with its picked count. Clicking one shows just
+that channel's picks. Every other view is unchanged.
+
+**How it works.** The per-channel counts already come from one grouped
+query in `lib/channels.ts`; it now also counts picked videos and Shorts
+(`count(*) FILTER (WHERE picked_at IS NOT NULL …)`), so no extra request.
+`FeedClient.tsx` filters the list by that count while the view is Picked.
+
+**Files.** `lib/channels.ts`, `components/feed/model.ts`,
+`components/feed/FeedClient.tsx`, `components/feed/firstScreen.ts`.
+
+**Verified.** Local, with one picked Fireship video: Inbox listed every
+channel; Picked listed only "Fireship 1". Test channel deleted afterwards
+(16 channels). Typecheck, lint and `npm run build` pass.
+
+---
+
 ## Design system, Phases 1–8 (replaced by v2 in Phase 9)
 
 Kept for the decisions that refer to it. The current values are in

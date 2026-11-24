@@ -30,7 +30,14 @@ export interface PickTarget {
   years: number;
   /** "Pick more" on a channel already picked. */
   more: boolean;
+  /** The channel (or a playlist's owner) is already here: its videos keep
+   *  its genre and home, not the add bar's (FIX-19). */
+  existing?: { title: string; genreName: string | null } | null;
 }
+
+/** The app's thick yellow underline, unbroken under g and p (FIX-18). */
+export const UNDERLINE =
+  "font-semibold text-ink underline decoration-primary decoration-[3px] underline-offset-2 [text-decoration-skip-ink:none]";
 
 /** What a save did, for the page's toast. */
 export interface PickResult {
@@ -340,25 +347,22 @@ export default function ChannelPicker({
         <div className="min-w-0 flex-1 text-meta text-muted">
           <p>
             <span className="font-mono font-semibold text-ink">{ticked.size}</span> ticked
-            {target.more ? (
-              "."
+            {target.existing ? (
+              // Already here: they go where the rest of this channel is.
+              <>
+                , into <span className={UNDERLINE}>{target.existing.genreName ?? "No genre"}</span> in{" "}
+                {podcasts ? "Podcasts" : "the Feed"}, like the rest of{" "}
+                <strong className="text-ink">{target.existing.title}</strong>.
+              </>
             ) : genre ? (
               <>
-                , into{" "}
-                <strong className="text-ink underline decoration-primary decoration-[3px] underline-offset-2 [text-decoration-skip-ink:none]">
-                  {genre.name}
-                </strong>{" "}
-                in {podcasts ? "Podcasts" : "the Feed"}.
+                , into <span className={UNDERLINE}>{genre.name}</span> in {podcasts ? "Podcasts" : "the Feed"}.
               </>
             ) : (
               // No genre chosen: say so gently, and offer the way to choose one.
               <>
                 , into {podcasts ? "Podcasts" : "the Feed"}.{" "}
-                <button
-                  type="button"
-                  onClick={onPickGenre}
-                  className="font-semibold text-ink underline decoration-primary decoration-[3px] underline-offset-2 [text-decoration-skip-ink:none] hover:decoration-ink"
-                >
+                <button type="button" onClick={onPickGenre} className={`${UNDERLINE} hover:decoration-ink`}>
                   No genre picked
                 </button>
                 , so they&apos;ll sit under No genre.

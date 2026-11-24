@@ -47,6 +47,9 @@ export interface FeedChannel {
   section: string;
   videoCount: number;
   shortCount: number;
+  /** Of those, how many are picked (FEAT-22): the Picked view's channel list. */
+  pickedVideoCount: number;
+  pickedShortCount: number;
 }
 
 /** The video's own YouTube link (a Short's opens as a Short), for Copy link. */

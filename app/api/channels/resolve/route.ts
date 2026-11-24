@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyUnlessAuthed } from "@/lib/auth";
 import { resolveChannel } from "@/lib/youtube";
+import { getDb } from "@/lib/db";
+import { findKnownChannel } from "@/lib/channels";
 
 /**
  * Resolves user input to a channel WITHOUT adding it — used by the UI to
@@ -15,7 +17,9 @@ export async function GET(req: NextRequest) {
   }
   try {
     const channel = await resolveChannel(input);
-    return NextResponse.json({ channel });
+    // Already here? Then picking from it keeps its genre and home (FIX-19).
+    const existing = await findKnownChannel(await getDb(), channel.ytChannelId);
+    return NextResponse.json({ channel: { ...channel, existing } });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

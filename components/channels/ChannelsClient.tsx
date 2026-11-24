@@ -314,7 +314,7 @@ export default function ChannelsClient() {
           onPick={setPickFor}
           // An open picker follows the bar's genre (not for Pick more: the
           // channel already has one).
-          onGenreChange={(genreId) => setPickFor((p) => (p && !p.more ? { ...p, genreId } : p))}
+          onGenreChange={(genreId) => setPickFor((p) => (p && !p.more && !p.existing ? { ...p, genreId } : p))}
         />
 
         {pickFor && (
@@ -555,6 +555,7 @@ export default function ChannelsClient() {
                       section: r.channel.section === "podcasts" ? "podcasts" : "feed",
                       years: 1,
                       more: true,
+                      existing: { title: r.channel.title, genreName: r.genre?.name ?? null },
                     });
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}

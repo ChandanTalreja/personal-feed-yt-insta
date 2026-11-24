@@ -8,14 +8,22 @@ import type { GenreItem } from "@/components/types";
 import { api } from "@/lib/api-client";
 import { notifyNavChanged } from "@/lib/nav-events";
 import { readYouTubeLink } from "@/lib/youtubeLinks";
-import type { PickTarget } from "./ChannelPicker";
+import { UNDERLINE, type PickTarget } from "./ChannelPicker";
 import { continueBackfill, isExactInput } from "./model";
+
+/** A channel already in TUBEBOX (FIX-19): added videos keep its genre and home. */
+interface Existing {
+  title: string;
+  genreName: string | null;
+  section: "feed" | "podcasts";
+}
 
 interface ResolvedPreview {
   ytChannelId: string;
   title: string;
   handle: string | null;
   thumbnail: string | null;
+  existing?: Existing | null;
 }
 
 /** What a pasted video or playlist link points at (GET /api/channels/link). */
@@ -28,8 +36,18 @@ interface LinkFound {
     isShort: boolean;
     /** Already here: in Picked, or in the feed (a followed channel). */
     stored: "picked" | "feed" | null;
+    /** Its channel, when already here. */
+    existing: Existing | null;
   } | null;
-  playlist: { id: string; title: string; channelTitle: string; count: number; thumbnail: string | null } | null;
+  playlist: {
+    id: string;
+    title: string;
+    channelTitle: string;
+    count: number;
+    thumbnail: string | null;
+    /** Its owner, when already here. */
+    existing: Existing | null;
+  } | null;
 }
 
 /**
@@ -133,7 +151,8 @@ export default function AddChannelBar({
     onPick({
       ...channel,
       genreId: addGenre ? Number(addGenre) : null,
-      section: addSection,
+      // A channel already here keeps its own home and genre (FIX-19).
+      section: channel.existing?.section ?? addSection,
       years: Number(years),
       more: false,
     });
@@ -148,7 +167,8 @@ export default function AddChannelBar({
       handle: null,
       thumbnail: playlist.thumbnail,
       genreId: addGenre ? Number(addGenre) : null,
-      section: addSection,
+      section: playlist.existing?.section ?? addSection,
+      existing: playlist.existing,
       years: Number(years),
       more: false,
     });
@@ -165,11 +185,12 @@ export default function AddChannelBar({
         body: { ytVideoIds: [video.ytVideoId], genreId: addGenre ? Number(addGenre) : null, section: addSection },
         fallback: "Couldn't add the video",
       });
+      const home = video.existing?.section ?? addSection;
       onMessage(
         <>
           Added <strong>{video.title}</strong> to Picked.{" "}
           <Link
-            href={`${addSection === "podcasts" ? "/podcasts" : "/"}?view=picked`}
+            href={`${home === "podcasts" ? "/podcasts" : "/"}?view=picked`}
             className="whitespace-nowrap underline decoration-primary decoration-2 underline-offset-2 hover:decoration-ink"
           >
             See it →
@@ -353,7 +374,13 @@ export default function AddChannelBar({
       {linkFound?.video && (
         <LinkQuestion
           found={linkFound}
-          podcasts={addSection === "podcasts"}
+          podcasts={(linkFound.video.existing?.section ?? addSection) === "podcasts"}
+          genreName={genres.find((g) => String(g.id) === addGenre)?.name ?? null}
+          onPickGenre={() => {
+            const box = document.getElementById("add-genre");
+            box?.scrollIntoView({ behavior: "smooth", block: "center" });
+            box?.focus();
+          }}
           adding={adding}
           onVideo={() => linkFound.video && addVideo(linkFound.video)}
           onPlaylist={() => linkFound.playlist && openPlaylist(linkFound.playlist)}
@@ -371,13 +398,20 @@ export default function AddChannelBar({
 function LinkQuestion({
   found,
   podcasts,
+  genreName,
+  onPickGenre,
   adding,
   onVideo,
   onPlaylist,
   onCancel,
 }: {
   found: LinkFound;
+  /** Where the video goes: its channel's home if already here, else the bar's. */
   podcasts: boolean;
+  /** The add bar's genre; null = No genre. */
+  genreName: string | null;
+  /** "No genre picked": take me to the genre box. */
+  onPickGenre: () => void;
   adding: boolean;
   onVideo: () => void;
   onPlaylist: () => void;
@@ -392,6 +426,29 @@ function LinkQuestion({
       by <strong>{video.channelTitle}</strong>
     </>
   );
+  // Where it will go (FIX-19): the channel's own genre when it's already
+  // here; otherwise the bar's, or a gentle "No genre picked".
+  const home = podcasts ? "Podcasts" : "the Feed";
+  const where = video.existing ? (
+    <>
+      {" "}
+      It goes into <span className={UNDERLINE}>{video.existing.genreName ?? "No genre"}</span> in {home}, like the rest
+      of <strong>{video.existing.title}</strong>.
+    </>
+  ) : genreName ? (
+    <>
+      {" "}
+      It goes into <span className={UNDERLINE}>{genreName}</span> in {home}.
+    </>
+  ) : (
+    <>
+      {" "}
+      <button type="button" onClick={onPickGenre} className={`${UNDERLINE} hover:decoration-ink`}>
+        No genre picked
+      </button>
+      , so it&apos;ll sit under No genre.
+    </>
+  );
 
   let text: ReactNode;
   let actions: ReactNode;
@@ -401,6 +458,7 @@ function LinkQuestion({
         {name}
         {by} is part of the playlist <strong>{playlist.title}</strong> ({playlist.count} video
         {playlist.count === 1 ? "" : "s"}). Add this video, or the whole playlist?
+        {where}
       </>
     );
     actions = (
@@ -425,6 +483,7 @@ function LinkQuestion({
       <>
         Found {name}
         {by}.{video.stored === "feed" ? " It's already in your feed." : ""} Add it to Picked?
+        {where}
       </>
     );
     actions = (

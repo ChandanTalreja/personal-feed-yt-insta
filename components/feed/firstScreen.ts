@@ -9,7 +9,9 @@ export interface FirstScreen {
   section: "feed" | "podcasts";
   feed: FeedReply;
   nav: NavSummary;
-  channels: { channels: { channel: FeedChannel; videoCount: number; shortCount: number }[] };
+  channels: {
+    channels: { channel: FeedChannel; videoCount: number; shortCount: number; pickedVideoCount?: number; pickedShortCount?: number }[];
+  };
   genres: { genres: GenreItem[] };
   suggestions: { suggestions: string[] };
   continued: ContinueReply | null;

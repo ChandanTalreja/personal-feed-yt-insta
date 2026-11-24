@@ -29,6 +29,10 @@ export async function listChannels(db: Db) {
         channelId: videos.channelId,
         videoCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = false)::int`,
         shortCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = true)::int`,
+        // Picked ones (FEAT-22), so the sidebar in the Picked view lists only
+        // the channels you picked from (FIX-20).
+        pickedVideoCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = false AND ${videos.pickedAt} IS NOT NULL)::int`,
+        pickedShortCount: sql<number>`count(*) FILTER (WHERE ${videos.isShort} = true AND ${videos.pickedAt} IS NOT NULL)::int`,
         lastUploadAt: max(videos.publishedAt),
       })
       .from(videos)
@@ -42,7 +46,32 @@ export async function listChannels(db: Db) {
       ...row,
       videoCount: Number(s?.videoCount ?? 0),
       shortCount: Number(s?.shortCount ?? 0),
+      pickedVideoCount: Number(s?.pickedVideoCount ?? 0),
+      pickedShortCount: Number(s?.pickedShortCount ?? 0),
       lastUploadAt: s?.lastUploadAt ?? null,
     };
   });
+}
+
+/** A channel already in TUBEBOX: added videos keep ITS genre and home. */
+export interface KnownChannel {
+  title: string;
+  genreName: string | null;
+  section: "feed" | "podcasts";
+}
+
+/**
+ * Is this YouTube channel already here? If so, videos added from it go
+ * under its own genre and Feed/Podcasts, not the add bar's (FIX-19), so the
+ * add bar and the picker can say where they'll really go. Null when new.
+ */
+export async function findKnownChannel(db: Db, ytChannelId: string | null | undefined): Promise<KnownChannel | null> {
+  if (!ytChannelId) return null;
+  const [row] = await db
+    .select({ title: channels.title, genreName: genres.name, section: channels.section })
+    .from(channels)
+    .leftJoin(genres, eq(channels.genreId, genres.id))
+    .where(eq(channels.ytChannelId, ytChannelId));
+  if (!row) return null;
+  return { title: row.title, genreName: row.genreName ?? null, section: row.section === "podcasts" ? "podcasts" : "feed" };
 }

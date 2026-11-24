@@ -43,11 +43,17 @@ const OPENING_FILTERS = {
 };
 
 /** The channels reply, as the sidebar's channel list (with per-kind counts). */
-function toFeedChannels(reply: { channels?: { channel: FeedChannel; videoCount: number; shortCount: number }[] } | undefined): FeedChannel[] {
+function toFeedChannels(
+  reply:
+    | { channels?: { channel: FeedChannel; videoCount: number; shortCount: number; pickedVideoCount?: number; pickedShortCount?: number }[] }
+    | undefined
+): FeedChannel[] {
   return (reply?.channels ?? []).map((row) => ({
     ...row.channel,
     videoCount: row.videoCount,
     shortCount: row.shortCount,
+    pickedVideoCount: row.pickedVideoCount ?? 0,
+    pickedShortCount: row.pickedShortCount ?? 0,
   }));
 }
 
@@ -498,9 +504,15 @@ export default function FeedClient({
     setLengthFilter("any");
   }
 
-  // This page's channels (Feed or Podcasts), scoped to the active genre.
+  // This page's channels (Feed or Podcasts), scoped to the active genre. In
+  // Picked, only the channels you picked from, with their picked counts
+  // (FIX-20), the way a genre narrows the list to its channels.
   const sectionChannels = channels.filter((c) => (c.section ?? "feed") === section);
-  const visibleChannels = sectionChannels.filter((c) => genreId == null || c.genreId === genreId);
+  const inPicked = view === "picked";
+  const pickedCount = (c: FeedChannel) => (kind === "videos" ? c.pickedVideoCount : c.pickedShortCount);
+  const visibleChannels = sectionChannels.filter(
+    (c) => (genreId == null || c.genreId === genreId) && (!inPicked || pickedCount(c) > 0)
+  );
 
   // Watch Later bookkeeping for the "hidden here" hint.
   const otherKind: Kind = kind === "videos" ? "shorts" : "videos";
@@ -565,7 +577,7 @@ export default function FeedClient({
         title: c.title,
         handle: c.handle,
         thumbnail: c.thumbnail,
-        count: kind === "videos" ? c.videoCount : c.shortCount,
+        count: inPicked ? pickedCount(c) : kind === "videos" ? c.videoCount : c.shortCount,
       }))}
       channelIds={channelIds}
       onToggleChannel={toggleChannel}
