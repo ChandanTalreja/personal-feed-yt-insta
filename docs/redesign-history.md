@@ -6364,6 +6364,57 @@ channel; Picked listed only "Fireship 1". Test channel deleted afterwards
 
 ---
 
+#### FIX-21 · Gemini stops using up its limits without answering — ✅ built · 2026-11-25, not yet deployed
+
+**Where it came from.** For days Google's newer Gemini models were
+overloaded ("high demand", 503). The owner got no answers and still found
+3.8 Flash over its limits (8/5 per minute, 21/20 per day on AI Studio).
+
+**What the logs showed.** Every Ask already fell back through all four
+models; all were busy. At 19:54 IST on 25 Nov, three Asks in 45 s: each
+tried 3.8 Flash twice (the busy retry), so the third hit "quota exceeded"
+(429) on its first request. Google counts every request, even ones it turns
+away as busy; TUBEBOX recorded only answers and didn't track per-minute use
+at all, so it couldn't see this coming. A 4th Ask ran 31 s and was cut off
+by Netlify before it could log anything. Successful Asks spent 5 to 10 s on
+the answer itself.
+
+**Decided with the owner.** The order: 3.5 Flash-Lite, 3.1 Flash-Lite,
+3.6 Flash, 2.5 Flash, 3.8 Flash, Gemini 4 Hydrogen (3.7 Flash dropped: not
+on the rate-limit page; 2.5 Flash-Lite left out: Google answered "no longer
+available to new users"; Gemma 4 and the old models turned down). Up to 3
+tries for the Flash-Lites (the owner's call), one for the rest. Logging for
+every decision, the owner's ask. A 12 s try limit instead of the 6 s first
+proposed, so real answers aren't cut off.
+
+**The change.** (1) Per-minute and daily counts kept by TUBEBOX from every
+request it sends; a model at its limit is skipped without a call. (2) Only
+the Flash-Lites retry. (3) A 20-a-day model that was busy rests for 60 s.
+(4) 12 s per try, nothing past 26 s, no new try after 20 s. (5) Every
+request recorded with how it ended; the app-wide daily cap counts answers
+only. Clearer messages, and log lines for skips, answers and give-ups.
+
+**Key code** — `lib/gemini.ts`
+```ts
+if (u.lastMinute >= m.rpm) { console.log(`[gemini] skip ${m.model}: ...`); continue; }
+if (m.tries === 1 && u.lastBusyAt && Date.now() - u.lastBusyAt < REST_AFTER_BUSY_MS) continue;
+if (u.lastMinute + sentTo(m.model) >= m.rpm) break; // never past the limit on a retry
+config: { ..., abortSignal: AbortSignal.timeout(Math.min(TRY_LIMIT_MS, HARD_STOP_MS - elapsed())) }
+```
+
+**Files.** `lib/gemini.ts`, `lib/schema.ts` and `lib/db.ts`
+(`gemini_usage.outcome`, an index on `used_at`), `.env.example`.
+
+**Verified.** Locally, against PGlite, one real Ask with a test order: a
+made-up model (404 in 0.2 s, moved on), 3.6 Flash marked busy 10 s ago
+("skip: resting"), 2.5 Flash with 5 requests this minute ("skip: 5/5 in
+the last minute"), then 3.5 Flash-Lite answered in 2.5 s; both requests
+recorded. The test rows were removed. A 50 ms limit stopped a try at 52 ms
+with `AbortError`, which the chain treats as a timeout. Typecheck, lint and
+`npm run build` pass. Not tried: the live site during an overload.
+
+---
+
 ## Design system, Phases 1–8 (replaced by v2 in Phase 9)
 
 Kept for the decisions that refer to it. The current values are in

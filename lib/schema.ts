@@ -127,6 +127,10 @@ export const geminiUsage = pgTable("gemini_usage", {
   model: text("model").notNull(),
   tokens: integer("tokens"),
   usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),
+  /** How the request ended (FIX-21): "ok", or "busy" / "quota" / "timeout" /
+   *  "failed". Every request is recorded, because Google counts every
+   *  request against a model's per-minute and daily limits, answered or not. */
+  outcome: text("outcome").notNull().default("ok"),
 });
 
 // Small app-wide values, one row per key (e.g. "last_sync_at"). A key/value

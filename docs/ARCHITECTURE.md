@@ -343,22 +343,36 @@ All three AI features (Summary, Ask, Transcript) run through one engine:
 **Step 2 — answer from text:** summary/ask/transcript-formatting are then
 small text-only calls (~5–15K tokens even for hour-long transcripts).
 
-**Model selection:** `GEMINI_MODELS` env — `"model:rpd,model:rpd,…"`
-(default since 2026-10-21, FIX-06: `gemini-3.5-flash-lite:500,
-gemini-3.1-flash-lite:500,gemini-3.8-flash:20,gemini-3.7-flash:20`;
-`GEMINI_MODEL` forces one to the front, so leave it unset to keep this
-order). Models are tried in that **fixed order**, skipping any whose daily
-budget = configured RPD − today's rows in `gemini_usage` is used up (UTC
-midnight reset — approximates Google's Pacific reset; worst case a 429
-walks the chain). Per failed call: **busy** (503/500/504, overloaded) →
-one retry on the same model after 1 s, then the next model; **skip**
-(429 quota, 404 unknown model, empty answer) → next model at once;
-**fatal** (bad request, video not accessible) → stop, since every model
-would fail the same way. On Netlify no new attempt starts after 20 s, to
-stay under the ~30 s cut-off. Raw API errors go to the log
-(`[gemini] <model> try N failed (<kind>): …`); the user sees a plain
-sentence ("Gemini is busy right now. Please try again in a minute.").
-Every successful call records model + total tokens.
+**Model selection (FIX-21, 2026-11-25):** `GEMINI_MODELS` env as
+`"model:per-day:per-minute:tries,…"` (free-tier limits from AI Studio's
+Rate Limit page). Default, in order: `gemini-3.5-flash-lite:500:15:3`,
+`gemini-3.1-flash-lite:500:15:3`, `gemini-3.6-flash:20:5:1`,
+`gemini-2.5-flash:20:5:1`, `gemini-3.8-flash:20:5:1`,
+`gemini-4-hydrogen:20:5:1` (3.7 Flash dropped; it isn't on the owner's
+rate-limit page). `GEMINI_MODEL` forces one to the front, so leave it
+unset. **Every request is recorded** in `gemini_usage` with its `outcome`
+(`ok` / `busy` / `quota` / `timeout` / `failed`), because Google counts
+every request against a model's limits, answered or not (before FIX-21
+only answers were recorded, so a busy hour silently used up 3.8 Flash's 5
+per minute and 20 per day). Before calling a model, one query gives each
+model's requests today, in the last 60 s, and its last "busy": a model at
+its daily or per-minute limit is skipped without a call, and a 1-try model
+that was busy or timed out in the last 60 s rests. The Flash-Lites get up
+to 3 tries when busy (1 s apart), never past their per-minute limit; the
+others one. On Netlify a try is abandoned after 12 s (`abortSignal`;
+answers took 5 to 10 s in the logs, "busy" replies sometimes 15 to 28 s),
+no try runs past 26 s in all and none starts after 20 s, so a clear
+message always beats the ~30 s cut-off. Errors: **busy** (503/500/504, or
+our time limit) → retry or next; **skip** (429, 404, empty answer) → next;
+**fatal** (bad request, video not accessible) → stop. The app-wide
+`GEMINI_DAILY_LIMIT` counts answers only. Log lines: `[gemini] skip <model>:
+<reason>`, `[gemini] <model> try N failed (<outcome>, <s>): …`,
+`[gemini] answered by <model> on try N after <s> (before: …)`, and
+`[gemini] no answer after N requests in <s>: …`. Messages: all busy →
+"Gemini is overloaded on Google's side right now (every model was tried)";
+nothing callable → "Every Gemini model is at its per-minute limit or
+resting"; all used up → the daily-budget message. The attempts are written
+in one insert at the end of the chain (one round trip).
 
 **Cheat sheets (FEAT-15, 2026-10-21):** the one Gemini call that works
 across videos. The Notebook search's matching lines (a matching heading

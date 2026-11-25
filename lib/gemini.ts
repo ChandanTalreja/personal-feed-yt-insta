@@ -1,5 +1,5 @@
 import { GoogleGenAI, MediaResolution, Type, type Part, type Schema } from "@google/genai";
-import { count, eq, gte } from "drizzle-orm";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import type { Db } from "./db";
 import { geminiUsage, videos, type Video } from "./schema";
 import { onNetlify } from "./hosting";
@@ -8,38 +8,66 @@ import type { CheatSheetLine, CheatSheetQuestion } from "./cheatSheetLines";
 
 interface ModelBudget {
   model: string;
+  /** Requests per day, and per minute, on the free tier. */
   rpd: number;
+  rpm: number;
+  /** Tries when the model is busy. Small-budget models get one. */
+  tries: number;
 }
 
-// Free-tier daily budgets per model (from the AI Studio Rate Limit page),
-// in the order they're tried: the two 500/day Flash-Lites do the work, the
-// 20/day Flash models are backups for when both are busy or used up.
-// Override with GEMINI_MODELS="model:rpd,model:rpd,...".
-const DEFAULT_CHAIN =
-  "gemini-3.5-flash-lite:500,gemini-3.1-flash-lite:500,gemini-3.8-flash:20,gemini-3.7-flash:20";
+// The free-tier limits per model, from AI Studio's Rate Limit page, in the
+// order they're tried (FIX-21): the two 500-a-day Flash-Lites do the work
+// and get up to 3 tries each; the 20-a-day Flash models are backups with
+// one try each. Written as "model:per-day:per-minute:tries"; override the
+// whole list with GEMINI_MODELS in the same format.
+const DEFAULT_CHAIN = [
+  "gemini-3.5-flash-lite:500:15:3",
+  "gemini-3.1-flash-lite:500:15:3",
+  "gemini-3.6-flash:20:5:1",
+  "gemini-2.5-flash:20:5:1",
+  "gemini-3.8-flash:20:5:1",
+  "gemini-4-hydrogen:20:5:1",
+].join(",");
 
-const BUSY_MESSAGE = "Gemini is busy right now. Please try again in a minute.";
+const BUSY_MESSAGE =
+  "Gemini is overloaded on Google's side right now (every model was tried). Please try again in a few minutes.";
+const RESTING_MESSAGE =
+  "Every Gemini model is at its per-minute limit or resting after being busy. Please try again in a minute.";
 const FAILED_MESSAGE = "Gemini couldn't answer right now. Please try again.";
 const QUOTA_MESSAGE =
   "All Gemini models have used up today's free budget. Please try again tomorrow.";
 
-// A busy model gets one more try after this pause before we move on.
+// A busy model gets another try after this pause.
 const BUSY_RETRY_DELAY_MS = 1000;
 
-// Netlify cuts a request off at ~30 s. Past this point no new attempt is
-// started, so the friendly message arrives instead of a timeout. Locally
+// A 20-a-day model that said "busy" (or timed out) is left alone for this
+// long: asking again seconds later almost always gets "busy" again, and
+// Google still counts the request.
+const REST_AFTER_BUSY_MS = 60_000;
+
+// Netlify cuts a request off at ~30 s. No new try starts after 20 s, and a
+// single try is abandoned after 12 s (real answers took 5 to 10 s in the
+// logs; "busy" replies sometimes took 15 to 28), never running past 26 s in
+// all, so the message always arrives instead of a silent timeout. Locally
 // there's no cut-off (and a watch-the-video call can take minutes).
 function attemptWindowMs(): number {
   return onNetlify() ? 20_000 : Infinity;
 }
+const TRY_LIMIT_MS = 12_000;
+const HARD_STOP_MS = 26_000;
 
 function modelChain(): ModelBudget[] {
   const raw = process.env.GEMINI_MODELS ?? DEFAULT_CHAIN;
   const chain = raw
     .split(",")
     .map((entry) => {
-      const [model, rpd] = entry.trim().split(":");
-      return { model, rpd: Number(rpd) || 20 };
+      const [model, rpd, rpm, tries] = entry.trim().split(":");
+      return {
+        model,
+        rpd: Number(rpd) || 20,
+        rpm: Number(rpm) || 5,
+        tries: Math.max(1, Number(tries) || 1),
+      };
     })
     .filter((m) => m.model);
   // A single GEMINI_MODEL override jumps to the front of the chain.
@@ -47,30 +75,41 @@ function modelChain(): ModelBudget[] {
   if (preferred) {
     const existing = chain.find((m) => m.model === preferred);
     const rest = chain.filter((m) => m.model !== preferred);
-    return [existing ?? { model: preferred, rpd: 500 }, ...rest];
+    return [existing ?? { model: preferred, rpd: 500, rpm: 15, tries: 3 }, ...rest];
   }
   return chain;
 }
 
-/**
- * The chain in its fixed order, minus models that have used up today's
- * budget by our own call ledger (Google's API doesn't expose remaining
- * quota). Counts reset at UTC midnight — close enough to Google's
- * Pacific-midnight reset for a personal app; worst case a model 429s and
- * we move down the chain.
- */
-async function availableModels(db: Db): Promise<ModelBudget[]> {
+/** What this app has sent each model: today, in the last minute, and when
+ *  it last said "busy". One query for the whole chain. */
+interface Usage {
+  today: number;
+  lastMinute: number;
+  lastBusyAt: number | null;
+}
+
+async function usageByModel(db: Db): Promise<Map<string, Usage>> {
   const dayStart = new Date();
   dayStart.setUTCHours(0, 0, 0, 0);
   const rows = await db
-    .select({ model: geminiUsage.model, used: count() })
+    .select({
+      model: geminiUsage.model,
+      today: count(),
+      lastMinute: sql<number>`count(*) FILTER (WHERE ${geminiUsage.usedAt} > now() - interval '60 seconds')::int`,
+      lastBusyAt: sql<string | null>`max(${geminiUsage.usedAt}) FILTER (WHERE ${geminiUsage.outcome} IN ('busy', 'timeout'))`,
+    })
     .from(geminiUsage)
     .where(gte(geminiUsage.usedAt, dayStart))
     .groupBy(geminiUsage.model);
-  const usedByModel = new Map(rows.map((r) => [r.model, Number(r.used)]));
-
-  return modelChain().filter(
-    (m) => m.rpd - (usedByModel.get(m.model) ?? 0) > 0
+  return new Map(
+    rows.map((r) => [
+      r.model,
+      {
+        today: Number(r.today),
+        lastMinute: Number(r.lastMinute),
+        lastBusyAt: r.lastBusyAt ? new Date(r.lastBusyAt).getTime() : null,
+      },
+    ])
   );
 }
 
@@ -84,6 +123,7 @@ async function availableModels(db: Db): Promise<ModelBudget[]> {
  *   accessible) — every model would fail the same way, so stop.
  */
 function classifyError(err: unknown): "busy" | "skip" | "fatal" {
+  if ((err as Error)?.name === "TimeoutError" || (err as Error)?.name === "AbortError") return "busy";
   const status = (err as { status?: unknown })?.status;
   if (status === 500 || status === 503 || status === 504) return "busy";
   if (status === 429 || status === 404) return "skip";
@@ -154,91 +194,141 @@ async function runChain(
     );
   }
 
-  // App-level daily cap across ALL models — protects the quota from
-  // enthusiasm and mischief alike, independent of per-model limits.
+  // App-level daily cap across ALL models: counts answers only, so a bad
+  // hour at Google doesn't eat the app's own allowance.
   const dailyLimit = Number(process.env.GEMINI_DAILY_LIMIT) || 100;
   const dayStart = new Date();
   dayStart.setUTCHours(0, 0, 0, 0);
-  const [{ usedToday }] = await db
-    .select({ usedToday: count() })
+  const [{ answeredToday }] = await db
+    .select({ answeredToday: count() })
     .from(geminiUsage)
-    .where(gte(geminiUsage.usedAt, dayStart));
-  if (Number(usedToday) >= dailyLimit) {
+    .where(and(gte(geminiUsage.usedAt, dayStart), eq(geminiUsage.outcome, "ok")));
+  if (Number(answeredToday) >= dailyLimit) {
     throw new Error(
       `You've reached today's AI limit (${dailyLimit} Gemini calls). It resets ` +
         `at midnight UTC, or you can raise GEMINI_DAILY_LIMIT.`
     );
   }
 
-  const candidates = await availableModels(db);
-  if (candidates.length === 0) {
-    throw new Error(QUOTA_MESSAGE);
-  }
+  // Every request is counted the way Google counts them: answered or not
+  // (FIX-21). `usage` is what's on record; `sent` adds this request's own.
+  const usage = await usageByModel(db);
+  const sent: { model: string; outcome: string; tokens: number | null }[] = [];
+  const sentTo = (model: string) => sent.filter((r) => r.model === model).length;
+  // Written in one go at the end (one round trip, not one per try).
+  const record = async () => {
+    if (sent.length) await db.insert(geminiUsage).values(sent).catch(() => {});
+  };
 
   const ai = new GoogleGenAI({ apiKey: key });
   const started = Date.now();
-  const outOfTime = () => Date.now() - started > attemptWindowMs();
+  const elapsed = () => Date.now() - started;
+  const outOfTime = () => elapsed() > attemptWindowMs();
+  const limitTries = onNetlify() && !videoMode;
   let sawBusy = false;
   let sawQuota = false;
-  // Fixed order: the first model that answers wins. Raw API errors (often
-  // JSON) only go to the server log; the user gets a plain sentence.
-  for (const { model } of candidates) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      if (outOfTime()) throw new Error(BUSY_MESSAGE);
-      try {
-        const res = await ai.models.generateContent({
-          model,
-          contents: [{ role: "user", parts }],
-          config: videoMode
-            ? { mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW }
-            : jsonSchema
-              ? { responseMimeType: "application/json", responseSchema: jsonSchema }
-              : {},
-        });
-        const text = res.text;
-        if (!text) throw new Error("Gemini sent back an empty answer.");
-        await db.insert(geminiUsage).values({
-          model,
-          tokens: res.usageMetadata?.totalTokenCount ?? null,
-        });
-        return { text: text.trim(), model };
-      } catch (err) {
-        const kind = classifyError(err);
-        const msg = String((err as Error)?.message ?? err);
-        console.error(
-          `[gemini] ${model} try ${attempt} failed (${kind}): ${msg.slice(0, 300)}`
-        );
-        if (kind === "fatal") {
-          if (
-            videoMode &&
-            /INVALID_ARGUMENT|FAILED_PRECONDITION|not supported|unavailable|PERMISSION_DENIED/i.test(
-              msg
-            )
-          ) {
-            throw new Error(
-              "Gemini couldn't access this video. It may be age-restricted, " +
-                "private, members-only or region-locked. The YouTube player " +
-                "may still play it."
-            );
-          }
-          throw new Error(FAILED_MESSAGE);
-        }
-        if (kind === "skip") {
+  let sawRoom = false; // at least one model was free to try
+  const trail: string[] = [];
+
+  try {
+    // Fixed order: the first model that answers wins. Raw API errors (often
+    // JSON) only go to the server log; the user gets a plain sentence.
+    for (const m of modelChain()) {
+      const u = usage.get(m.model) ?? { today: 0, lastMinute: 0, lastBusyAt: null };
+      // Skip, without calling, a model Google would refuse or that's resting.
+      if (u.today >= m.rpd) {
+        console.log(`[gemini] skip ${m.model}: ${u.today}/${m.rpd} today`);
+        sawQuota = true;
+        continue;
+      }
+      if (u.lastMinute >= m.rpm) {
+        console.log(`[gemini] skip ${m.model}: ${u.lastMinute}/${m.rpm} in the last minute`);
+        continue;
+      }
+      if (m.tries === 1 && u.lastBusyAt && Date.now() - u.lastBusyAt < REST_AFTER_BUSY_MS) {
+        console.log(`[gemini] skip ${m.model}: resting, busy ${Math.round((Date.now() - u.lastBusyAt) / 1000)}s ago`);
+        continue;
+      }
+      sawRoom = true;
+
+      for (let attempt = 1; attempt <= m.tries; attempt++) {
+        if (outOfTime()) throw new Error(BUSY_MESSAGE);
+        // Never past this model's per-minute limit, even on a retry.
+        if (u.lastMinute + sentTo(m.model) >= m.rpm) break;
+        const signal = limitTries
+          ? AbortSignal.timeout(Math.max(1000, Math.min(TRY_LIMIT_MS, HARD_STOP_MS - elapsed())))
+          : undefined;
+        const tryStarted = Date.now();
+        try {
+          const res = await ai.models.generateContent({
+            model: m.model,
+            contents: [{ role: "user", parts }],
+            config: {
+              ...(videoMode
+                ? { mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW }
+                : jsonSchema
+                  ? { responseMimeType: "application/json", responseSchema: jsonSchema }
+                  : {}),
+              ...(signal ? { abortSignal: signal } : {}),
+            },
+          });
+          const text = res.text;
+          if (!text) throw new Error("Gemini sent back an empty answer.");
+          sent.push({ model: m.model, outcome: "ok", tokens: res.usageMetadata?.totalTokenCount ?? null });
+          console.log(
+            `[gemini] answered by ${m.model} on try ${attempt} after ${(elapsed() / 1000).toFixed(1)}s` +
+              (trail.length ? ` (before: ${trail.join(", ")})` : "")
+          );
+          return { text: text.trim(), model: m.model };
+        } catch (err) {
+          const timedOut = (err as Error)?.name === "TimeoutError" || (err as Error)?.name === "AbortError";
+          const kind = classifyError(err);
+          const msg = String((err as Error)?.message ?? err);
           const status = (err as { status?: unknown })?.status;
-          if (status === 429 || /\b429\b|RESOURCE_EXHAUSTED|quota/i.test(msg))
-            sawQuota = true;
-          break; // next model
-        }
-        sawBusy = true;
-        if (attempt === 1) {
-          await new Promise((r) => setTimeout(r, BUSY_RETRY_DELAY_MS));
+          const quota = kind === "skip" && (status === 429 || /\b429\b|RESOURCE_EXHAUSTED|quota/i.test(msg));
+          const outcome = timedOut ? "timeout" : kind === "busy" ? "busy" : quota ? "quota" : "failed";
+          sent.push({ model: m.model, outcome, tokens: null });
+          trail.push(`${m.model.replace("gemini-", "")} ${outcome}`);
+          console.error(
+            `[gemini] ${m.model} try ${attempt} failed (${outcome}, ${((Date.now() - tryStarted) / 1000).toFixed(1)}s): ` +
+              (timedOut ? `no reply within the try limit` : msg.slice(0, 300))
+          );
+          if (kind === "fatal") {
+            if (
+              videoMode &&
+              /INVALID_ARGUMENT|FAILED_PRECONDITION|not supported|unavailable|PERMISSION_DENIED/i.test(
+                msg
+              )
+            ) {
+              throw new Error(
+                "Gemini couldn't access this video. It may be age-restricted, " +
+                  "private, members-only or region-locked. The YouTube player " +
+                  "may still play it."
+              );
+            }
+            throw new Error(FAILED_MESSAGE);
+          }
+          if (kind === "skip") {
+            if (quota) sawQuota = true;
+            break; // next model
+          }
+          sawBusy = true;
+          if (attempt < m.tries) {
+            await new Promise((r) => setTimeout(r, BUSY_RETRY_DELAY_MS));
+          }
         }
       }
     }
+    console.error(
+      `[gemini] no answer after ${sent.length} request${sent.length === 1 ? "" : "s"} in ${(elapsed() / 1000).toFixed(1)}s` +
+        (trail.length ? `: ${trail.join(", ")}` : "")
+    );
+    throw new Error(
+      sawBusy ? BUSY_MESSAGE : !sawRoom && !sawQuota ? RESTING_MESSAGE : sawQuota ? QUOTA_MESSAGE : FAILED_MESSAGE
+    );
+  } finally {
+    await record();
   }
-  throw new Error(
-    sawBusy ? BUSY_MESSAGE : sawQuota ? QUOTA_MESSAGE : FAILED_MESSAGE
-  );
 }
 
 /**

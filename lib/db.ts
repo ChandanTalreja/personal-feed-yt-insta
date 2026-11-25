@@ -177,6 +177,9 @@ const DDL = [
   `ALTER TABLE channels ADD COLUMN IF NOT EXISTS picked boolean NOT NULL DEFAULT false`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS picked_at timestamptz`,
   `CREATE INDEX IF NOT EXISTS videos_picked_idx ON videos (picked_at DESC) WHERE picked_at IS NOT NULL`,
+  // Every Gemini request, answered or not, and how it ended (FIX-21).
+  `ALTER TABLE gemini_usage ADD COLUMN IF NOT EXISTS outcome text NOT NULL DEFAULT 'ok'`,
+  `CREATE INDEX IF NOT EXISTS gemini_usage_used_idx ON gemini_usage (used_at)`,
   // Remove a tile from "Pick up where you left off" (FEAT-23).
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS continue_hidden_at timestamptz`,
 ];
